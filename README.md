@@ -35,7 +35,7 @@ Exposes **20 read-only tools** wrapping the RareCloud REST API:
 
 This release is **read-only**. No `create_server`, no `destroy`, no `snapshot create`. The reason is architectural: mutating actions need a derived, scoped token plus a mandatory plan-and-approve step before they're safe to expose to an LLM. That ships in a future release.
 
-In the meantime: the agent can read, recommend, and generate Terraform/CLI commands. The user copy-pastes them or runs them via [the RareCloud CLI](https://github.com/RareCloudio/rarecloud-io/tree/main/cli).
+In the meantime: the agent can read, recommend, and generate Terraform/CLI commands. The user copy-pastes them or runs them via [the RareCloud CLI](https://github.com/RareCloudio/rarecloud-cli).
 
 ## Install
 
@@ -122,8 +122,8 @@ Once configured, try:
 ## Develop locally
 
 ```bash
-git clone https://github.com/RareCloudio/rarecloud-io
-cd rarecloud-io/mcp-server
+git clone https://github.com/RareCloudio/rarecloud-mcp-server
+cd rarecloud-mcp-server
 npm install
 npm run dev      # runs from source via tsx
 npm run build    # compiles to dist/
