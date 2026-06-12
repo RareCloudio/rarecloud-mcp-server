@@ -25,9 +25,5 @@ jobs:
         with:
           node-version: "22"
       - run: npm install -g npm@latest
-      - name: OIDC diagnostics
-        run: |
-          node -v; npm -v
-          if [ -n "$ACTIONS_ID_TOKEN_REQUEST_URL" ]; then echo "OIDC env: PRESENT"; else echo "OIDC env: MISSING"; fi
       - run: npm ci
-      - run: npm publish --loglevel silly 2>&1 | grep -viE "integrity|shasum|tarball" | tail -40
+      - run: npm publish
