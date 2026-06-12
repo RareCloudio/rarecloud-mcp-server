@@ -17,10 +17,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # NOTE: no registry-url here! setup-node would write an .npmrc auth line
+      # with a placeholder NODE_AUTH_TOKEN, and npm then uses that instead of
+      # the OIDC exchange (observed live: unauthenticated PUT -> 404). With a
+      # clean environment, npm@latest performs trusted publishing on its own.
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          registry-url: "https://registry.npmjs.org"
       - run: npm install -g npm@latest
       - run: npm ci
       - run: npm publish
