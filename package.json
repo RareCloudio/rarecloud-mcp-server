@@ -1,0 +1,51 @@
+{
+  "name": "@rarecloudio/mcp-server",
+  "version": "0.1.1",
+  "description": "Model Context Protocol server for the RareCloud API. Drop into Claude Code / Claude Desktop / Cursor to let AI agents inspect and reason about your RareCloud account.",
+  "type": "module",
+  "bin": {
+    "rarecloud-mcp": "dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "files": [
+    "dist/",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "test": "node --test --import tsx/esm src/**/*.test.ts",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "rarecloud",
+    "cloud",
+    "ai-agents"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RareCloudio/rarecloud-mcp-server.git"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "homepage": "https://github.com/RareCloudio/rarecloud-mcp-server#readme",
+  "bugs": {
+    "url": "https://github.com/RareCloudio/rarecloud-mcp-server/issues"
+  }
+}

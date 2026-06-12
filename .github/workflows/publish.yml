@@ -1,0 +1,26 @@
+# Publish @rarecloudio/mcp-server to npm on tags like v0.1.1.
+# npm TRUSTED PUBLISHING (OIDC): no tokens, no secrets; npm verifies the
+# release comes from THIS repo + THIS workflow, and issues provenance.
+# package.json version must match the tag (v prefix stripped).
+name: publish
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+      - run: npm install -g npm@latest
+      - run: npm ci
+      - run: npm publish
