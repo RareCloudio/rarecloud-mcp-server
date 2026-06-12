@@ -26,4 +26,4 @@ jobs:
           node-version: "22"
       - run: npm install -g npm@latest
       - run: npm ci
-      - run: npm publish --loglevel verbose 2>&1 | grep -iE "oidc|exchange|publish|error" ; exit "${PIPESTATUS[0]}"
+      - run: npm publish
