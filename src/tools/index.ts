@@ -12,6 +12,7 @@ import { listServices, getService, getServiceMetrics, listBackups, getProvisioni
 import { listInvoices, getInvoice, getCreditBalance, getCreditLedger } from './billing.js';
 import { getAccount, listSshKeys, getAccountLimits } from './account.js';
 import { listTickets, getTicket } from './tickets.js';
+import { listVolumes, listNetworks, listLoadBalancers, getLoadBalancer, listReservedIps, listDomains, getDomain } from './infra.js';
 
 export const TOOLS: ToolDefinition[] = [
   // Catalog (un-authed surface, "what can I deploy?")
@@ -39,6 +40,14 @@ export const TOOLS: ToolDefinition[] = [
   getAccount,
   listSshKeys,
   getAccountLimits,
+  // Cloud infrastructure ("what storage / networks / IPs / domains do I have?")
+  listVolumes,
+  listNetworks,
+  listLoadBalancers,
+  getLoadBalancer,
+  listReservedIps,
+  listDomains,
+  getDomain,
 ];
 
 export function findTool(name: string): ToolDefinition | undefined {
