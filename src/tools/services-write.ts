@@ -32,3 +32,323 @@ export const setServiceHostname: ToolDefinition = writeTool({
   buildPath: (a) => `/v1/services/${encodeSegment(a.service_id, 'service_id')}/hostname`,
   buildBody: (a) => ({ hostname: a.hostname }),
 });
+
+// ---------------------------------------------------------------------------
+// Task 2 — deploy + lifecycle + money-spend writes.
+//
+// Money-spend / irreversible tools carry `confirm: true`; irreversible ones
+// also set `destructiveHint`. `service_id` (from list_services) is always run
+// through encodeSegment. Bodies are re-confirmed against console openapi.json.
+// ---------------------------------------------------------------------------
+
+const DEPLOY_CATEGORY = [
+  'server', 'hosting', 'proxy', 'domain',
+  'cloud-vm', 'cloud-k8s', 'cloud-volume', 'cloud-loadbalancer', 'cloud-network',
+] as const;
+const BILLING_CYCLE = [
+  'monthly', 'quarterly', 'semiannually', 'annually', 'biennially', 'triennially', 'hourly',
+] as const;
+
+// deploy_service is polymorphic: `category` selects the product family and the
+// relevant fields vary per family. The API infers `category` from the SKU and
+// validates per-family, so we forward the whole validated body. The
+// productId||plan requirement is enforced in buildBody (throws before any HTTP
+// call) rather than a zod .refine, because .refine yields a ZodEffects that the
+// writeTool `S extends z.ZodObject` generic does not accept.
+export const deployService: ToolDefinition = writeTool({
+  name: 'deploy_service',
+  description:
+    'Deploy (order + provision) a new service and CHARGE the account. Requires scope services:write. ' +
+    'Polymorphic: `category` selects the product family (cloud-vm | cloud-k8s | cloud-volume | ' +
+    'cloud-loadbalancer | cloud-network | server | hosting | proxy | domain); category may be omitted ' +
+    'and is then inferred from the catalog product. `productId` (alias `plan`) is the catalog SKU; the ' +
+    'other fields depend on the family — discover them with get_product_details, list_catalog_listings, ' +
+    'list_kubernetes_versions, list_regions, list_images. SPENDS MONEY: this places a real order and ' +
+    'provisions billable infrastructure. You MUST pass confirm:true, and only after the user has ' +
+    'approved the plan and its cost (preview cost with get_product_details).',
+  method: 'POST',
+  input: z
+    .object({
+      category: z.enum(DEPLOY_CATEGORY).optional(),
+      productId: z.string().min(1).optional(),
+      plan: z.string().min(1).optional(),
+      region: z.string().optional(),
+      billingCycle: z.enum(BILLING_CYCLE).optional(),
+      hostname: z.string().optional(),
+      name: z.string().optional(),
+      imageId: z.string().optional(),
+      image: z.string().optional(),
+      sshKeyId: z.string().optional(),
+      sshKey: z.string().optional(),
+      sshPublicKey: z.string().optional(),
+      rootPassword: z.string().optional(),
+      k8sVersion: z.string().optional(),
+      machineType: z.string().optional(),
+      workerMin: z.number().int().optional(),
+      workerMax: z.number().int().optional(),
+      pools: z.array(z.record(z.unknown())).optional(),
+      port: z.number().int().optional(),
+      memberServerIds: z.array(z.string()).optional(),
+      healthCheck: z.boolean().optional(),
+      sizeGb: z.number().int().optional(),
+      addons: z.array(z.string()).optional(),
+      tags: z.array(z.string()).optional(),
+      vpcId: z.string().optional(),
+      configOptions: z.record(z.unknown()).optional(),
+      customFields: z.record(z.unknown()).optional(),
+      payWith: z.string().optional(),
+    })
+    .strict(),
+  inputSchema: {
+    type: 'object',
+    properties: {
+      category: { type: 'string', enum: [...DEPLOY_CATEGORY], description: 'Product family; inferred from the SKU if omitted.' },
+      productId: { type: 'string', description: 'Catalog SKU / backend product id.' },
+      plan: { type: 'string', description: 'Alias for productId.' },
+      region: { type: 'string', description: 'Region code (see list_regions).' },
+      billingCycle: { type: 'string', enum: [...BILLING_CYCLE] },
+      hostname: { type: 'string' }, name: { type: 'string', description: 'Alias for hostname.' },
+      imageId: { type: 'string' }, image: { type: 'string', description: 'Alias for imageId.' },
+      sshKeyId: { type: 'string' }, sshKey: { type: 'string', description: 'Alias for sshKeyId.' },
+      sshPublicKey: { type: 'string', description: 'cloud-vm: raw public key injected via cloud-init.' },
+      rootPassword: { type: 'string' }, k8sVersion: { type: 'string' }, machineType: { type: 'string' },
+      workerMin: { type: 'integer' }, workerMax: { type: 'integer' },
+      pools: { type: 'array', items: { type: 'object' } },
+      port: { type: 'integer' }, memberServerIds: { type: 'array', items: { type: 'string' } },
+      healthCheck: { type: 'boolean' }, sizeGb: { type: 'integer' },
+      addons: { type: 'array', items: { type: 'string' } }, tags: { type: 'array', items: { type: 'string' } },
+      vpcId: { type: 'string' }, configOptions: { type: 'object' }, customFields: { type: 'object' },
+      payWith: { type: 'string' },
+    },
+    required: [],
+    additionalProperties: false,
+  },
+  buildPath: () => '/v1/services',
+  buildBody: (a) => {
+    if (!a.productId && !a.plan) {
+      throw new Error('productId (or its alias plan) is required');
+    }
+    return a; // whole validated body; the API infers category + validates per-family
+  },
+  confirm: true,
+});
+
+export const destroyService: ToolDefinition = writeTool({
+  name: 'destroy_service',
+  description:
+    'Permanently destroy a service and release its resources. Requires scope services:write. ' +
+    'IRREVERSIBLE: the service and its data are gone for good. You MUST pass confirm:true, and only ' +
+    'after the user has explicitly approved. service_id comes from list_services.',
+  method: 'DELETE',
+  input: z.object({ service_id: z.string().min(1) }).strict(),
+  inputSchema: {
+    type: 'object',
+    properties: { service_id: { type: 'string', description: 'Service ID from list_services.' } },
+    required: ['service_id'],
+    additionalProperties: false,
+  },
+  buildPath: (a) => `/v1/services/${encodeSegment(a.service_id, 'service_id')}`,
+  confirm: true,
+  destructiveHint: true,
+});
+
+export const resizeService: ToolDefinition = writeTool({
+  name: 'resize_service',
+  description:
+    'Resize a cloud VM service to a new flavor (target plan PUBLIC SKU, e.g. c-4vcpu-8gb). Requires ' +
+    'scope services:write. Runs asynchronously (returns 202) and MAY CHANGE the price of the service. ' +
+    'Pass confirm:true only after the user has approved the new size and its cost. service_id from list_services.',
+  method: 'POST',
+  input: z.object({ service_id: z.string().min(1), flavor: z.string().min(1) }).strict(),
+  inputSchema: {
+    type: 'object',
+    properties: {
+      service_id: { type: 'string', description: 'Service ID from list_services.' },
+      flavor: { type: 'string', description: 'Target plan public SKU (e.g. c-4vcpu-8gb).' },
+    },
+    required: ['service_id', 'flavor'],
+    additionalProperties: false,
+  },
+  buildPath: (a) => `/v1/services/${encodeSegment(a.service_id, 'service_id')}/resize`,
+  buildBody: (a) => ({ flavor: a.flavor }),
+  confirm: true,
+});
+
+export const upgradeService: ToolDefinition = writeTool({
+  name: 'upgrade_service',
+  description:
+    'Create an upgrade order moving a service to a new product/plan. Requires scope services:write. ' +
+    'SPENDS MONEY: this places a real upgrade order and bills the difference. Pass confirm:true only ' +
+    'after the user has approved the change and its cost (preview with list_upgrade_options). ' +
+    'service_id from list_services.',
+  method: 'POST',
+  input: z
+    .object({ service_id: z.string().min(1), newProductId: z.string().min(1), cycle: z.string().min(1) })
+    .strict(),
+  inputSchema: {
+    type: 'object',
+    properties: {
+      service_id: { type: 'string', description: 'Service ID from list_services.' },
+      newProductId: { type: 'string', description: 'Target product id (see list_upgrade_options).' },
+      cycle: { type: 'string', description: 'Billing cycle for the upgraded product (e.g. monthly, annually).' },
+    },
+    required: ['service_id', 'newProductId', 'cycle'],
+    additionalProperties: false,
+  },
+  buildPath: (a) => `/v1/services/${encodeSegment(a.service_id, 'service_id')}/upgrade`,
+  // Forward the API's own quote-vs-order flag confirm:true — the MCP confirm
+  // gate has already passed by the time buildBody runs.
+  buildBody: (a) => ({ newProductId: a.newProductId, cycle: a.cycle, confirm: true }),
+  confirm: true,
+});
+
+export const renewService: ToolDefinition = writeTool({
+  name: 'renew_service',
+  description:
+    'Ensure a renewal invoice exists for a service (renew the current term). Requires scope ' +
+    'services:write. SPENDS MONEY: generates/settles a renewal invoice from your balance. Pass ' +
+    'confirm:true only after the user has explicitly approved. service_id from list_services.',
+  method: 'POST',
+  input: z.object({ service_id: z.string().min(1) }).strict(),
+  inputSchema: {
+    type: 'object',
+    properties: { service_id: { type: 'string', description: 'Service ID from list_services.' } },
+    required: ['service_id'],
+    additionalProperties: false,
+  },
+  buildPath: (a) => `/v1/services/${encodeSegment(a.service_id, 'service_id')}/renew`,
+  confirm: true,
+});
+
+export const cancelService: ToolDefinition = writeTool({
+  name: 'cancel_service',
+  description:
+    'File a cancellation request for a service. Requires scope services:write. DESTRUCTIVE: schedules ' +
+    'teardown of the service — type "immediate" stops it now; "end_of_term" cancels at the paid-through ' +
+    'date. Pass confirm:true only after the user has explicitly approved. service_id from list_services.',
+  method: 'POST',
+  input: z
+    .object({
+      service_id: z.string().min(1),
+      // openapi enum values are end_of_term / immediate (underscore), authoritative.
+      type: z.enum(['immediate', 'end_of_term']).optional(),
+      reason: z.string().optional(),
+    })
+    .strict(),
+  inputSchema: {
+    type: 'object',
+    properties: {
+      service_id: { type: 'string', description: 'Service ID from list_services.' },
+      type: { type: 'string', enum: ['immediate', 'end_of_term'], description: 'Cancellation timing (default end_of_term server-side).' },
+      reason: { type: 'string', description: 'Optional free-text reason for cancelling.' },
+    },
+    required: ['service_id'],
+    additionalProperties: false,
+  },
+  buildPath: (a) => `/v1/services/${encodeSegment(a.service_id, 'service_id')}/cancel`,
+  buildBody: (a) => {
+    const body: Record<string, unknown> = {};
+    if (a.type !== undefined) body.type = a.type;
+    if (a.reason !== undefined) body.reason = a.reason;
+    return body;
+  },
+  confirm: true,
+  destructiveHint: true,
+});
+
+export const setServiceAutorenew: ToolDefinition = writeTool({
+  name: 'set_service_autorenew',
+  description:
+    'Toggle auto-renew (renew automatically from account balance) for a service. Requires scope ' +
+    'services:write. Plain write — no immediate charge, not destructive. service_id from list_services.',
+  method: 'PUT',
+  input: z.object({ service_id: z.string().min(1), enabled: z.boolean() }).strict(),
+  inputSchema: {
+    type: 'object',
+    properties: {
+      service_id: { type: 'string', description: 'Service ID from list_services.' },
+      enabled: { type: 'boolean', description: 'true to enable auto-renew, false to disable.' },
+    },
+    required: ['service_id', 'enabled'],
+    additionalProperties: false,
+  },
+  buildPath: (a) => `/v1/services/${encodeSegment(a.service_id, 'service_id')}/autorenew`,
+  buildBody: (a) => ({ enabled: a.enabled }),
+});
+
+export const createServiceBackup: ToolDefinition = writeTool({
+  name: 'create_service_backup',
+  description:
+    'Create an on-demand backup of a legacy VPS service. Requires scope services:write. Plain write — ' +
+    'no billing impact, not destructive. service_id from list_services.',
+  method: 'POST',
+  input: z.object({ service_id: z.string().min(1) }).strict(),
+  inputSchema: {
+    type: 'object',
+    properties: { service_id: { type: 'string', description: 'Service ID from list_services.' } },
+    required: ['service_id'],
+    additionalProperties: false,
+  },
+  buildPath: (a) => `/v1/services/${encodeSegment(a.service_id, 'service_id')}/backups`,
+});
+
+export const mountServiceIso: ToolDefinition = writeTool({
+  name: 'mount_service_iso',
+  description:
+    'Mount a rescue/install ISO on a VPS as a virtual CD-ROM. Requires scope services:write. The ' +
+    'iso_url is fetched server-side (SSRF-guarded against private/metadata targets). Plain write — ' +
+    'not destructive. service_id from list_services.',
+  method: 'PUT',
+  input: z.object({ service_id: z.string().min(1), iso_url: z.string().min(1) }).strict(),
+  inputSchema: {
+    type: 'object',
+    properties: {
+      service_id: { type: 'string', description: 'Service ID from list_services.' },
+      iso_url: { type: 'string', description: 'URL of the ISO to mount as a virtual CD-ROM.' },
+    },
+    required: ['service_id', 'iso_url'],
+    additionalProperties: false,
+  },
+  buildPath: (a) => `/v1/services/${encodeSegment(a.service_id, 'service_id')}/iso`,
+  buildBody: (a) => ({ iso_url: a.iso_url }),
+});
+
+export const unmountServiceIso: ToolDefinition = writeTool({
+  name: 'unmount_service_iso',
+  description:
+    'Unmount the currently mounted ISO from a VPS. Requires scope services:write. Plain write — ' +
+    'not destructive. service_id from list_services.',
+  method: 'DELETE',
+  input: z.object({ service_id: z.string().min(1) }).strict(),
+  inputSchema: {
+    type: 'object',
+    properties: { service_id: { type: 'string', description: 'Service ID from list_services.' } },
+    required: ['service_id'],
+    additionalProperties: false,
+  },
+  buildPath: (a) => `/v1/services/${encodeSegment(a.service_id, 'service_id')}/iso`,
+});
+
+export const setServicePassword: ToolDefinition = writeTool({
+  name: 'set_service_password',
+  description:
+    'Set the root/administrator password of a VPS service. Requires scope services:write. The password ' +
+    'value is a secret — it is never echoed back or logged. DESTRUCTIVE: overwrites the current ' +
+    'credential and may reboot the guest. Pass confirm:true only after the user has explicitly ' +
+    'approved. service_id from list_services.',
+  method: 'POST',
+  input: z.object({ service_id: z.string().min(1), password: z.string().min(8).max(128) }).strict(),
+  inputSchema: {
+    type: 'object',
+    properties: {
+      service_id: { type: 'string', description: 'Service ID from list_services.' },
+      password: { type: 'string', description: 'New root/admin password (8–128 chars). Never echoed or logged.' },
+    },
+    required: ['service_id', 'password'],
+    additionalProperties: false,
+  },
+  buildPath: (a) => `/v1/services/${encodeSegment(a.service_id, 'service_id')}/password`,
+  buildBody: (a) => ({ password: a.password }),
+  confirm: true,
+  destructiveHint: true,
+});

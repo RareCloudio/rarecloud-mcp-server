@@ -92,7 +92,20 @@ import {
   getProxyRequestList,
   getProxyReplacements,
 } from './proxies.js';
-import { setServiceHostname } from './services-write.js';
+import {
+  setServiceHostname,
+  deployService,
+  destroyService,
+  resizeService,
+  upgradeService,
+  renewService,
+  cancelService,
+  setServiceAutorenew,
+  createServiceBackup,
+  mountServiceIso,
+  unmountServiceIso,
+  setServicePassword,
+} from './services-write.js';
 
 export const TOOLS: ToolDefinition[] = [
   // Catalog (un-authed surface, "what can I deploy?")
@@ -186,6 +199,18 @@ export const TOOLS: ToolDefinition[] = [
   // --- WRITE / ACTION TOOLS (Parity Phase B) ---
   // Services — writes
   setServiceHostname,
+  // Services — writes (lifecycle / spend)
+  deployService,
+  destroyService,
+  resizeService,
+  upgradeService,
+  renewService,
+  cancelService,
+  setServiceAutorenew,
+  createServiceBackup,
+  mountServiceIso,
+  unmountServiceIso,
+  setServicePassword,
 ];
 
 export function findTool(name: string): ToolDefinition | undefined {
