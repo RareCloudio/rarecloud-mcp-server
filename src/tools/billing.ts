@@ -1,8 +1,10 @@
-// Billing tools — invoices, credit balance, payment methods.
+// Billing tools — invoices, credit balance, payment methods, pay-preview,
+// campaign, promo (bonus) balance/ledger, spending alert, auto-suspend state.
 // Read-only. AddFunds / payment-method mutations stay manual.
 
 import { APIError } from '../client.js';
 import { type ToolDefinition, jsonResult, errorResult } from './types.js';
+import { readList, readTool } from './factories.js';
 
 export const listInvoices: ToolDefinition = {
   name: 'list_invoices',
@@ -95,3 +97,53 @@ export const getCreditLedger: ToolDefinition = {
     }
   },
 };
+
+export const getInvoicePayPreview = readTool({
+  name: 'get_invoice_pay_preview',
+  description: 'Preview what paying an invoice from the account balance would consume — promo bonus first, then real credit, then any remaining shortfall. Read-only; consumes nothing. Pass an invoice id from list_invoices. Use before discussing a "pay from balance" action.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      id: { type: 'string', description: 'Invoice id from list_invoices.' },
+    },
+    required: ['id'],
+    additionalProperties: false,
+  },
+  buildPath: (args) => `/v1/billing/invoices/${encodeURIComponent(String(args.id ?? ''))}/pay-preview`,
+});
+
+export const listPaymentMethods = readList(
+  'list_payment_methods',
+  '/v1/billing/payment-methods',
+  'List the account\'s available payment options (WHMCS gateways). There is no stored-card vault — these are the gateways offered at checkout. Use for "how can I pay?".',
+);
+
+export const getBillingCampaign = readList(
+  'get_billing_campaign',
+  '/v1/billing/campaign',
+  'Get the currently-active credit (deposit-match) campaign in public shape — the "double your credits" promo — or {campaign:null} when none is running. Check before suggesting a top-up so the user can catch a bonus match.',
+);
+
+export const getBonusBalance = readList(
+  'get_bonus_balance',
+  '/v1/billing/bonus',
+  'Get the account\'s promo (bonus) balance in cents (EUR). This is a SEPARATE non-WHMCS balance that depletes first, as a taxed discount line, at consumption. Pair with get_credit_balance for the full "how much can I spend?" picture.',
+);
+
+export const getBonusLedger = readList(
+  'get_bonus_ledger',
+  '/v1/billing/bonus/ledger',
+  'List all bonus-credit ledger entries (newest first): campaign grants (positive) and promo consumption (negative). Use to explain "where did my bonus go?" — distinct from get_credit_ledger, which tracks real (WHMCS) credit.',
+);
+
+export const getBillingAlert = readList(
+  'get_billing_alert',
+  '/v1/billing/alert',
+  'Get the spending-alert state: the configured threshold, month-to-date spend, and whether the alert has triggered. Use for "am I close to my spending alert?".',
+);
+
+export const getBillingState = readList(
+  'get_billing_state',
+  '/v1/billing/state',
+  'Get the cloud auto-suspend state for the account — normal / grace-period / suspended — that drives the dashboard billing banner. Use to check whether a low balance is putting services at risk of suspension.',
+);

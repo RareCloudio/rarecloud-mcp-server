@@ -9,9 +9,33 @@ import {
   listImages,
 } from './catalog.js';
 import { listServices, getService, getServiceMetrics, listBackups, getProvisioningState, listOsTemplates, listUpgradeOptions } from './services.js';
-import { listInvoices, getInvoice, getCreditBalance, getCreditLedger } from './billing.js';
-import { getAccount, listSshKeys, getAccountLimits } from './account.js';
-import { listTickets, getTicket } from './tickets.js';
+import {
+  listInvoices,
+  getInvoice,
+  getCreditBalance,
+  getCreditLedger,
+  getInvoicePayPreview,
+  listPaymentMethods,
+  getBillingCampaign,
+  getBonusBalance,
+  getBonusLedger,
+  getBillingAlert,
+  getBillingState,
+} from './billing.js';
+import {
+  getAccount,
+  listSshKeys,
+  getAccountLimits,
+  listAccountClients,
+  getAffiliate,
+  getTwoFactorStatus,
+  listAccountSshKeys,
+  getAccountActivity,
+  listAccountEmails,
+  listAccountContacts,
+} from './account.js';
+import { listTickets, getTicket, listTicketDepartments } from './tickets.js';
+import { listTokens } from './tokens.js';
 import { listVolumes, listNetworks, listLoadBalancers, getLoadBalancer, listReservedIps, listDomains, getDomain } from './infra.js';
 
 export const TOOLS: ToolDefinition[] = [
@@ -33,13 +57,30 @@ export const TOOLS: ToolDefinition[] = [
   getInvoice,
   getCreditBalance,
   getCreditLedger,
+  getInvoicePayPreview,
+  listPaymentMethods,
+  getBillingCampaign,
+  getBonusBalance,
+  getBonusLedger,
+  getBillingAlert,
+  getBillingState,
   // Support ("any open tickets?")
   listTickets,
   getTicket,
+  listTicketDepartments,
   // Account ("who am I + what are my keys?")
   getAccount,
   listSshKeys,
   getAccountLimits,
+  listAccountClients,
+  getAffiliate,
+  getTwoFactorStatus,
+  listAccountSshKeys,
+  getAccountActivity,
+  listAccountEmails,
+  listAccountContacts,
+  // API tokens ("what credentials exist?")
+  listTokens,
   // Cloud infrastructure ("what storage / networks / IPs / domains do I have?")
   listVolumes,
   listNetworks,
