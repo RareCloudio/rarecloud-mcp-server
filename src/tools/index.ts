@@ -23,7 +23,6 @@ import {
   getServiceIso,
   listServiceSshKeyLibrary,
   getServiceAutorenew,
-  getVpanelStatus,
 } from './services.js';
 import { listOrders, getOrder } from './orders.js';
 import {
@@ -115,7 +114,6 @@ export const TOOLS: ToolDefinition[] = [
   getServiceIso,
   listServiceSshKeyLibrary,
   getServiceAutorenew,
-  getVpanelStatus,
   // Orders ("what have I purchased?")
   listOrders,
   getOrder,

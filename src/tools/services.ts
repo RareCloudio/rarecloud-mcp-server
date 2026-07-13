@@ -222,9 +222,7 @@ export const getServiceAutorenew = readTool({
   buildPath: (args) => `/v1/services/${encodeURIComponent(String(args.service_id))}/autorenew`,
 });
 
-export const getVpanelStatus = readTool({
-  name: 'get_vpanel_status',
-  description: 'Check whether a legacy VPS\'s management panel (Virtualizor) is reachable — a reachability probe that distinguishes a node/infra outage (available:false, reason:node-unavailable) from a working panel, and reports reason:not-a-vps when the service has no Virtualizor VPS. Returns {vpsId, available, reason}. Use before pointing a user at the panel, or to tell "the node is down" apart from "the panel works". The service_id comes from list_services.',
-  inputSchema: serviceIdSchema,
-  buildPath: (args) => `/v1/services/${encodeURIComponent(String(args.service_id))}/vpanel/status`,
-});
+// NOTE: get_vpanel_status was dropped in Parity Phase A final review. Its API
+// route (/v1/services/{id}/vpanel/status) enforces assertBrowserOnly, so every
+// bearer-token (MCP) call is PERMISSION_DENIED — the tool could never succeed.
+// Same class as the earlier list_tokens drop.

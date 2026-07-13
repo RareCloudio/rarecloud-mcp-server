@@ -1,6 +1,7 @@
 // Unit tests for the services-core read tools added in Parity Phase A / Task 3
-// (mounted ISO status, SSH key library, auto-renew flag, legacy vPanel
-// reachability probe). Fake client records the constructed path; no network.
+// (mounted ISO status, SSH key library, auto-renew flag). Fake client records
+// the constructed path; no network. (get_vpanel_status was dropped in final
+// review — its route is browser-only, so a bearer token can never succeed.)
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -8,7 +9,6 @@ import {
   getServiceIso,
   listServiceSshKeyLibrary,
   getServiceAutorenew,
-  getVpanelStatus,
 } from './services.js';
 import { APIError, type RareCloudClient } from '../client.js';
 import type { ToolCallResult, ToolDefinition } from './types.js';
@@ -36,7 +36,6 @@ const idScoped: Array<[ToolDefinition, string, string]> = [
   [getServiceIso, 'get_service_iso', '/iso'],
   [listServiceSshKeyLibrary, 'list_service_ssh_key_library', '/ssh-keys/library'],
   [getServiceAutorenew, 'get_service_autorenew', '/autorenew'],
-  [getVpanelStatus, 'get_vpanel_status', '/vpanel/status'],
 ];
 
 for (const [tool, name, suffix] of idScoped) {
@@ -63,7 +62,3 @@ for (const [tool, name, suffix] of idScoped) {
     assert.equal(textOf(result), 'Error: [NOT_FOUND] no such service');
   });
 }
-
-test('services: get_vpanel_status description frames it as a reachability probe', () => {
-  assert.match(getVpanelStatus.description, /reachab/i);
-});

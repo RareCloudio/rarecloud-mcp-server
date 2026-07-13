@@ -6,7 +6,7 @@ Drop into [Claude Code](https://claude.com/claude-code), Claude Desktop, [Cursor
 
 ## What it does
 
-Exposes **78 read-only tools** wrapping the RareCloud REST API:
+Exposes **77 read-only tools** wrapping the RareCloud REST API:
 
 | Category | Tool | Purpose |
 |---|---|---|
@@ -28,7 +28,6 @@ Exposes **78 read-only tools** wrapping the RareCloud REST API:
 | | `get_service_iso` | Mounted-ISO status for a legacy VPS (is a rescue/install ISO attached?) |
 | | `list_service_ssh_key_library` | SSH keys registered in a legacy VPS's key library |
 | | `get_service_autorenew` | Whether a service auto-renews from account balance |
-| | `get_vpanel_status` | Whether a legacy VPS's management panel (Virtualizor) is reachable |
 | Orders | `list_orders` | The account's orders — the purchase records behind its services |
 | | `get_order` | One order: line items, status, payment status, and its invoice |
 | Billing | `list_invoices` | Invoice history: number, status, issued date, total |
