@@ -158,6 +158,16 @@ import {
   setDomainDns,
   manageDomain,
 } from './domains-write.js';
+import {
+  updateAccount,
+  addAccountSshKey,
+  deleteAccountSshKey,
+  resendEmailVerification,
+  manageAccountContact,
+  createAffiliateLink,
+} from './account-write.js';
+import { setBillingAlert, deleteBillingAlert, redeemVoucher } from './billing-write.js';
+import { createTicket, replyTicket, closeTicket } from './tickets-write.js';
 
 export const TOOLS: ToolDefinition[] = [
   // Catalog (un-authed surface, "what can I deploy?")
@@ -312,6 +322,21 @@ export const TOOLS: ToolDefinition[] = [
   setDomainContacts,
   setDomainDns,
   manageDomain,
+  // Account — writes (profile / account SSH keys / verify-email / contacts / affiliate link)
+  updateAccount,
+  addAccountSshKey,
+  deleteAccountSshKey,
+  resendEmailVerification,
+  manageAccountContact,
+  createAffiliateLink,
+  // Billing — writes (spend alert / voucher redemption — NO money movement)
+  setBillingAlert,
+  deleteBillingAlert,
+  redeemVoucher,
+  // Support — writes (open / reply / close a ticket)
+  createTicket,
+  replyTicket,
+  closeTicket,
 ];
 
 export function findTool(name: string): ToolDefinition | undefined {
