@@ -224,7 +224,8 @@ test('deploy_service: neither productId nor plan is rejected before any request'
   const { client, calls } = fakeWriteClient();
   const result = await deployService.handler(client, { region: 'ro-buc', confirm: true });
   assert.equal(result.isError, true);
-  assert.match(textOf(result), /productId/);
+  assert.match(textOf(result), /^Error: Invalid input for deploy_service:/);
+  assert.match(textOf(result), /productId \(or its alias plan\) is required/);
   assert.deepEqual(calls, [], 'a deploy with no productId/plan must not reach the client');
 });
 
@@ -369,4 +370,24 @@ test('set_service_password: rejects a short password before any request', async 
   assert.equal(result.isError, true);
   assert.match(textOf(result), /^Error: Invalid input for set_service_password:/);
   assert.deepEqual(calls, []);
+});
+
+// Secret hygiene: an invalid password must never be echoed back in the zod
+// validation error, even though zod's default message quotes offending
+// values for some checks. If this ever regressed, the literal secret would
+// leak into MCP client logs/transcripts.
+test('set_service_password: an invalid password value is never echoed in the error, and no request is issued', async () => {
+  const { client, calls } = fakeWriteClient();
+  const badPassword = 'hunter1';
+  const result = await setServicePassword.handler(client, {
+    service_id: 's1',
+    password: badPassword,
+    confirm: true,
+  });
+  assert.equal(result.isError, true);
+  assert.ok(
+    !textOf(result).includes(badPassword),
+    `error text must not contain the literal password value, got: ${textOf(result)}`,
+  );
+  assert.deepEqual(calls, [], 'an invalid password must never reach the client');
 });

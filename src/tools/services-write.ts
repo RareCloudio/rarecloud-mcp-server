@@ -52,9 +52,10 @@ const BILLING_CYCLE = [
 // deploy_service is polymorphic: `category` selects the product family and the
 // relevant fields vary per family. The API infers `category` from the SKU and
 // validates per-family, so we forward the whole validated body. The
-// productId||plan requirement is enforced in buildBody (throws before any HTTP
-// call) rather than a zod .refine, because .refine yields a ZodEffects that the
-// writeTool `S extends z.ZodObject` generic does not accept.
+// productId||plan requirement is enforced via a zod .refine on the input
+// schema below — writeTool's factory generic is `S extends z.ZodTypeAny`, so
+// the resulting ZodEffects (which .refine produces, not a plain ZodObject)
+// still flows through `opts.input.safeParse` unchanged.
 export const deployService: ToolDefinition = writeTool({
   name: 'deploy_service',
   description:
@@ -98,7 +99,10 @@ export const deployService: ToolDefinition = writeTool({
       customFields: z.record(z.unknown()).optional(),
       payWith: z.string().optional(),
     })
-    .strict(),
+    .strict()
+    .refine((v) => Boolean(v.productId || v.plan), {
+      message: 'productId (or its alias plan) is required',
+    }),
   inputSchema: {
     type: 'object',
     properties: {
@@ -124,12 +128,7 @@ export const deployService: ToolDefinition = writeTool({
     additionalProperties: false,
   },
   buildPath: () => '/v1/services',
-  buildBody: (a) => {
-    if (!a.productId && !a.plan) {
-      throw new Error('productId (or its alias plan) is required');
-    }
-    return a; // whole validated body; the API infers category + validates per-family
-  },
+  buildBody: (a) => a, // whole validated body; the API infers category + validates per-family
   confirm: true,
 });
 
@@ -183,14 +182,18 @@ export const upgradeService: ToolDefinition = writeTool({
     'service_id from list_services.',
   method: 'POST',
   input: z
-    .object({ service_id: z.string().min(1), newProductId: z.string().min(1), cycle: z.string().min(1) })
+    .object({
+      service_id: z.string().min(1),
+      newProductId: z.string().min(1).max(64),
+      cycle: z.enum(BILLING_CYCLE),
+    })
     .strict(),
   inputSchema: {
     type: 'object',
     properties: {
       service_id: { type: 'string', description: 'Service ID from list_services.' },
-      newProductId: { type: 'string', description: 'Target product id (see list_upgrade_options).' },
-      cycle: { type: 'string', description: 'Billing cycle for the upgraded product (e.g. monthly, annually).' },
+      newProductId: { type: 'string', maxLength: 64, description: 'Target product id (see list_upgrade_options).' },
+      cycle: { type: 'string', enum: [...BILLING_CYCLE], description: 'Billing cycle for the upgraded product (e.g. monthly, annually).' },
     },
     required: ['service_id', 'newProductId', 'cycle'],
     additionalProperties: false,
@@ -232,7 +235,7 @@ export const cancelService: ToolDefinition = writeTool({
       service_id: z.string().min(1),
       // openapi enum values are end_of_term / immediate (underscore), authoritative.
       type: z.enum(['immediate', 'end_of_term']).optional(),
-      reason: z.string().optional(),
+      reason: z.string().max(1000).optional(),
     })
     .strict(),
   inputSchema: {
@@ -240,7 +243,7 @@ export const cancelService: ToolDefinition = writeTool({
     properties: {
       service_id: { type: 'string', description: 'Service ID from list_services.' },
       type: { type: 'string', enum: ['immediate', 'end_of_term'], description: 'Cancellation timing (default end_of_term server-side).' },
-      reason: { type: 'string', description: 'Optional free-text reason for cancelling.' },
+      reason: { type: 'string', maxLength: 1000, description: 'Optional free-text reason for cancelling.' },
     },
     required: ['service_id'],
     additionalProperties: false,
@@ -299,12 +302,12 @@ export const mountServiceIso: ToolDefinition = writeTool({
     'iso_url is fetched server-side (SSRF-guarded against private/metadata targets). Plain write — ' +
     'not destructive. service_id from list_services.',
   method: 'PUT',
-  input: z.object({ service_id: z.string().min(1), iso_url: z.string().min(1) }).strict(),
+  input: z.object({ service_id: z.string().min(1), iso_url: z.string().min(1).max(2048) }).strict(),
   inputSchema: {
     type: 'object',
     properties: {
       service_id: { type: 'string', description: 'Service ID from list_services.' },
-      iso_url: { type: 'string', description: 'URL of the ISO to mount as a virtual CD-ROM.' },
+      iso_url: { type: 'string', maxLength: 2048, description: 'URL of the ISO to mount as a virtual CD-ROM.' },
     },
     required: ['service_id', 'iso_url'],
     additionalProperties: false,
