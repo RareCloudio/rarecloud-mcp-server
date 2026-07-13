@@ -149,6 +149,15 @@ import {
   addLoadBalancerMember,
   removeLoadBalancerMember,
 } from './firewall-lb-write.js';
+import {
+  registerDomain,
+  transferDomain,
+  renewDomain,
+  setDomainNameservers,
+  setDomainContacts,
+  setDomainDns,
+  manageDomain,
+} from './domains-write.js';
 
 export const TOOLS: ToolDefinition[] = [
   // Catalog (un-authed surface, "what can I deploy?")
@@ -295,6 +304,14 @@ export const TOOLS: ToolDefinition[] = [
   deleteLoadBalancer,
   addLoadBalancerMember,
   removeLoadBalancerMember,
+  // Domains — writes (register / transfer / renew / nameservers / contacts / dns / manage)
+  registerDomain,
+  transferDomain,
+  renewDomain,
+  setDomainNameservers,
+  setDomainContacts,
+  setDomainDns,
+  manageDomain,
 ];
 
 export function findTool(name: string): ToolDefinition | undefined {
