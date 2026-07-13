@@ -56,9 +56,13 @@ interface KubeconfigPayload {
   kubeconfig?: unknown;
 }
 
-function kubeconfigYaml(data: unknown): string {
+// Returns the kubeconfig YAML string, or null when the envelope has no usable
+// `kubeconfig` field. Callers turn null into an errorResult rather than emitting
+// an empty text block (a server-contract violation: an empty credential is
+// worthless and must not read as success).
+function kubeconfigYaml(data: unknown): string | null {
   const yaml = (data as KubeconfigPayload | null | undefined)?.kubeconfig;
-  return typeof yaml === 'string' ? yaml : '';
+  return typeof yaml === 'string' && yaml.length > 0 ? yaml : null;
 }
 
 export const getClusterKubeconfig: ToolDefinition = {
@@ -70,7 +74,8 @@ export const getClusterKubeconfig: ToolDefinition = {
     try {
       const id = String(args.service_id ?? '');
       const data = await client.get(`/v1/services/${encodeURIComponent(id)}/kubeconfig`);
-      return textResult(kubeconfigYaml(data));
+      const yaml = kubeconfigYaml(data);
+      return yaml === null ? errorResult('API returned no kubeconfig') : textResult(yaml);
     } catch (e) {
       return errorResult(e instanceof APIError ? e.message : (e as Error).message);
     }
@@ -97,7 +102,8 @@ export const downloadClusterKubeconfig: ToolDefinition = {
       const data = await client.get(
         `/v1/services/${encodeURIComponent(id)}/kubeconfigs/${encodeURIComponent(credId)}/download`,
       );
-      return textResult(kubeconfigYaml(data));
+      const yaml = kubeconfigYaml(data);
+      return yaml === null ? errorResult('API returned no kubeconfig') : textResult(yaml);
     } catch (e) {
       return errorResult(e instanceof APIError ? e.message : (e as Error).message);
     }

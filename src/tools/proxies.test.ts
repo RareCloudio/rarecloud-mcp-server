@@ -185,9 +185,19 @@ for (const [tool, name] of [
 }
 
 // The non-credential reads must NOT carry the secret warning — keeps the guard
-// meaningful and stops the warning from leaking onto metadata reads.
+// meaningful and stops the warning from leaking onto metadata reads. All 7
+// non-credential proxies tools are covered (the 3 credential tools are guarded
+// positively above).
 test('proxies: metadata reads do not carry the secret warning', () => {
-  for (const tool of [listProxies, getProxy, listProxyRequests, getProxyReplacements]) {
-    assert.doesNotMatch(tool.description, /do NOT echo/);
+  for (const tool of [
+    listProxies,
+    getProxyCatalog,
+    getProxy,
+    listGbResidentialCountries,
+    listGbRotationIntervals,
+    listProxyRequests,
+    getProxyReplacements,
+  ]) {
+    assert.doesNotMatch(tool.description, /do NOT echo/, `unexpected secret warning on ${tool.name}`);
   }
 });

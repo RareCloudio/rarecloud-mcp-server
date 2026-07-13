@@ -142,6 +142,13 @@ test('k8s: get_cluster_kubeconfig — APIError maps to errorResult', async () =>
   assert.equal(textOf(result), 'Error: [FORBIDDEN] not your cluster');
 });
 
+test('k8s: get_cluster_kubeconfig — missing kubeconfig field is an error, not an empty text block', async () => {
+  const { client } = fakeClient(() => ({})); // envelope with no `kubeconfig`
+  const result = await getClusterKubeconfig.handler(client, { service_id: 'svc-123' });
+  assert.equal(result.isError, true);
+  assert.equal(textOf(result), 'Error: API returned no kubeconfig');
+});
+
 // --- download_cluster_kubeconfig (long-lived, active-only, live secret) ----
 
 test('k8s: download_cluster_kubeconfig — encodes service_id + credential_id into the download path', async () => {
@@ -184,6 +191,13 @@ test('k8s: download_cluster_kubeconfig — APIError (revoked/expired) maps to er
   const result = await downloadClusterKubeconfig.handler(client, { service_id: 'svc-123', credential_id: 'cred-uuid-1' });
   assert.equal(result.isError, true);
   assert.equal(textOf(result), 'Error: [GONE] credential revoked');
+});
+
+test('k8s: download_cluster_kubeconfig — missing kubeconfig field is an error, not an empty text block', async () => {
+  const { client } = fakeClient(() => ({})); // envelope with no `kubeconfig`
+  const result = await downloadClusterKubeconfig.handler(client, { service_id: 'svc-123', credential_id: 'cred-uuid-1' });
+  assert.equal(result.isError, true);
+  assert.equal(textOf(result), 'Error: API returned no kubeconfig');
 });
 
 // --- list_cluster_kubeconfigs description guard ----------------------------
