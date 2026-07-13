@@ -432,6 +432,19 @@ test('set_domain_contacts: rejects a country code that is not exactly 2 letters'
   assert.deepEqual(calls, []);
 });
 
+// Task 10 review: firstName/lastName min(1) enrichment (route source's
+// ContactsInput enforces .min(1) on both; openapi is silent on the minimum)
+// was implemented but undocumented/untested — mirror-assertion added here.
+test('set_domain_contacts: rejects an empty firstName/lastName before any request (enrichment: route requires min(1))', async () => {
+  const { client, calls } = fakeWriteClient();
+  for (const contact of [{ firstName: '' }, { lastName: '' }]) {
+    const result = await setDomainContacts.handler(client, { id: 'dom-1', contact });
+    assert.equal(result.isError, true);
+    assert.match(textOf(result), /^Error: Invalid input for set_domain_contacts:/);
+  }
+  assert.deepEqual(calls, []);
+});
+
 test('set_domain_contacts: rejects an unknown contact property (strict nested schema)', async () => {
   const { client, calls } = fakeWriteClient();
   const result = await setDomainContacts.handler(client, { id: 'dom-1', contact: { nickname: 'Ada' } });
@@ -439,13 +452,15 @@ test('set_domain_contacts: rejects an unknown contact property (strict nested sc
   assert.deepEqual(calls, []);
 });
 
-test('set_domain_contacts: schema mirrors email format and country length', () => {
+test('set_domain_contacts: schema mirrors email format, country length, and firstName/lastName minLength:1', () => {
   const props = setDomainContacts.inputSchema.properties as {
     contact: { properties: Record<string, { format?: string; minLength?: number; maxLength?: number }> };
   };
   assert.equal(props.contact.properties.email.format, 'email');
   assert.equal(props.contact.properties.country.minLength, 2);
   assert.equal(props.contact.properties.country.maxLength, 2);
+  assert.equal(props.contact.properties.firstName.minLength, 1);
+  assert.equal(props.contact.properties.lastName.minLength, 1);
 });
 
 // --- set_domain_dns (PUT /v1/domains/{id}/dns, no gate) ---------------------
@@ -521,6 +536,15 @@ test('manage_domain: name + closed schema, action enum required', () => {
   assert.deepEqual(manageDomain.inputSchema.required, ['id', 'action']);
   const props = manageDomain.inputSchema.properties as Record<string, { enum?: string[] }>;
   assert.deepEqual(props.action.enum, ['nameservers', 'lock', 'autorenew', 'idprotect', 'epp']);
+});
+
+// Task 10 review: the description must disclose the server's asymmetric
+// omitted-enabled defaults (route v1-domains.ts:376-384) — lock/autorenew
+// default true, idprotect defaults false — so a caller never accidentally
+// relies on an unstated default.
+test('manage_domain: description discloses the asymmetric omitted-enabled defaults', () => {
+  assert.match(manageDomain.description, /lock and autorenew default to true/);
+  assert.match(manageDomain.description, /idprotect defaults to false/);
 });
 
 test('manage_domain: POSTs {action} to /v1/domains/{id}/manage (nameservers/enabled omitted)', async () => {

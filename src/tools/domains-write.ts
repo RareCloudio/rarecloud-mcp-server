@@ -65,6 +65,11 @@
 //     `HOSTNAME_RE` constant, applied via `.regex()` in zod and `.source` as
 //     the JSON Schema `pattern` (derived, not hand-transcribed, so the two
 //     layers cannot drift).
+//   - `contact.firstName` / `contact.lastName`: openapi types both as bare
+//     `string` (no minimum); the route source's `ContactsInput` enforces
+//     `.min(1)` on both when supplied. Mirrored here as zod `.min(1)` + JSON
+//     Schema `minLength: 1` on both fields (same "min side" rule as the other
+//     route-source enrichments in this list).
 //   - `contact.email`: openapi documents `format: "email"` (informational);
 //     the route enforces `z.string().email()`. Mirrored as zod `.email()` +
 //     JSON Schema `format: 'email'`.
@@ -421,7 +426,9 @@ export const manageDomain: ToolDefinition = writeTool({
     'id comes from list_domains. action selects the operation: nameservers (replace 2-5, pass ' +
     'nameservers), lock (transfer lock, pass enabled), autorenew (pass enabled), idprotect (WHOIS ' +
     'privacy, pass enabled), epp (emails the transfer/EPP code to the registrant — no extra fields). See ' +
-    'get_domain_management for the current state before choosing an action.',
+    'get_domain_management for the current state before choosing an action. When enabled is omitted the ' +
+    'server defaults are ASYMMETRIC: lock and autorenew default to true, idprotect defaults to false — ' +
+    'always pass enabled explicitly rather than relying on the omitted-value default.',
   method: 'POST',
   input: z
     .object({

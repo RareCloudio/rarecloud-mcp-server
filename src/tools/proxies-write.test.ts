@@ -271,6 +271,57 @@ test('order_proxy: JSON inputSchema documents both branches\' fields with enums'
   assert.equal(props.gb.type, 'integer');
 });
 
+// --- order_proxy min-side bounds (Task 10 review, route source enrichment) ---
+// openapi types ips/gb as bare integer and locationId as bare string, but
+// v1-proxies.ts's IspOrderInput/GbOrderInput enforce .positive() / .min(1).
+// Mirrored both layers: zod .int().positive() / .min(1), JSON minimum:1 /
+// minLength:1.
+
+test('order_proxy: JSON inputSchema mirrors the min-side bounds (minimum:1 / minLength:1)', () => {
+  const props = orderProxy.inputSchema.properties as Record<string, { minimum?: number; minLength?: number }>;
+  assert.equal(props.ips.minimum, 1);
+  assert.equal(props.gb.minimum, 1);
+  assert.equal(props.locationId.minLength, 1);
+});
+
+test('order_proxy: ISP branch rejects ips:0 with zero calls', async () => {
+  const { client, calls } = fakeWriteClient();
+  const result = await orderProxy.handler(client, {
+    ips: 0,
+    cycle: 'month',
+    locationId: 'us-east',
+    protocol: 'http',
+    authType: 'password',
+    confirm: true,
+  });
+  assert.equal(result.isError, true);
+  assert.match(textOf(result), /^Error: Invalid input for order_proxy:/);
+  assert.deepEqual(calls, []);
+});
+
+test('order_proxy: ISP branch rejects an empty locationId with zero calls', async () => {
+  const { client, calls } = fakeWriteClient();
+  const result = await orderProxy.handler(client, {
+    ips: 10,
+    cycle: 'month',
+    locationId: '',
+    protocol: 'http',
+    authType: 'password',
+    confirm: true,
+  });
+  assert.equal(result.isError, true);
+  assert.match(textOf(result), /^Error: Invalid input for order_proxy:/);
+  assert.deepEqual(calls, []);
+});
+
+test('order_proxy: GB branch rejects gb:0 with zero calls', async () => {
+  const { client, calls } = fakeWriteClient();
+  const result = await orderProxy.handler(client, { kind: 'residential-gb', gb: 0, confirm: true });
+  assert.equal(result.isError, true);
+  assert.match(textOf(result), /^Error: Invalid input for order_proxy:/);
+  assert.deepEqual(calls, []);
+});
+
 // --- renew_proxy (POST /v1/proxies/{id}/renew, confirm — money-spend) -----
 // DEVIATION FROM BRIEF: brief said periods?:int; openapi documents
 // enum:[1,3,6,12], default:1. openapi wins.

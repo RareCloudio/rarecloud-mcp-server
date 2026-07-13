@@ -95,14 +95,20 @@ test('exclusion guard: no forbidden identity/credential/money tool is registered
   assert.deepEqual(present, [], `forbidden tool(s) registered: ${present.join(', ')}`);
 });
 
+// The five write scopes below are named as an exact sorted set each. This
+// rests on a convention enforced separately (see the invariant test further
+// down): every write tool names its exact scope literal in its description,
+// so scanning `description.includes(scope)` is a reliable proxy for "which
+// tools carry this scope" — and any future tool quietly added under (or
+// removed from) one of these scopes breaks the corresponding assertion here.
+const withScope = (scope: string) =>
+  TOOLS.filter((t) => t.description.includes(scope)).map((t) => t.name).sort();
+
 test('exclusion guard: the account/billing/tickets write surface is EXACTLY the safe set', () => {
   // Scan the advertised description surface for the scope string. These three
   // write scopes are introduced by Task 8, so the matching set must equal the
   // 12 intended tools — nothing more. Adding any forbidden write tool under one
   // of these scopes (e.g. top_up_credit as billing:write) breaks this test.
-  const withScope = (scope: string) =>
-    TOOLS.filter((t) => t.description.includes(scope)).map((t) => t.name).sort();
-
   assert.deepEqual(withScope('account:write'), [
     'add_account_ssh_key',
     'create_affiliate_link',
@@ -113,4 +119,114 @@ test('exclusion guard: the account/billing/tickets write surface is EXACTLY the 
   ]);
   assert.deepEqual(withScope('billing:write'), ['delete_billing_alert', 'redeem_voucher', 'set_billing_alert']);
   assert.deepEqual(withScope('tickets:write'), ['close_ticket', 'create_ticket', 'reply_ticket']);
+});
+
+// ---------------------------------------------------------------------------
+// Task 10 EXTENSION: now that the registry is final (156), pin the two
+// remaining write-scope surfaces (services:write, domains:write) as exact
+// sorted sets too — same rationale as the account/billing/tickets pin above.
+// services:write is the big one: it covers services-write.ts + k8s-write.ts +
+// infra-write.ts + firewall-lb-write.ts + proxies-write.ts (60 tools) — the
+// README's "services:write covers IaaS AND proxies" note names this exact
+// sharing. domains:write is domains-write.ts (7 tools).
+// ---------------------------------------------------------------------------
+
+test('exclusion guard: the services:write surface is EXACTLY the safe set (IaaS + k8s + proxies)', () => {
+  assert.deepEqual(withScope('services:write'), [
+    'add_cluster_pool',
+    'add_firewall_rule',
+    'add_load_balancer_member',
+    'add_proxy_whitelisted_ip',
+    'add_service_ssh_key',
+    'add_service_ssh_key_to_library',
+    'apply_service_ssh_key_library',
+    'attach_firewall',
+    'attach_network_vm',
+    'attach_reserved_ip',
+    'attach_volume',
+    'cancel_proxy',
+    'cancel_service',
+    'create_cluster_kubeconfig',
+    'create_firewall',
+    'create_load_balancer',
+    'create_network',
+    'create_proxy_request',
+    'create_service_backup',
+    'create_volume',
+    'delete_cluster_pool',
+    'delete_firewall',
+    'delete_firewall_rule',
+    'delete_load_balancer',
+    'delete_network',
+    'delete_proxy_request',
+    'delete_volume',
+    'deploy_service',
+    'destroy_service',
+    'detach_firewall',
+    'detach_reserved_ip',
+    'detach_volume',
+    'enable_cluster_ha',
+    'mount_service_iso',
+    'order_proxy',
+    'reboot_service',
+    'reinstall_service',
+    'release_reserved_ip',
+    'remove_load_balancer_member',
+    'remove_proxy_whitelisted_ip',
+    'rename_cluster_pool',
+    'renew_proxy',
+    'renew_service',
+    'request_proxy_replacement',
+    'reserve_ip',
+    'reset_service_password',
+    'resize_service',
+    'revoke_cluster_kubeconfig',
+    'set_cluster_scale',
+    'set_proxy_auth_method',
+    'set_proxy_auto_renew',
+    'set_proxy_credentials',
+    'set_service_autorenew',
+    'set_service_hostname',
+    'set_service_password',
+    'start_service',
+    'stop_service',
+    'unmount_service_iso',
+    'update_cluster_pool',
+    'upgrade_service',
+  ]);
+});
+
+test('exclusion guard: the domains:write surface is EXACTLY the safe set', () => {
+  assert.deepEqual(withScope('domains:write'), [
+    'manage_domain',
+    'register_domain',
+    'renew_domain',
+    'set_domain_contacts',
+    'set_domain_dns',
+    'set_domain_nameservers',
+    'transfer_domain',
+  ]);
+});
+
+// ---------------------------------------------------------------------------
+// Convention invariant: every tool in the five write-scope sets above names
+// EXACTLY ONE `:write` scope literal in its description (never zero, never
+// two) — this is the assumption the six exact-set pins above rest on. If a
+// tool's description ever names a second scope (or drops its scope literal
+// entirely), the pins above would silently stop being a reliable proxy for
+// "which tools carry this scope" without this test catching it.
+// ---------------------------------------------------------------------------
+
+test('exclusion guard convention: every write-scope tool names EXACTLY ONE :write scope literal', () => {
+  const WRITE_SCOPES = ['account:write', 'billing:write', 'tickets:write', 'services:write', 'domains:write'];
+  const allWriteToolNames = new Set(WRITE_SCOPES.flatMap((s) => withScope(s)));
+  for (const t of TOOLS) {
+    if (!allWriteToolNames.has(t.name)) continue;
+    const matches = WRITE_SCOPES.filter((s) => t.description.includes(s));
+    assert.equal(
+      matches.length,
+      1,
+      `${t.name} must name exactly one :write scope literal, found: ${matches.join(', ') || '(none)'}`,
+    );
+  }
 });

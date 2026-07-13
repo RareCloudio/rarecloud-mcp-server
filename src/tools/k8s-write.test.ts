@@ -261,6 +261,31 @@ test('add_cluster_pool: rejects an out-of-range volumeSizeGb before any request'
   assert.deepEqual(calls, []);
 });
 
+// Task 10 review: minLength mirror pass — name/machineType are zod .min(1)
+// server-side (route source); the JSON inputSchema was silent on the minimum.
+test('add_cluster_pool: rejects an empty name/machineType before any request', async () => {
+  const { client, calls } = fakeWriteClient();
+  for (const extra of [{ name: '' }, { machineType: '' }]) {
+    const result = await addClusterPool.handler(client, {
+      service_id: 's1',
+      name: 'workers',
+      minimum: 1,
+      maximum: 3,
+      confirm: true,
+      ...extra,
+    });
+    assert.equal(result.isError, true);
+    assert.match(textOf(result), /^Error: Invalid input for add_cluster_pool:/);
+  }
+  assert.deepEqual(calls, []);
+});
+
+test('add_cluster_pool: JSON inputSchema mirrors minLength:1 on name and machineType', () => {
+  const props = addClusterPool.inputSchema.properties as Record<string, { minLength?: number }>;
+  assert.equal(props.name.minLength, 1);
+  assert.equal(props.machineType.minLength, 1);
+});
+
 // --- update_cluster_pool (PATCH, only-provided keys reach the body) --------
 
 test('update_cluster_pool: PATCHes only the provided key to /pools/{pool}', async () => {
@@ -299,6 +324,21 @@ test('update_cluster_pool: an empty edit sends an empty body (only service_id + 
   assert.deepEqual(calls, [{ method: 'PATCH', path: '/v1/services/s1/pools/default', body: {} }]);
 });
 
+// Task 10 review: minLength mirror pass — machineType is zod .min(1) server-side
+// (route source); the JSON inputSchema was silent on the minimum.
+test('update_cluster_pool: rejects an empty machineType before any request', async () => {
+  const { client, calls } = fakeWriteClient();
+  const result = await updateClusterPool.handler(client, { service_id: 's1', pool: 'default', machineType: '' });
+  assert.equal(result.isError, true);
+  assert.match(textOf(result), /^Error: Invalid input for update_cluster_pool:/);
+  assert.deepEqual(calls, []);
+});
+
+test('update_cluster_pool: JSON inputSchema mirrors minLength:1 on machineType', () => {
+  const props = updateClusterPool.inputSchema.properties as Record<string, { minLength?: number }>;
+  assert.equal(props.machineType.minLength, 1);
+});
+
 // --- delete_cluster_pool (DELETE, no body, confirm+destr) ------------------
 
 test('delete_cluster_pool: DELETEs /pools/{pool} with no body when confirmed', async () => {
@@ -325,6 +365,21 @@ test('rename_cluster_pool: rejects a name over 64 chars before any request', asy
   assert.equal(result.isError, true);
   assert.match(textOf(result), /^Error: Invalid input for rename_cluster_pool:/);
   assert.deepEqual(calls, []);
+});
+
+// Task 10 review: minLength mirror pass — name is zod .min(1) server-side
+// (route source); the JSON inputSchema was silent on the minimum.
+test('rename_cluster_pool: rejects an empty name before any request', async () => {
+  const { client, calls } = fakeWriteClient();
+  const result = await renameClusterPool.handler(client, { service_id: 's1', pool: 'default', name: '' });
+  assert.equal(result.isError, true);
+  assert.match(textOf(result), /^Error: Invalid input for rename_cluster_pool:/);
+  assert.deepEqual(calls, []);
+});
+
+test('rename_cluster_pool: JSON inputSchema mirrors minLength:1 on name', () => {
+  const props = renameClusterPool.inputSchema.properties as Record<string, { minLength?: number }>;
+  assert.equal(props.name.minLength, 1);
 });
 
 // --- enable_cluster_ha (POST, no body, confirm — money-spend) --------------
@@ -381,6 +436,22 @@ test('create_cluster_kubeconfig: rejects an out-of-enum role before any request'
   assert.equal(result.isError, true);
   assert.match(textOf(result), /^Error: Invalid input for create_cluster_kubeconfig:/);
   assert.deepEqual(calls, []);
+});
+
+// Task 10 review: minLength mirror pass — name is zod .min(1) server-side
+// (route source + openapi both document minLength:1); the JSON inputSchema
+// was silent on the minimum.
+test('create_cluster_kubeconfig: rejects an empty name before any request', async () => {
+  const { client, calls } = fakeWriteClient();
+  const result = await createClusterKubeconfig.handler(client, { service_id: 's1', name: '', role: 'admin' });
+  assert.equal(result.isError, true);
+  assert.match(textOf(result), /^Error: Invalid input for create_cluster_kubeconfig:/);
+  assert.deepEqual(calls, []);
+});
+
+test('create_cluster_kubeconfig: JSON inputSchema mirrors minLength:1 on name', () => {
+  const props = createClusterKubeconfig.inputSchema.properties as Record<string, { minLength?: number }>;
+  assert.equal(props.name.minLength, 1);
 });
 
 // ttl is a 4-value enum (30d|90d|1y|never) — verified against console

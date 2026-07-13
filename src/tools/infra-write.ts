@@ -248,12 +248,12 @@ export const attachReservedIp: ToolDefinition = writeTool({
   buildBody: (a) => ({ serverId: a.serverId }),
 });
 
-// DEVIATION FROM BRIEF (confirmed via console openapi.json AND the route
-// source api/src/routes/v1-reserved-ips.ts — both agree): the detach endpoint
-// takes NO request body at all (no requestBody in openapi; the handler reads
-// only the path segment). The brief's own Notes column already called this
-// out ("no body per openapi"), so this is a confirmation, not a contradiction
-// — omitting `buildBody` entirely (not even an empty-object one) matches the
+// CONFIRMED (not a deviation): via console openapi.json AND the route source
+// api/src/routes/v1-reserved-ips.ts — both agree — the detach endpoint takes
+// NO request body at all (no requestBody in openapi; the handler reads only
+// the path segment). The brief's own Notes column already called this out
+// ("no body per openapi"), so this is a confirmation, not a contradiction —
+// omitting `buildBody` entirely (not even an empty-object one) matches the
 // live contract, and per the task's DELETE/body rule this is a POST so no
 // NEEDS_CONTEXT applies.
 export const detachReservedIp: ToolDefinition = writeTool({

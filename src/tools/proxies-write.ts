@@ -26,7 +26,13 @@
 //     verbatim — ISP required [ips, cycle, locationId, protocol, authType]
 //     with `kind` optional (defaults residential-isp for back-compat); GB
 //     required [kind, gb] with kind pinned to the literal 'residential-gb'.
-//     Implemented as given, no deviation.
+//     Implemented as given, no deviation. Task 10 review pass: openapi types
+//     `ips`/`gb` as bare `integer` and `locationId` as bare `string`, but the
+//     route source's `IspOrderInput`/`GbOrderInput` (v1-proxies.ts:117,119,127)
+//     enforce `.positive()` on `ips`/`gb` and `.min(1)` on `locationId`.
+//     Mirrored here (`ips`/`gb` -> `.int().positive()` + JSON `minimum: 1`;
+//     `locationId` -> `.min(1)` + JSON `minLength: 1`), same "min side" rule as
+//     the other route-source enrichments below.
 //   - DEVIATION FROM BRIEF: renew_proxy's `periods` — the brief's row says
 //     `periods?:int` (any integer), but openapi's POST /proxies/{id}/renew
 //     request schema documents `periods` as `integer` with `enum:[1,3,6,12]`
@@ -92,9 +98,9 @@ const orderProxyInput = z.union([
   z
     .object({
       kind: z.literal('residential-isp').optional(),
-      ips: z.number().int(), // tier: 1,3,5,10,20,25,50,100,150,200
+      ips: z.number().int().positive(), // tier: 1,3,5,10,20,25,50,100,150,200
       cycle: z.enum(['day', 'week', 'month']),
-      locationId: z.string(),
+      locationId: z.string().min(1),
       protocol: z.enum(['http', 'socks']),
       authType: z.enum(['password', 'combined']),
     })
@@ -102,7 +108,7 @@ const orderProxyInput = z.union([
   z
     .object({
       kind: z.literal('residential-gb'),
-      gb: z.number().int(), // bucket: 1,2,5,10,50,100,250,500,1000 (monthly only)
+      gb: z.number().int().positive(), // bucket: 1,2,5,10,50,100,250,500,1000 (monthly only)
     })
     .strict(),
 ]);
@@ -120,12 +126,12 @@ export const orderProxy: ToolDefinition = writeTool({
     type: 'object',
     properties: {
       kind: { type: 'string', enum: ['residential-isp', 'residential-gb'], description: 'Plan family; defaults to residential-isp.' },
-      ips: { type: 'integer', description: 'ISP: IP-count tier (1,3,5,10,20,25,50,100,150,200).' },
+      ips: { type: 'integer', minimum: 1, description: 'ISP: IP-count tier (1,3,5,10,20,25,50,100,150,200).' },
       cycle: { type: 'string', enum: ['day', 'week', 'month'], description: 'ISP: billing cycle.' },
-      locationId: { type: 'string', description: 'ISP: catalog location id.' },
+      locationId: { type: 'string', minLength: 1, description: 'ISP: catalog location id.' },
       protocol: { type: 'string', enum: ['http', 'socks'], description: 'ISP: protocol.' },
       authType: { type: 'string', enum: ['password', 'combined'], description: 'ISP: auth type.' },
-      gb: { type: 'integer', description: 'GB: bucket tier (1,2,5,10,50,100,250,500,1000; monthly only).' },
+      gb: { type: 'integer', minimum: 1, description: 'GB: bucket tier (1,2,5,10,50,100,250,500,1000; monthly only).' },
     },
     required: [],
     additionalProperties: false,

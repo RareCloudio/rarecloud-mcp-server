@@ -11,6 +11,12 @@
 // run through encodeSegment. Bodies + the `role`/`ttl` enums are re-confirmed
 // against console openapi.json AND the route source (api/src/routes/
 // v1-services.ts) — see the DEVIATION note on create_cluster_kubeconfig.
+//
+// Task 10 review: minLength mirror pass — zod already enforced `.min(1)` on
+// `name` (kubeconfig create, pool rename, pool add) and `machineType` (pool
+// add/update), but the JSON `inputSchema` was missing the matching
+// `minLength: 1` on those fields (openapi's kubeconfig `name` documents
+// `minLength: 1` too). Added below so both layers agree.
 
 import { z } from 'zod';
 import { type ToolDefinition, type ToolCallResult, textResult, errorResult } from './types.js';
@@ -81,10 +87,10 @@ export const addClusterPool: ToolDefinition = writeTool({
     type: 'object',
     properties: {
       service_id: { type: 'string', description: 'Managed-Kubernetes service ID from list_services.' },
-      name: { type: 'string', description: 'Node-pool name (lowercase letters/digits/hyphens, start with a letter, max 15; unique in the cluster).' },
+      name: { type: 'string', minLength: 1, description: 'Node-pool name (lowercase letters/digits/hyphens, start with a letter, max 15; unique in the cluster).' },
       minimum: { type: 'integer', description: 'Minimum worker count (autoscaling lower bound).' },
       maximum: { type: 'integer', description: 'Maximum worker count (>= minimum, <= 16).' },
-      machineType: { type: 'string', description: 'Worker machine type / flavor (resolved server-side). Defaults to the cluster default when omitted.' },
+      machineType: { type: 'string', minLength: 1, description: 'Worker machine type / flavor (resolved server-side). Defaults to the cluster default when omitted.' },
       volumeSizeGb: { type: 'integer', minimum: 10, maximum: 1000, description: 'Per-node root-volume size in GiB (default 30).' },
     },
     required: ['service_id', 'name', 'minimum', 'maximum'],
@@ -125,7 +131,7 @@ export const updateClusterPool: ToolDefinition = writeTool({
       pool: { type: 'string', description: 'Node-pool name from list_cluster_pools.' },
       minimum: { type: 'integer', description: 'New minimum worker count.' },
       maximum: { type: 'integer', description: 'New maximum worker count (>= minimum, <= 16).' },
-      machineType: { type: 'string', description: 'New worker machine type / flavor (resolved server-side).' },
+      machineType: { type: 'string', minLength: 1, description: 'New worker machine type / flavor (resolved server-side).' },
       volumeSizeGb: { type: 'integer', minimum: 10, maximum: 1000, description: 'New per-node root-volume size in GiB.' },
     },
     required: ['service_id', 'pool'],
@@ -179,7 +185,7 @@ export const renameClusterPool: ToolDefinition = writeTool({
     properties: {
       service_id: { type: 'string', description: 'Managed-Kubernetes service ID from list_services.' },
       pool: { type: 'string', description: 'Current node-pool name from list_cluster_pools.' },
-      name: { type: 'string', maxLength: 64, description: 'New node-pool name (lowercase letters/digits/hyphens, start with a letter, max 15).' },
+      name: { type: 'string', minLength: 1, maxLength: 64, description: 'New node-pool name (lowercase letters/digits/hyphens, start with a letter, max 15).' },
     },
     required: ['service_id', 'pool', 'name'],
     additionalProperties: false,
@@ -242,7 +248,7 @@ export const createClusterKubeconfig: ToolDefinition = writeTool({
     type: 'object',
     properties: {
       service_id: { type: 'string', description: 'Managed-Kubernetes service ID from list_services.' },
-      name: { type: 'string', maxLength: 64, description: 'Human label for the credential (shown in list_cluster_kubeconfigs).' },
+      name: { type: 'string', minLength: 1, maxLength: 64, description: 'Human label for the credential (shown in list_cluster_kubeconfigs).' },
       role: { type: 'string', enum: ['admin', 'view'], description: 'admin (cluster-admin) or view (read-only).' },
       ttl: { type: 'string', enum: ['30d', '90d', '1y', 'never'], description: 'Optional token lifetime; one of 30d, 90d, 1y, never. Omit for the default (90d).' },
     },
