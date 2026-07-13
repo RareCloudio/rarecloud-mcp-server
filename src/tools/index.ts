@@ -92,6 +92,7 @@ import {
   getProxyRequestList,
   getProxyReplacements,
 } from './proxies.js';
+import { setServiceHostname } from './services-write.js';
 
 export const TOOLS: ToolDefinition[] = [
   // Catalog (un-authed surface, "what can I deploy?")
@@ -181,6 +182,10 @@ export const TOOLS: ToolDefinition[] = [
   listProxyRequests,
   getProxyRequestList,
   getProxyReplacements,
+
+  // --- WRITE / ACTION TOOLS (Parity Phase B) ---
+  // Services — writes
+  setServiceHostname,
 ];
 
 export function findTool(name: string): ToolDefinition | undefined {
