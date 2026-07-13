@@ -3,44 +3,7 @@
 // reserved IPs, and domains. Read-only by design (same as the rest of this
 // server); mutations go through the REST API with a scoped write token.
 
-import { APIError } from '../client.js';
-import { type ToolDefinition, jsonResult, errorResult } from './types.js';
-
-function readList(name: string, path: string, description: string): ToolDefinition {
-  return {
-    name,
-    description,
-    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
-    async handler(client) {
-      try {
-        return jsonResult(await client.get(path));
-      } catch (e) {
-        return errorResult(e instanceof APIError ? e.message : (e as Error).message);
-      }
-    },
-  };
-}
-
-function readOne(name: string, prefix: string, description: string, idKey = 'id'): ToolDefinition {
-  return {
-    name,
-    description,
-    inputSchema: {
-      type: 'object',
-      properties: { [idKey]: { type: 'string', description: 'Resource id from the matching list_* tool.' } },
-      required: [idKey],
-      additionalProperties: false,
-    },
-    async handler(client, args) {
-      try {
-        const id = String(args[idKey] ?? '');
-        return jsonResult(await client.get(`${prefix}/${encodeURIComponent(id)}`));
-      } catch (e) {
-        return errorResult(e instanceof APIError ? e.message : (e as Error).message);
-      }
-    },
-  };
-}
+import { readList, readOne } from './factories.js';
 
 export const listVolumes = readList(
   'list_volumes',
