@@ -23,9 +23,9 @@ import {
 
 import { clientFromEnv, APIError } from './client.js';
 import { TOOLS, findTool } from './tools/index.js';
+import { SERVER_VERSION } from './version.js';
 
 const SERVER_NAME = 'rarecloud';
-const SERVER_VERSION = '0.1.0';
 
 async function main(): Promise<void> {
   // Validate config early so the user sees a clear error instead of
