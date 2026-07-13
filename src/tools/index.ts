@@ -81,6 +81,18 @@ import {
   listClusterKubeconfigs,
   downloadClusterKubeconfig,
 } from './k8s.js';
+import {
+  listProxies,
+  getProxyCatalog,
+  getProxy,
+  getProxyList,
+  getProxyAuth,
+  listGbResidentialCountries,
+  listGbRotationIntervals,
+  listProxyRequests,
+  getProxyRequestList,
+  getProxyReplacements,
+} from './proxies.js';
 
 export const TOOLS: ToolDefinition[] = [
   // Catalog (un-authed surface, "what can I deploy?")
@@ -160,6 +172,17 @@ export const TOOLS: ToolDefinition[] = [
   getClusterKubeconfig,
   listClusterKubeconfigs,
   downloadClusterKubeconfig,
+  // Proxies ("residential proxy services — ISP plans + GB Residential buckets")
+  listProxies,
+  getProxyCatalog,
+  getProxy,
+  getProxyList,
+  getProxyAuth,
+  listGbResidentialCountries,
+  listGbRotationIntervals,
+  listProxyRequests,
+  getProxyRequestList,
+  getProxyReplacements,
 ];
 
 export function findTool(name: string): ToolDefinition | undefined {
