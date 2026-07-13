@@ -4,7 +4,7 @@
 
 import { APIError } from '../client.js';
 import { type ToolDefinition, jsonResult, errorResult } from './types.js';
-import { readList, readTool } from './factories.js';
+import { readList, readTool, encodeSegment } from './factories.js';
 
 export const listInvoices: ToolDefinition = {
   name: 'list_invoices',
@@ -53,8 +53,8 @@ export const getInvoice: ToolDefinition = {
   },
   async handler(client, args) {
     try {
-      const id = args.invoice_id as string;
-      const data = await client.get(`/v1/billing/invoices/${encodeURIComponent(id)}`);
+      const id = encodeSegment(args.invoice_id, 'invoice_id');
+      const data = await client.get(`/v1/billing/invoices/${id}`);
       return jsonResult(data);
     } catch (e) {
       return errorResult(e instanceof APIError ? e.message : (e as Error).message);
@@ -109,7 +109,7 @@ export const getInvoicePayPreview = readTool({
     required: ['id'],
     additionalProperties: false,
   },
-  buildPath: (args) => `/v1/billing/invoices/${encodeURIComponent(String(args.id ?? ''))}/pay-preview`,
+  buildPath: (args) => `/v1/billing/invoices/${encodeSegment(args.id, 'id')}/pay-preview`,
 });
 
 export const listPaymentMethods = readList(

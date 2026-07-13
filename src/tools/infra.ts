@@ -4,7 +4,7 @@
 // this server); mutations go through the REST API with a scoped write token.
 // (Domains live in their own module, domains.ts.)
 
-import { readList, readOne, readTool } from './factories.js';
+import { readList, readOne, readTool, encodeSegment } from './factories.js';
 
 export const listVolumes = readList(
   'list_volumes',
@@ -52,7 +52,7 @@ export const listLoadBalancerMembers = readTool({
     required: ['id'],
     additionalProperties: false,
   },
-  buildPath: (args) => `/v1/load-balancers/${encodeURIComponent(String(args.id))}/members`,
+  buildPath: (args) => `/v1/load-balancers/${encodeSegment(args.id, 'id')}/members`,
 });
 
 export const listReservedIps = readList(

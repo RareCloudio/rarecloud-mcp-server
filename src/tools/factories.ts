@@ -12,6 +12,24 @@
 import { APIError } from '../client.js';
 import { type ToolDefinition, jsonResult, errorResult } from './types.js';
 
+// Encode a value as a single URL path segment, rejecting path-traversal tokens.
+// Segments come straight from tool args; a raw "." / ".." (or an empty value)
+// would let a caller walk the API path — e.g. `service_id: ".."` turning
+// `/v1/services/{id}/scale` into `/v1/services/../scale`. We reject those
+// before the path is built. Any value merely CONTAINING dots ("v1.2.3",
+// "..foo") is fine — only the exact traversal tokens are blocked.
+//
+// Throws a plain Error whose message the read-tool handlers' try/catch maps to
+// an errorResult. Because it throws inside buildPath (or before client.get in
+// readOne), NO request is ever issued for a bad segment.
+export function encodeSegment(value: unknown, paramName: string): string {
+  const s = String(value ?? '');
+  if (s === '' || s === '.' || s === '..') {
+    throw new Error(`Invalid ${paramName} value`);
+  }
+  return encodeURIComponent(s);
+}
+
 export function readList(name: string, path: string, description: string): ToolDefinition {
   return {
     name,
@@ -39,8 +57,8 @@ export function readOne(name: string, prefix: string, description: string, idKey
     },
     async handler(client, args) {
       try {
-        const id = String(args[idKey] ?? '');
-        return jsonResult(await client.get(`${prefix}/${encodeURIComponent(id)}`));
+        const seg = encodeSegment(args[idKey], idKey);
+        return jsonResult(await client.get(`${prefix}/${seg}`));
       } catch (e) {
         return errorResult(e instanceof APIError ? e.message : (e as Error).message);
       }

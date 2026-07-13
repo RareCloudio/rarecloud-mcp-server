@@ -3,7 +3,7 @@
 
 import { APIError } from '../client.js';
 import { type ToolDefinition, jsonResult, errorResult } from './types.js';
-import { readList } from './factories.js';
+import { readList, encodeSegment } from './factories.js';
 
 export const listTickets: ToolDefinition = {
   name: 'list_tickets',
@@ -47,8 +47,8 @@ export const getTicket: ToolDefinition = {
   },
   async handler(client, args) {
     try {
-      const id = args.ticket_id as string;
-      const data = await client.get(`/v1/tickets/${encodeURIComponent(id)}`);
+      const id = encodeSegment(args.ticket_id, 'ticket_id');
+      const data = await client.get(`/v1/tickets/${id}`);
       return jsonResult(data);
     } catch (e) {
       return errorResult(e instanceof APIError ? e.message : (e as Error).message);

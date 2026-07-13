@@ -13,7 +13,7 @@
 
 import { APIError } from '../client.js';
 import { type ToolDefinition, textResult, errorResult } from './types.js';
-import { readTool } from './factories.js';
+import { readTool, encodeSegment } from './factories.js';
 
 // service_id-scoped detail reads that return JSON as-is.
 const serviceIdSchema = {
@@ -29,21 +29,21 @@ export const getClusterScale = readTool({
   name: 'get_cluster_scale',
   description: 'Get the current scale of a managed Kubernetes cluster: its worker node pools plus any add-ons (autoscaler bounds, HA control plane, etc.). Use to answer "how big is my cluster right now?" or to read current sizing before planning a resize. Read-only; changing the scale is a write and is not exposed as an MCP tool. The service_id comes from list_services (a cloud-k8s service).',
   inputSchema: serviceIdSchema,
-  buildPath: (args) => `/v1/services/${encodeURIComponent(String(args.service_id))}/scale`,
+  buildPath: (args) => `/v1/services/${encodeSegment(args.service_id, 'service_id')}/scale`,
 });
 
 export const listClusterPools = readTool({
   name: 'list_cluster_pools',
   description: 'List the worker node pools of a managed Kubernetes cluster — each pool\'s name, machine type/flavor, node count, and autoscaling min/max. Use to inspect how the cluster\'s compute is organized before a scale change, or to find a pool by name. Read-only; adding/editing/removing pools are writes and are not exposed as MCP tools. The service_id comes from list_services (a cloud-k8s service).',
   inputSchema: serviceIdSchema,
-  buildPath: (args) => `/v1/services/${encodeURIComponent(String(args.service_id))}/pools`,
+  buildPath: (args) => `/v1/services/${encodeSegment(args.service_id, 'service_id')}/pools`,
 });
 
 export const listClusterKubeconfigs = readTool({
   name: 'list_cluster_kubeconfigs',
   description: 'List the LONG-LIVED kubeconfig credentials issued for a managed Kubernetes cluster — metadata only (id, name, role admin|view, createdAt, expiresAt, revokedAt, lastDownloadedAt, status active|expired|revoking|revoked). Each is a revocable, per-credential ServiceAccount meant for standing automation (CI, GitOps). The token itself is NEVER returned here — re-download an active one with download_cluster_kubeconfig. Use to see which credentials exist, which are still active, and to find a credential_id. The service_id comes from list_services (a cloud-k8s service).',
   inputSchema: serviceIdSchema,
-  buildPath: (args) => `/v1/services/${encodeURIComponent(String(args.service_id))}/kubeconfigs`,
+  buildPath: (args) => `/v1/services/${encodeSegment(args.service_id, 'service_id')}/kubeconfigs`,
 });
 
 // --- Live-credential reads -------------------------------------------------
@@ -72,8 +72,8 @@ export const getClusterKubeconfig: ToolDefinition = {
   inputSchema: serviceIdSchema,
   async handler(client, args) {
     try {
-      const id = String(args.service_id ?? '');
-      const data = await client.get(`/v1/services/${encodeURIComponent(id)}/kubeconfig`);
+      const seg = encodeSegment(args.service_id, 'service_id');
+      const data = await client.get(`/v1/services/${seg}/kubeconfig`);
       const yaml = kubeconfigYaml(data);
       return yaml === null ? errorResult('API returned no kubeconfig') : textResult(yaml);
     } catch (e) {
@@ -97,10 +97,10 @@ export const downloadClusterKubeconfig: ToolDefinition = {
   },
   async handler(client, args) {
     try {
-      const id = String(args.service_id ?? '');
-      const credId = String(args.credential_id ?? '');
+      const seg = encodeSegment(args.service_id, 'service_id');
+      const credSeg = encodeSegment(args.credential_id, 'credential_id');
       const data = await client.get(
-        `/v1/services/${encodeURIComponent(id)}/kubeconfigs/${encodeURIComponent(credId)}/download`,
+        `/v1/services/${seg}/kubeconfigs/${credSeg}/download`,
       );
       const yaml = kubeconfigYaml(data);
       return yaml === null ? errorResult('API returned no kubeconfig') : textResult(yaml);

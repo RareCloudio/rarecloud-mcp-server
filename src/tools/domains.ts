@@ -5,7 +5,7 @@
 // this server); the matching setters (change nameservers / contact / DNS /
 // dispatch a management action) are write operations not exposed here.
 
-import { readList, readOne, readTool } from './factories.js';
+import { readList, readOne, readTool, encodeSegment } from './factories.js';
 
 export const listDomains = readList(
   'list_domains',
@@ -51,7 +51,7 @@ export const getDomainNameservers = readTool({
     required: ['id'],
     additionalProperties: false,
   },
-  buildPath: (args) => `/v1/domains/${encodeURIComponent(String(args.id))}/nameservers`,
+  buildPath: (args) => `/v1/domains/${encodeSegment(args.id, 'id')}/nameservers`,
 });
 
 export const getDomainContacts = readTool({
@@ -64,7 +64,7 @@ export const getDomainContacts = readTool({
     required: ['id'],
     additionalProperties: false,
   },
-  buildPath: (args) => `/v1/domains/${encodeURIComponent(String(args.id))}/contacts`,
+  buildPath: (args) => `/v1/domains/${encodeSegment(args.id, 'id')}/contacts`,
 });
 
 export const getDomainDns = readTool({
@@ -77,7 +77,7 @@ export const getDomainDns = readTool({
     required: ['id'],
     additionalProperties: false,
   },
-  buildPath: (args) => `/v1/domains/${encodeURIComponent(String(args.id))}/dns`,
+  buildPath: (args) => `/v1/domains/${encodeSegment(args.id, 'id')}/dns`,
 });
 
 export const getDomainManagement = readTool({
@@ -90,5 +90,5 @@ export const getDomainManagement = readTool({
     required: ['id'],
     additionalProperties: false,
   },
-  buildPath: (args) => `/v1/domains/${encodeURIComponent(String(args.id))}/manage`,
+  buildPath: (args) => `/v1/domains/${encodeSegment(args.id, 'id')}/manage`,
 });

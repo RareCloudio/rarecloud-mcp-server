@@ -6,6 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  getService,
   getServiceIso,
   listServiceSshKeyLibrary,
   getServiceAutorenew,
@@ -62,3 +63,14 @@ for (const [tool, name, suffix] of idScoped) {
     assert.equal(textOf(result), 'Error: [NOT_FOUND] no such service');
   });
 }
+
+// Dot-segment guard also covers the hand-written single-id handlers (get_service
+// et al.), not just the factory-built tools. A ".." service_id must be rejected
+// before any request goes out.
+test('services: get_service — a ".." service_id is rejected before any request', async () => {
+  const { client, calls } = fakeClient(() => ({ ok: true }));
+  const result = await getService.handler(client, { service_id: '..' });
+  assert.equal(result.isError, true);
+  assert.equal(textOf(result), 'Error: Invalid service_id value');
+  assert.deepEqual(calls, [], 'no request may reach the client for a ".." service_id');
+});

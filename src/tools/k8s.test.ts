@@ -99,6 +99,35 @@ for (const [tool, name, suffix] of jsonIdScoped) {
   });
 }
 
+// --- dot-segment guard (path-traversal hardening, pre-Phase-B) -------------
+// service_id flows into a URL path segment. A "." / ".." / empty value must be
+// rejected BEFORE any request goes out — covers a readTool-based tool
+// (get_cluster_scale) and a hand-written k8s handler (get_cluster_kubeconfig).
+
+test('k8s: get_cluster_scale — a ".." service_id is rejected before any request', async () => {
+  const { client, calls } = fakeClient(() => ({ ok: true }));
+  const result = await getClusterScale.handler(client, { service_id: '..' });
+  assert.equal(result.isError, true);
+  assert.equal(textOf(result), 'Error: Invalid service_id value');
+  assert.deepEqual(calls, [], 'no request may reach the client for a ".." service_id');
+});
+
+test('k8s: get_cluster_kubeconfig — a ".." service_id is rejected before any request', async () => {
+  const { client, calls } = fakeClient(() => ({ kubeconfig: FAKE_KUBECONFIG }));
+  const result = await getClusterKubeconfig.handler(client, { service_id: '..' });
+  assert.equal(result.isError, true);
+  assert.equal(textOf(result), 'Error: Invalid service_id value');
+  assert.deepEqual(calls, [], 'no request may reach the client for a ".." service_id');
+});
+
+test('k8s: download_cluster_kubeconfig — a ".." credential_id is rejected before any request', async () => {
+  const { client, calls } = fakeClient(() => ({ kubeconfig: FAKE_KUBECONFIG }));
+  const result = await downloadClusterKubeconfig.handler(client, { service_id: 'svc-123', credential_id: '..' });
+  assert.equal(result.isError, true);
+  assert.equal(textOf(result), 'Error: Invalid credential_id value');
+  assert.deepEqual(calls, [], 'no request may reach the client for a ".." credential_id');
+});
+
 // --- get_cluster_kubeconfig (short-lived admin, live secret, raw text) -----
 
 test('k8s: get_cluster_kubeconfig — encodes service_id into /kubeconfig', async () => {

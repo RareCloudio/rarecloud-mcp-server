@@ -5,7 +5,7 @@
 
 import { APIError } from '../client.js';
 import { type ToolDefinition, jsonResult, errorResult } from './types.js';
-import { readTool } from './factories.js';
+import { readTool, encodeSegment } from './factories.js';
 
 export const listServices: ToolDefinition = {
   name: 'list_services',
@@ -49,8 +49,8 @@ export const getService: ToolDefinition = {
   },
   async handler(client, args) {
     try {
-      const id = args.service_id as string;
-      const data = await client.get(`/v1/services/${encodeURIComponent(id)}`);
+      const id = encodeSegment(args.service_id, 'service_id');
+      const data = await client.get(`/v1/services/${id}`);
       return jsonResult(data);
     } catch (e) {
       return errorResult(e instanceof APIError ? e.message : (e as Error).message);
@@ -79,8 +79,8 @@ export const getServiceMetrics: ToolDefinition = {
   },
   async handler(client, args) {
     try {
-      const id = args.service_id as string;
-      const data = await client.get(`/v1/services/${encodeURIComponent(id)}/metrics`, {
+      const id = encodeSegment(args.service_id, 'service_id');
+      const data = await client.get(`/v1/services/${id}/metrics`, {
         period: args.period as string | undefined,
       });
       return jsonResult(data);
@@ -106,9 +106,9 @@ export const listBackups: ToolDefinition = {
   },
   async handler(client, args) {
     try {
-      const id = args.service_id as string;
+      const id = encodeSegment(args.service_id, 'service_id');
       // /snapshots doesn't exist in v1; backups is the real read endpoint.
-      const data = await client.get(`/v1/services/${encodeURIComponent(id)}/backups`);
+      const data = await client.get(`/v1/services/${id}/backups`);
       return jsonResult(data);
     } catch (e) {
       return errorResult(e instanceof APIError ? e.message : (e as Error).message);
@@ -132,8 +132,8 @@ export const getProvisioningState: ToolDefinition = {
   },
   async handler(client, args) {
     try {
-      const id = args.service_id as string;
-      const data = await client.get(`/v1/services/${encodeURIComponent(id)}/provisioning`);
+      const id = encodeSegment(args.service_id, 'service_id');
+      const data = await client.get(`/v1/services/${id}/provisioning`);
       return jsonResult(data);
     } catch (e) {
       return errorResult(e instanceof APIError ? e.message : (e as Error).message);
@@ -157,8 +157,8 @@ export const listOsTemplates: ToolDefinition = {
   },
   async handler(client, args) {
     try {
-      const id = args.service_id as string;
-      const data = await client.get(`/v1/services/${encodeURIComponent(id)}/os-templates`);
+      const id = encodeSegment(args.service_id, 'service_id');
+      const data = await client.get(`/v1/services/${id}/os-templates`);
       return jsonResult(data);
     } catch (e) {
       return errorResult(e instanceof APIError ? e.message : (e as Error).message);
@@ -182,8 +182,8 @@ export const listUpgradeOptions: ToolDefinition = {
   },
   async handler(client, args) {
     try {
-      const id = args.service_id as string;
-      const data = await client.get(`/v1/services/${encodeURIComponent(id)}/upgrade`);
+      const id = encodeSegment(args.service_id, 'service_id');
+      const data = await client.get(`/v1/services/${id}/upgrade`);
       return jsonResult(data);
     } catch (e) {
       return errorResult(e instanceof APIError ? e.message : (e as Error).message);
@@ -205,21 +205,21 @@ export const getServiceIso = readTool({
   name: 'get_service_iso',
   description: 'Get the mounted-ISO status for a legacy VPS: whether a rescue/install ISO is currently attached and, if so, which one. Use to check a server\'s boot media before a reinstall or rescue. Read-only; mount/unmount are writes and are not exposed as MCP tools. The service_id comes from list_services.',
   inputSchema: serviceIdSchema,
-  buildPath: (args) => `/v1/services/${encodeURIComponent(String(args.service_id))}/iso`,
+  buildPath: (args) => `/v1/services/${encodeSegment(args.service_id, 'service_id')}/iso`,
 });
 
 export const listServiceSshKeyLibrary = readTool({
   name: 'list_service_ssh_key_library',
   description: 'List the SSH keys registered in a legacy VPS\'s key library (Virtualizor) — each with id, name, publicKey, and a server-computed fingerprint. These are the keys selectable when reinstalling this server. Distinct from list_ssh_keys, which returns the keys already installed on the running server. The service_id comes from list_services.',
   inputSchema: serviceIdSchema,
-  buildPath: (args) => `/v1/services/${encodeURIComponent(String(args.service_id))}/ssh-keys/library`,
+  buildPath: (args) => `/v1/services/${encodeSegment(args.service_id, 'service_id')}/ssh-keys/library`,
 });
 
 export const getServiceAutorenew = readTool({
   name: 'get_service_autorenew',
   description: 'Get whether a service auto-renews from account balance ({enabled}). Auto-renew defaults on: at the due date the renewal invoice is paid automatically from promo bonus first, then real credit — enabled:false is the per-service opt-out (bonus still applies). Use to confirm a service won\'t lapse, or explain an unexpected renewal charge. The service_id comes from list_services.',
   inputSchema: serviceIdSchema,
-  buildPath: (args) => `/v1/services/${encodeURIComponent(String(args.service_id))}/autorenew`,
+  buildPath: (args) => `/v1/services/${encodeSegment(args.service_id, 'service_id')}/autorenew`,
 });
 
 // NOTE: get_vpanel_status was dropped in Parity Phase A final review. Its API

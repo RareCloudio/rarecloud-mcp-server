@@ -4,7 +4,7 @@
 
 import { APIError } from '../client.js';
 import { type ToolDefinition, jsonResult, errorResult } from './types.js';
-import { readList, readTool } from './factories.js';
+import { readList, readTool, encodeSegment } from './factories.js';
 
 export const listCatalogProducts: ToolDefinition = {
   name: 'list_catalog_products',
@@ -59,8 +59,8 @@ export const getCatalogPlan: ToolDefinition = {
   },
   async handler(client, args) {
     try {
-      const sku = args.sku as string;
-      const data = await client.get(`/v1/catalog/products/${encodeURIComponent(sku)}`);
+      const sku = encodeSegment(args.sku, 'sku');
+      const data = await client.get(`/v1/catalog/products/${sku}`);
       return jsonResult(data);
     } catch (e) {
       return errorResult(e instanceof APIError ? e.message : (e as Error).message);
@@ -115,7 +115,7 @@ export const getProductDetails = readTool({
     required: ['sku'],
     additionalProperties: false,
   },
-  buildPath: (args) => `/v1/catalog/products/${encodeURIComponent(String(args.sku))}/details`,
+  buildPath: (args) => `/v1/catalog/products/${encodeSegment(args.sku, 'sku')}/details`,
 });
 
 export const listPrepurchaseOsTemplates = readTool({
@@ -129,7 +129,7 @@ export const listPrepurchaseOsTemplates = readTool({
     required: ['sku'],
     additionalProperties: false,
   },
-  buildPath: (args) => `/v1/catalog/products/${encodeURIComponent(String(args.sku))}/os-templates`,
+  buildPath: (args) => `/v1/catalog/products/${encodeSegment(args.sku, 'sku')}/os-templates`,
 });
 
 export const listCatalogListings = readTool({
@@ -147,7 +147,7 @@ export const listCatalogListings = readTool({
     required: ['category'],
     additionalProperties: false,
   },
-  buildPath: (args) => `/v1/catalog/listings/${encodeURIComponent(String(args.category))}`,
+  buildPath: (args) => `/v1/catalog/listings/${encodeSegment(args.category, 'category')}`,
 });
 
 export const listKubernetesVersions = readList(

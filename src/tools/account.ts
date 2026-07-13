@@ -3,7 +3,7 @@
 
 import { APIError } from '../client.js';
 import { type ToolDefinition, jsonResult, errorResult } from './types.js';
-import { readList, readTool } from './factories.js';
+import { readList, readTool, encodeSegment } from './factories.js';
 
 export const getAccount: ToolDefinition = {
   name: 'get_account',
@@ -40,8 +40,8 @@ export const listSshKeys: ToolDefinition = {
   async handler(client, args) {
     try {
       // There is no account-wide ssh-keys endpoint; keys are per-service.
-      const id = args.service_id as string;
-      const data = await client.get(`/v1/services/${encodeURIComponent(id)}/ssh-keys`);
+      const id = encodeSegment(args.service_id, 'service_id');
+      const data = await client.get(`/v1/services/${id}/ssh-keys`);
       return jsonResult(data);
     } catch (e) {
       return errorResult(e instanceof APIError ? e.message : (e as Error).message);

@@ -5,7 +5,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readList, readOne, readTool } from './factories.js';
+import { readList, readOne, readTool, encodeSegment } from './factories.js';
 import { APIError, type RareCloudClient } from '../client.js';
 import type { ToolCallResult } from './types.js';
 
@@ -81,11 +81,31 @@ test('readOne: URL-encodes the id into the path', async () => {
   assert.deepEqual(calls, ['/v1/things/a%20b%2Fc']);
 });
 
-test('readOne: missing id becomes an empty encoded segment (no crash)', async () => {
+test('readOne: missing id is rejected before any request (empty segment guard)', async () => {
   const { client, calls } = fakeClient(() => ({}));
   const tool = readOne('get_thing', '/v1/things', 'Get one thing.');
-  await tool.handler(client, {});
-  assert.deepEqual(calls, ['/v1/things/']);
+  const result = await tool.handler(client, {});
+  assert.equal(result.isError, true);
+  assert.equal(textOf(result), 'Error: Invalid id value');
+  assert.deepEqual(calls, [], 'no request may reach the client for an empty id');
+});
+
+test('readOne: a "." id is rejected before any request (dot-segment guard)', async () => {
+  const { client, calls } = fakeClient(() => ({}));
+  const tool = readOne('get_thing', '/v1/things', 'Get one thing.');
+  const result = await tool.handler(client, { id: '.' });
+  assert.equal(result.isError, true);
+  assert.equal(textOf(result), 'Error: Invalid id value');
+  assert.deepEqual(calls, [], 'no request may reach the client for a "." id');
+});
+
+test('readOne: a ".." id is rejected before any request (dot-segment guard, custom idKey)', async () => {
+  const { client, calls } = fakeClient(() => ({}));
+  const tool = readOne('get_domain', '/v1/domains', 'Get one domain.', 'domain_id');
+  const result = await tool.handler(client, { domain_id: '..' });
+  assert.equal(result.isError, true);
+  assert.equal(textOf(result), 'Error: Invalid domain_id value');
+  assert.deepEqual(calls, [], 'no request may reach the client for a ".." id');
 });
 
 test('readOne: APIError maps to errorResult', async () => {
@@ -154,4 +174,47 @@ test('readTool: a non-APIError still maps to errorResult via its message', async
   const result = await tool.handler(client, {});
   assert.equal(result.isError, true);
   assert.equal(textOf(result), 'Error: socket hang up');
+});
+
+// readTool buildPath callers that embed a path segment run it through
+// encodeSegment. When that segment is a traversal token, encodeSegment throws
+// inside buildPath, which the handler's try/catch maps to an errorResult —
+// so client.get is never reached.
+test('readTool: a ".." path segment via encodeSegment is rejected before any request', async () => {
+  const { client, calls } = fakeClient(() => ({ ok: true }));
+  const tool = readTool({
+    name: 'get_thing_detail',
+    description: 'Get a thing detail.',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'], additionalProperties: false },
+    buildPath: (args) => `/v1/things/${encodeSegment(args.id, 'id')}/detail`,
+  });
+  const result = await tool.handler(client, { id: '..' });
+  assert.equal(result.isError, true);
+  assert.equal(textOf(result), 'Error: Invalid id value');
+  assert.deepEqual(calls, [], 'no request may reach the client for a ".." segment');
+});
+
+// --- encodeSegment (dot-segment / empty guard for path segments) ----------
+
+test('encodeSegment: passes valid values through URL-encoding (unchanged for good input)', () => {
+  assert.equal(encodeSegment('svc-123', 'service_id'), 'svc-123');
+  assert.equal(encodeSegment('a b/c', 'service_id'), 'a%20b%2Fc');
+  // A value merely CONTAINING dots (not exactly "." / "..") is fine.
+  assert.equal(encodeSegment('v1.2.3', 'sku'), 'v1.2.3');
+  assert.equal(encodeSegment('..foo', 'id'), '..foo');
+});
+
+test('encodeSegment: rejects "." "." ".." and empty with a named error', () => {
+  for (const bad of ['', '.', '..']) {
+    assert.throws(
+      () => encodeSegment(bad, 'service_id'),
+      (e: unknown) => e instanceof Error && e.message === 'Invalid service_id value',
+      `expected encodeSegment(${JSON.stringify(bad)}) to throw`,
+    );
+  }
+});
+
+test('encodeSegment: null / undefined coerce to empty and are rejected', () => {
+  assert.throws(() => encodeSegment(undefined, 'id'), /Invalid id value/);
+  assert.throws(() => encodeSegment(null, 'id'), /Invalid id value/);
 });

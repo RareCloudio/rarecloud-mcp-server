@@ -15,7 +15,7 @@
 // treat-as-secret guidance as the kubeconfig tools (see k8s.ts): do not echo
 // the result back to the user unless explicitly asked.
 
-import { readList, readOne, readTool } from './factories.js';
+import { readList, readOne, readTool, encodeSegment } from './factories.js';
 
 // Shared: an id-scoped detail read on /v1/proxies/{id}{suffix}.
 const proxyIdSchema = {
@@ -66,7 +66,7 @@ export const getProxyList = readTool({
   description:
     'List the live proxy endpoints and credentials (ip, port, username, password) for an active proxy service — this is the direct endpoint list for ISP fixed-IP plans. For a GB Residential bucket the endpoints live under its proxy-requests instead (use list_proxy_requests + get_proxy_request_list). SECURITY: the result contains LIVE CREDENTIALS — usernames and passwords that grant use of the proxies. Treat it as a secret: do NOT echo it back to the user or repeat its contents unless the user explicitly asks to see it; pass it straight to the tool that consumes it. The id comes from list_proxies.',
   inputSchema: proxyIdSchema,
-  buildPath: (args) => `/v1/proxies/${encodeURIComponent(String(args.id))}/proxy-list`,
+  buildPath: (args) => `/v1/proxies/${encodeSegment(args.id, 'id')}/proxy-list`,
 });
 
 export const getProxyAuth = readTool({
@@ -74,7 +74,7 @@ export const getProxyAuth = readTool({
   description:
     'Get the authentication settings for a proxy service: the auth method, the proxy credentials (null when the service is IP-authenticated only), the IP whitelist, and the caller\'s detected IP. Use to see how the service authenticates before adding a whitelisted IP or switching auth mode. SECURITY: the result may contain LIVE CREDENTIALS — the proxy username and password (null for IP-only services). Treat it as a secret: do NOT echo it back to the user or repeat its contents unless the user explicitly asks to see it; pass it straight to the tool that consumes it. Read-only; changing the auth method / credentials / whitelist are writes and are not exposed as MCP tools yet. The id comes from list_proxies.',
   inputSchema: proxyIdSchema,
-  buildPath: (args) => `/v1/proxies/${encodeURIComponent(String(args.id))}/auth`,
+  buildPath: (args) => `/v1/proxies/${encodeSegment(args.id, 'id')}/auth`,
 });
 
 export const listProxyRequests = readTool({
@@ -82,7 +82,7 @@ export const listProxyRequests = readTool({
   description:
     'List the proxy-requests on a GB Residential bandwidth bucket — the country + rotation-interval + count groups that allocate endpoints from the bucket. Use to see the groups on a GB service or to find a proxy-request id. GB Residential only; ISP fixed-IP plans expose their endpoints directly via get_proxy_list. The id comes from list_proxies (a GB Residential service).',
   inputSchema: proxyIdSchema,
-  buildPath: (args) => `/v1/proxies/${encodeURIComponent(String(args.id))}/proxy-requests`,
+  buildPath: (args) => `/v1/proxies/${encodeSegment(args.id, 'id')}/proxy-requests`,
 });
 
 export const getProxyReplacements = readTool({
@@ -90,7 +90,7 @@ export const getProxyReplacements = readTool({
   description:
     'Get the IP-replacement allowance and history for a proxy service: the included monthly allowance (1/month), how much is used, and past replacement requests. Use to check whether a free IP replacement is available before requesting one. Read-only; requesting a replacement is a write and is not exposed as an MCP tool yet. The id comes from list_proxies.',
   inputSchema: proxyIdSchema,
-  buildPath: (args) => `/v1/proxies/${encodeURIComponent(String(args.id))}/replacements`,
+  buildPath: (args) => `/v1/proxies/${encodeSegment(args.id, 'id')}/replacements`,
 });
 
 // --- two-param path --------------------------------------------------------
@@ -112,5 +112,5 @@ export const getProxyRequestList = readTool({
     additionalProperties: false,
   },
   buildPath: (args) =>
-    `/v1/proxies/${encodeURIComponent(String(args.id))}/proxy-requests/${encodeURIComponent(String(args.request_id))}/proxy-list`,
+    `/v1/proxies/${encodeSegment(args.id, 'id')}/proxy-requests/${encodeSegment(args.request_id, 'request_id')}/proxy-list`,
 });
