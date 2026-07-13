@@ -168,6 +168,19 @@ import {
 } from './account-write.js';
 import { setBillingAlert, deleteBillingAlert, redeemVoucher } from './billing-write.js';
 import { createTicket, replyTicket, closeTicket } from './tickets-write.js';
+import {
+  orderProxy,
+  renewProxy,
+  setProxyAutoRenew,
+  cancelProxy,
+  setProxyAuthMethod,
+  setProxyCredentials,
+  addProxyWhitelistedIp,
+  removeProxyWhitelistedIp,
+  requestProxyReplacement,
+  createProxyRequest,
+  deleteProxyRequest,
+} from './proxies-write.js';
 
 export const TOOLS: ToolDefinition[] = [
   // Catalog (un-authed surface, "what can I deploy?")
@@ -337,6 +350,18 @@ export const TOOLS: ToolDefinition[] = [
   createTicket,
   replyTicket,
   closeTicket,
+  // Proxies — writes (order / renew / auto-renew / cancel / auth / whitelist / replacement / GB proxy-requests)
+  orderProxy,
+  renewProxy,
+  setProxyAutoRenew,
+  cancelProxy,
+  setProxyAuthMethod,
+  setProxyCredentials,
+  addProxyWhitelistedIp,
+  removeProxyWhitelistedIp,
+  requestProxyReplacement,
+  createProxyRequest,
+  deleteProxyRequest,
 ];
 
 export function findTool(name: string): ToolDefinition | undefined {

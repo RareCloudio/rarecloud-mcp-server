@@ -8,7 +8,7 @@ import { TOOLS, findTool } from './index.js';
 
 // Bump this in the same commit that adds/removes tools. A mismatch means the
 // registry changed without the test acknowledging it.
-const EXPECTED_TOOL_COUNT = 145;
+const EXPECTED_TOOL_COUNT = 156;
 
 test('registry: tool count matches the expected total', () => {
   assert.equal(TOOLS.length, EXPECTED_TOOL_COUNT);
