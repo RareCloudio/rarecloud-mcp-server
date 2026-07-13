@@ -53,6 +53,13 @@ import {
 } from './account.js';
 import { listTickets, getTicket, listTicketDepartments } from './tickets.js';
 import { listVolumes, listNetworks, listLoadBalancers, getLoadBalancer, listReservedIps, listDomains, getDomain } from './infra.js';
+import {
+  getClusterScale,
+  listClusterPools,
+  getClusterKubeconfig,
+  listClusterKubeconfigs,
+  downloadClusterKubeconfig,
+} from './k8s.js';
 
 export const TOOLS: ToolDefinition[] = [
   // Catalog (un-authed surface, "what can I deploy?")
@@ -114,6 +121,12 @@ export const TOOLS: ToolDefinition[] = [
   listReservedIps,
   listDomains,
   getDomain,
+  // Managed Kubernetes ("scale / pools / kubeconfig for my cloud-k8s clusters")
+  getClusterScale,
+  listClusterPools,
+  getClusterKubeconfig,
+  listClusterKubeconfigs,
+  downloadClusterKubeconfig,
 ];
 
 export function findTool(name: string): ToolDefinition | undefined {

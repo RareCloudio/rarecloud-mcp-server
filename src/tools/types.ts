@@ -39,6 +39,16 @@ export function jsonResult(data: unknown): ToolCallResult {
   };
 }
 
+// Helper: emit a raw string as a single plain-text content block, verbatim —
+// no JSON encoding. Used for endpoints that hand back a credential document
+// (kubeconfig YAML) the agent should pass straight to kubectl, not a wrapped
+// object. Distinct from jsonResult, which JSON.stringifies its argument.
+export function textResult(text: string): ToolCallResult {
+  return {
+    content: [{ type: 'text', text }],
+  };
+}
+
 export function errorResult(message: string): ToolCallResult {
   return {
     content: [{ type: 'text', text: `Error: ${message}` }],
