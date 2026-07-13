@@ -18,6 +18,14 @@ import {
   mountServiceIso,
   unmountServiceIso,
   setServicePassword,
+  startService,
+  stopService,
+  rebootService,
+  reinstallService,
+  resetServicePassword,
+  addServiceSshKey,
+  addServiceSshKeyToLibrary,
+  applyServiceSshKeyLibrary,
 } from './services-write.js';
 import { APIError, type RareCloudClient } from '../client.js';
 import type { ToolCallResult, ToolDefinition } from './types.js';
@@ -390,4 +398,295 @@ test('set_service_password: an invalid password value is never echoed in the err
     `error text must not contain the literal password value, got: ${textOf(result)}`,
   );
   assert.deepEqual(calls, [], 'an invalid password must never reach the client');
+});
+
+// ---------------------------------------------------------------------------
+// Task 3 — service actions (start/stop/reboot/reinstall/reset-password) +
+// ssh-keys (8 tools).
+//
+// DEVIATION FROM BRIEF (verified against console openapi.json AND the actual
+// route handler in api/src/routes/v1-services.ts, both of which AGREE with
+// each other and DISAGREE with the task-3 brief — openapi/source win per the
+// task's own tie-break rule):
+//   - reinstall_service: the live endpoint requires `imageId` in the body for
+//     BOTH a cloud VM (Nova UUID id) AND a legacy VPS (numeric id) — an empty
+//     body always 400s. It is NOT legacy-VPS-only either: the route's
+//     UUID_RE branch calls cloudServices.reinstallCloudVm. The brief's stale
+//     "cloud-vm rebuild is unsupported by this endpoint" wording is copied
+//     from an outdated code comment (v1-services.ts line 388) that predates
+//     the cloud-VM branch actually implemented a few lines below it.
+//   - reset_service_password: the live endpoint requires a caller-chosen
+//     `password` in the body (min 8 chars) — it does NOT auto-generate a
+//     random password. It is CLOUD-VM-ONLY (a legacy numeric id is rejected
+//     with INVALID_PARAM); set_service_password's own endpoint
+//     (/services/{id}/password) is the legacy-VPS twin.
+// Both tools therefore carry a body, matching the real API contract instead
+// of the brief's "no body" / "random password" description.
+// ---------------------------------------------------------------------------
+
+type Task3ToolCase = {
+  tool: ToolDefinition;
+  gated: boolean;
+  destructive: boolean;
+  args: Record<string, unknown>;
+};
+
+const TASK3_TOOLS: Record<string, Task3ToolCase> = {
+  start_service: { tool: startService, gated: false, destructive: false, args: {} },
+  stop_service: { tool: stopService, gated: false, destructive: false, args: {} },
+  reboot_service: { tool: rebootService, gated: false, destructive: false, args: {} },
+  reinstall_service: { tool: reinstallService, gated: true, destructive: true, args: { imageId: 'ubuntu-24.04' } },
+  reset_service_password: { tool: resetServicePassword, gated: true, destructive: true, args: { password: 'supersecret1' } },
+  add_service_ssh_key: { tool: addServiceSshKey, gated: false, destructive: false, args: { public_key: 'ssh-ed25519 AAAAtest' } },
+  add_service_ssh_key_to_library: {
+    tool: addServiceSshKeyToLibrary,
+    gated: false,
+    destructive: false,
+    args: { name: 'laptop', key: 'ssh-ed25519 AAAAtest' },
+  },
+  apply_service_ssh_key_library: { tool: applyServiceSshKeyLibrary, gated: false, destructive: false, args: {} },
+};
+
+test('task3 registry: each tool has its expected name, closed schema, requires service_id, services:write in description', () => {
+  for (const [name, c] of Object.entries(TASK3_TOOLS)) {
+    assert.equal(c.tool.name, name);
+    assert.equal(c.tool.inputSchema.additionalProperties, false, `${name} must have a closed schema`);
+    assert.equal(c.tool.inputSchema.type, 'object');
+    assert.match(c.tool.description, /services:write/, `${name} description must name the scope`);
+    assert.ok(
+      (c.tool.inputSchema.required ?? []).includes('service_id'),
+      `${name} must require service_id`,
+    );
+  }
+});
+
+test('task3 gates: confirm advertised iff gated; destructiveHint iff destructive', () => {
+  for (const [name, c] of Object.entries(TASK3_TOOLS)) {
+    const hasConfirm = 'confirm' in c.tool.inputSchema.properties;
+    assert.equal(hasConfirm, c.gated, `${name}: confirm-in-schema must match gated=${c.gated}`);
+    if (c.gated) {
+      assert.ok(
+        (c.tool.inputSchema.required ?? []).includes('confirm'),
+        `${name}: gated tool must require confirm`,
+      );
+    }
+    assert.equal(
+      c.tool.annotations?.destructiveHint ?? false,
+      c.destructive,
+      `${name}: destructiveHint must match destructive=${c.destructive}`,
+    );
+  }
+});
+
+test('task3 confirm gate: gated tools (reinstall, reset-password) refuse with NO request when confirm is absent', async () => {
+  for (const [name, c] of Object.entries(TASK3_TOOLS)) {
+    if (!c.gated) continue;
+    const { client, calls } = fakeWriteClient();
+    const result = await c.tool.handler(client, { service_id: 'svc-1', ...c.args });
+    assert.equal(result.isError, true, `${name} must refuse without confirm`);
+    assert.match(textOf(result), /was NOT executed/, `${name} refusal message`);
+    assert.deepEqual(calls, [], `${name} must issue no request without confirm`);
+  }
+});
+
+test('task3 traversal guard: a ".." service_id is rejected before any request', async () => {
+  for (const [name, c] of Object.entries(TASK3_TOOLS)) {
+    const { client, calls } = fakeWriteClient();
+    const confirmArg = c.gated ? { confirm: true } : {};
+    const result = await c.tool.handler(client, { service_id: '..', ...c.args, ...confirmArg });
+    assert.equal(result.isError, true, `${name} must reject ".."`);
+    assert.equal(textOf(result), 'Error: Invalid service_id value', `${name} traversal message`);
+    assert.deepEqual(calls, [], `${name} must issue no request for ".."`);
+  }
+});
+
+test('task3 APIError mapping: a representative tool maps [CODE] message', async () => {
+  const { client } = fakeWriteClient(() => {
+    throw new APIError({ code: 'FORBIDDEN', message: 'services:write scope required' });
+  });
+  const result = await startService.handler(client, { service_id: 'srv-1' });
+  assert.equal(result.isError, true);
+  assert.equal(textOf(result), 'Error: [FORBIDDEN] services:write scope required');
+});
+
+// --- start / stop / reboot (POST, no body, no confirm, distinct literal suffixes) ---
+
+test('start_service: POSTs /actions/start with no body', async () => {
+  const { client, calls } = fakeWriteClient();
+  const result = await startService.handler(client, { service_id: 's1' });
+  assert.equal(result.isError, undefined);
+  assert.deepEqual(calls, [{ method: 'POST', path: '/v1/services/s1/actions/start', body: undefined }]);
+});
+
+test('stop_service: POSTs /actions/stop with no body', async () => {
+  const { client, calls } = fakeWriteClient();
+  const result = await stopService.handler(client, { service_id: 's1' });
+  assert.equal(result.isError, undefined);
+  assert.deepEqual(calls, [{ method: 'POST', path: '/v1/services/s1/actions/stop', body: undefined }]);
+});
+
+test('reboot_service: POSTs /actions/reboot with no body', async () => {
+  const { client, calls } = fakeWriteClient();
+  const result = await rebootService.handler(client, { service_id: 's1' });
+  assert.equal(result.isError, undefined);
+  assert.deepEqual(calls, [{ method: 'POST', path: '/v1/services/s1/actions/reboot', body: undefined }]);
+});
+
+// --- reinstall_service (confirm + destructiveHint; requires imageId) ---
+
+test('reinstall_service: POSTs {imageId} to /actions/reinstall when confirmed (optional fields omitted)', async () => {
+  const { client, calls } = fakeWriteClient();
+  const result = await reinstallService.handler(client, {
+    service_id: 's1',
+    imageId: 'ubuntu-24.04',
+    confirm: true,
+  });
+  assert.equal(result.isError, undefined);
+  assert.deepEqual(calls, [
+    { method: 'POST', path: '/v1/services/s1/actions/reinstall', body: { imageId: 'ubuntu-24.04' } },
+  ]);
+});
+
+test('reinstall_service: forwards optional password + sshPublicKey when supplied', async () => {
+  const { client, calls } = fakeWriteClient();
+  const result = await reinstallService.handler(client, {
+    service_id: 's1',
+    imageId: 'ubuntu-24.04',
+    password: 'supersecret1',
+    sshPublicKey: 'ssh-ed25519 AAAAtest',
+    confirm: true,
+  });
+  assert.equal(result.isError, undefined);
+  assert.deepEqual(calls, [
+    {
+      method: 'POST',
+      path: '/v1/services/s1/actions/reinstall',
+      body: { imageId: 'ubuntu-24.04', password: 'supersecret1', sshPublicKey: 'ssh-ed25519 AAAAtest' },
+    },
+  ]);
+});
+
+test('reinstall_service: missing imageId is rejected by zod before any request', async () => {
+  const { client, calls } = fakeWriteClient();
+  const result = await reinstallService.handler(client, { service_id: 's1', confirm: true });
+  assert.equal(result.isError, true);
+  assert.match(textOf(result), /^Error: Invalid input for reinstall_service:/);
+  assert.deepEqual(calls, []);
+});
+
+// --- reset_service_password (confirm + destructiveHint; requires password) ---
+
+test('reset_service_password: POSTs {password} to /actions/reset-password when confirmed', async () => {
+  const { client, calls } = fakeWriteClient();
+  const result = await resetServicePassword.handler(client, {
+    service_id: 's1',
+    password: 'supersecret1',
+    confirm: true,
+  });
+  assert.equal(result.isError, undefined);
+  assert.deepEqual(calls, [
+    { method: 'POST', path: '/v1/services/s1/actions/reset-password', body: { password: 'supersecret1' } },
+  ]);
+});
+
+test('reset_service_password: rejects a short password before any request', async () => {
+  const { client, calls } = fakeWriteClient();
+  const result = await resetServicePassword.handler(client, { service_id: 's1', password: 'short', confirm: true });
+  assert.equal(result.isError, true);
+  assert.match(textOf(result), /^Error: Invalid input for reset_service_password:/);
+  assert.deepEqual(calls, []);
+});
+
+test('reset_service_password: an invalid password value is never echoed in the error, and no request is issued', async () => {
+  const { client, calls } = fakeWriteClient();
+  const badPassword = 'hunter1';
+  const result = await resetServicePassword.handler(client, {
+    service_id: 's1',
+    password: badPassword,
+    confirm: true,
+  });
+  assert.equal(result.isError, true);
+  assert.ok(
+    !textOf(result).includes(badPassword),
+    `error text must not contain the literal password value, got: ${textOf(result)}`,
+  );
+  assert.deepEqual(calls, [], 'an invalid password must never reach the client');
+});
+
+// --- add_service_ssh_key (POST {public_key, name?, id?}, no confirm) ---
+
+test('add_service_ssh_key: POSTs {public_key} to /ssh-keys (optional name/id omitted)', async () => {
+  const { client, calls } = fakeWriteClient();
+  const result = await addServiceSshKey.handler(client, { service_id: 's1', public_key: 'ssh-ed25519 AAAAtest' });
+  assert.equal(result.isError, undefined);
+  assert.deepEqual(calls, [
+    { method: 'POST', path: '/v1/services/s1/ssh-keys', body: { public_key: 'ssh-ed25519 AAAAtest' } },
+  ]);
+});
+
+test('add_service_ssh_key: forwards optional name + id when supplied', async () => {
+  const { client, calls } = fakeWriteClient();
+  const result = await addServiceSshKey.handler(client, {
+    service_id: 's1',
+    public_key: 'ssh-ed25519 AAAAtest',
+    name: 'laptop',
+    id: 'key-1',
+  });
+  assert.equal(result.isError, undefined);
+  assert.deepEqual(calls, [
+    {
+      method: 'POST',
+      path: '/v1/services/s1/ssh-keys',
+      body: { public_key: 'ssh-ed25519 AAAAtest', name: 'laptop', id: 'key-1' },
+    },
+  ]);
+});
+
+test('add_service_ssh_key: missing public_key is rejected by zod before any request', async () => {
+  const { client, calls } = fakeWriteClient();
+  const result = await addServiceSshKey.handler(client, { service_id: 's1' });
+  assert.equal(result.isError, true);
+  assert.match(textOf(result), /^Error: Invalid input for add_service_ssh_key:/);
+  assert.deepEqual(calls, []);
+});
+
+// --- add_service_ssh_key_to_library (POST {name, key}, no confirm) ---
+
+test('add_service_ssh_key_to_library: POSTs {name, key} to /ssh-keys/library', async () => {
+  const { client, calls } = fakeWriteClient();
+  const result = await addServiceSshKeyToLibrary.handler(client, {
+    service_id: 's1',
+    name: 'laptop',
+    key: 'ssh-ed25519 AAAAtest',
+  });
+  assert.equal(result.isError, undefined);
+  assert.deepEqual(calls, [
+    { method: 'POST', path: '/v1/services/s1/ssh-keys/library', body: { name: 'laptop', key: 'ssh-ed25519 AAAAtest' } },
+  ]);
+});
+
+test('add_service_ssh_key_to_library: missing name/key is rejected by zod before any request', async () => {
+  const { client, calls } = fakeWriteClient();
+  const result = await addServiceSshKeyToLibrary.handler(client, { service_id: 's1' });
+  assert.equal(result.isError, true);
+  assert.match(textOf(result), /^Error: Invalid input for add_service_ssh_key_to_library:/);
+  assert.deepEqual(calls, []);
+});
+
+// --- apply_service_ssh_key_library (POST {keyIds?}, no confirm) ---
+
+test('apply_service_ssh_key_library: POSTs {keyIds} to /ssh-keys/library/apply when supplied', async () => {
+  const { client, calls } = fakeWriteClient();
+  const result = await applyServiceSshKeyLibrary.handler(client, { service_id: 's1', keyIds: ['k1', 'k2'] });
+  assert.equal(result.isError, undefined);
+  assert.deepEqual(calls, [
+    { method: 'POST', path: '/v1/services/s1/ssh-keys/library/apply', body: { keyIds: ['k1', 'k2'] } },
+  ]);
+});
+
+test('apply_service_ssh_key_library: omits undefined keyIds (empty body) when not supplied', async () => {
+  const { client, calls } = fakeWriteClient();
+  const result = await applyServiceSshKeyLibrary.handler(client, { service_id: 's1' });
+  assert.equal(result.isError, undefined);
+  assert.deepEqual(calls, [{ method: 'POST', path: '/v1/services/s1/ssh-keys/library/apply', body: {} }]);
 });

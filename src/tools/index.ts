@@ -105,6 +105,14 @@ import {
   mountServiceIso,
   unmountServiceIso,
   setServicePassword,
+  startService,
+  stopService,
+  rebootService,
+  reinstallService,
+  resetServicePassword,
+  addServiceSshKey,
+  addServiceSshKeyToLibrary,
+  applyServiceSshKeyLibrary,
 } from './services-write.js';
 
 export const TOOLS: ToolDefinition[] = [
@@ -211,6 +219,15 @@ export const TOOLS: ToolDefinition[] = [
   mountServiceIso,
   unmountServiceIso,
   setServicePassword,
+  // Services — actions + keys
+  startService,
+  stopService,
+  rebootService,
+  reinstallService,
+  resetServicePassword,
+  addServiceSshKey,
+  addServiceSshKeyToLibrary,
+  applyServiceSshKeyLibrary,
 ];
 
 export function findTool(name: string): ToolDefinition | undefined {

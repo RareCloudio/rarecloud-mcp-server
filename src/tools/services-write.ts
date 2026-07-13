@@ -355,3 +355,228 @@ export const setServicePassword: ToolDefinition = writeTool({
   confirm: true,
   destructiveHint: true,
 });
+
+// ---------------------------------------------------------------------------
+// Task 3 — service actions (start/stop/reboot/reinstall/reset-password) +
+// ssh-keys (8 tools).
+//
+// The 3 power actions POST /v1/services/{service_id}/actions/<literal> with NO
+// body. reinstall/reset-password hit the SAME /actions/{action} endpoint but,
+// per the live contract (console openapi.json + api/src/routes/v1-services.ts
+// — verified together, both agree and both diverge from an earlier draft of
+// this task's spec that assumed a bare no-body call):
+//   - reinstall requires `imageId` in the body for BOTH a cloud VM (Nova UUID
+//     service_id) and a legacy VPS (numeric service_id) — an empty body always
+//     400s on the live endpoint. It is NOT legacy-only: the route's UUID_RE
+//     branch calls cloudServices.reinstallCloudVm for a cloud VM id.
+//   - reset-password requires a caller-chosen `password` (min 8 chars) — it
+//     does not auto-generate one — and is CLOUD-VM-ONLY; a legacy numeric id
+//     is rejected server-side with INVALID_PARAM. set_service_password's own
+//     endpoint (/services/{id}/password) is the legacy-VPS twin.
+// ---------------------------------------------------------------------------
+
+export const startService: ToolDefinition = writeTool({
+  name: 'start_service',
+  description:
+    'Power on a service (cloud VM or legacy VPS). Requires scope services:write. Plain write — no ' +
+    'billing impact, not destructive. service_id from list_services.',
+  method: 'POST',
+  input: z.object({ service_id: z.string().min(1) }).strict(),
+  inputSchema: {
+    type: 'object',
+    properties: { service_id: { type: 'string', description: 'Service ID from list_services.' } },
+    required: ['service_id'],
+    additionalProperties: false,
+  },
+  buildPath: (a) => `/v1/services/${encodeSegment(a.service_id, 'service_id')}/actions/start`,
+});
+
+export const stopService: ToolDefinition = writeTool({
+  name: 'stop_service',
+  description:
+    'Power off a service (cloud VM or legacy VPS). Requires scope services:write. Plain write — no ' +
+    'billing impact, not destructive. service_id from list_services.',
+  method: 'POST',
+  input: z.object({ service_id: z.string().min(1) }).strict(),
+  inputSchema: {
+    type: 'object',
+    properties: { service_id: { type: 'string', description: 'Service ID from list_services.' } },
+    required: ['service_id'],
+    additionalProperties: false,
+  },
+  buildPath: (a) => `/v1/services/${encodeSegment(a.service_id, 'service_id')}/actions/stop`,
+});
+
+export const rebootService: ToolDefinition = writeTool({
+  name: 'reboot_service',
+  description:
+    'Reboot a service (cloud VM or legacy VPS). Requires scope services:write. Plain write — no ' +
+    'billing impact, not destructive. service_id from list_services.',
+  method: 'POST',
+  input: z.object({ service_id: z.string().min(1) }).strict(),
+  inputSchema: {
+    type: 'object',
+    properties: { service_id: { type: 'string', description: 'Service ID from list_services.' } },
+    required: ['service_id'],
+    additionalProperties: false,
+  },
+  buildPath: (a) => `/v1/services/${encodeSegment(a.service_id, 'service_id')}/actions/reboot`,
+});
+
+export const reinstallService: ToolDefinition = writeTool({
+  name: 'reinstall_service',
+  description:
+    'Reinstall (rebuild from scratch) a service — works on BOTH a cloud VM (Nova UUID service_id) and a ' +
+    'legacy VPS (numeric service_id). Requires scope services:write. IRREVERSIBLE: wipes the current ' +
+    'disk and reinstalls the OS image; the service keeps its IP (and, for a cloud VM, keeps a one-time ' +
+    'consolePassword in the response only when no password was supplied). Requires imageId, a curated OS ' +
+    'template/image slug (see list_os_templates / list_images / get_service os-templates). password and ' +
+    'sshPublicKey are optional (sshPublicKey only applies to a cloud VM). You MUST pass confirm:true, and ' +
+    'only after the user has explicitly approved the rebuild and understands the data loss. service_id ' +
+    'from list_services.',
+  method: 'POST',
+  input: z
+    .object({
+      service_id: z.string().min(1),
+      imageId: z.string().min(1).max(128),
+      password: z.string().min(8).max(128).optional(),
+      sshPublicKey: z.string().min(1).max(4096).optional(),
+    })
+    .strict(),
+  inputSchema: {
+    type: 'object',
+    properties: {
+      service_id: { type: 'string', description: 'Service ID from list_services.' },
+      imageId: { type: 'string', maxLength: 128, description: 'OS template/image slug (see list_os_templates or list_images).' },
+      password: { type: 'string', description: 'Optional root password for the rebuilt server (8–128 chars). Never echoed or logged.' },
+      sshPublicKey: { type: 'string', maxLength: 4096, description: 'Optional inline SSH public key to install for root (cloud VM only).' },
+    },
+    required: ['service_id', 'imageId'],
+    additionalProperties: false,
+  },
+  buildPath: (a) => `/v1/services/${encodeSegment(a.service_id, 'service_id')}/actions/reinstall`,
+  buildBody: (a) => {
+    const body: Record<string, unknown> = { imageId: a.imageId };
+    if (a.password !== undefined) body.password = a.password;
+    if (a.sshPublicKey !== undefined) body.sshPublicKey = a.sshPublicKey;
+    return body;
+  },
+  confirm: true,
+  destructiveHint: true,
+});
+
+export const resetServicePassword: ToolDefinition = writeTool({
+  name: 'reset_service_password',
+  description:
+    'Reset the root password on a RUNNING cloud VM (Nova UUID service_id) live via qemu-guest-agent — the ' +
+    'VM keeps running and keeps its data (this is NOT a reboot/rebuild). Requires scope services:write. ' +
+    'CLOUD VM ONLY: a legacy VPS (numeric service_id) is rejected — use set_service_password for that. You ' +
+    'must supply the new password (8–128 chars); the value is a secret and is never echoed back or logged. ' +
+    'The previous credential stops working immediately, so pass confirm:true only after the user has ' +
+    'explicitly approved. service_id from list_services.',
+  method: 'POST',
+  input: z.object({ service_id: z.string().min(1), password: z.string().min(8).max(128) }).strict(),
+  inputSchema: {
+    type: 'object',
+    properties: {
+      service_id: { type: 'string', description: 'Service ID from list_services (cloud VM / Nova UUID only).' },
+      password: { type: 'string', description: 'New root password (8–128 chars). Never echoed or logged.' },
+    },
+    required: ['service_id', 'password'],
+    additionalProperties: false,
+  },
+  buildPath: (a) => `/v1/services/${encodeSegment(a.service_id, 'service_id')}/actions/reset-password`,
+  buildBody: (a) => ({ password: a.password }),
+  confirm: true,
+  destructiveHint: true,
+});
+
+export const addServiceSshKey: ToolDefinition = writeTool({
+  name: 'add_service_ssh_key',
+  description:
+    'Install an SSH public key directly onto a running service (per-server), distinct from ' +
+    'add_service_ssh_key_to_library, which registers a key in the server\'s reinstall-time key library. ' +
+    'Requires scope services:write. Plain write — no billing impact, not destructive. service_id from ' +
+    'list_services.',
+  method: 'POST',
+  input: z
+    .object({
+      service_id: z.string().min(1),
+      public_key: z.string().min(1).max(4096),
+      name: z.string().max(200).optional(),
+      id: z.string().max(64).optional(),
+    })
+    .strict(),
+  inputSchema: {
+    type: 'object',
+    properties: {
+      service_id: { type: 'string', description: 'Service ID from list_services.' },
+      public_key: { type: 'string', maxLength: 4096, description: 'The SSH public key material to install.' },
+      name: { type: 'string', maxLength: 200, description: 'Optional label for the key.' },
+      id: { type: 'string', maxLength: 64, description: 'Optional caller-supplied key id.' },
+    },
+    required: ['service_id', 'public_key'],
+    additionalProperties: false,
+  },
+  buildPath: (a) => `/v1/services/${encodeSegment(a.service_id, 'service_id')}/ssh-keys`,
+  buildBody: (a) => {
+    const body: Record<string, unknown> = { public_key: a.public_key };
+    if (a.name !== undefined) body.name = a.name;
+    if (a.id !== undefined) body.id = a.id;
+    return body;
+  },
+});
+
+export const addServiceSshKeyToLibrary: ToolDefinition = writeTool({
+  name: 'add_service_ssh_key_to_library',
+  description:
+    'Register a new SSH key in a legacy VPS\'s key library (Virtualizor) — the set of keys selectable when ' +
+    'reinstalling this server (see list_service_ssh_key_library). Distinct from add_service_ssh_key, which ' +
+    'installs a key directly on the running server. Requires scope services:write. Plain write — no ' +
+    'billing impact, not destructive. service_id from list_services.',
+  method: 'POST',
+  input: z.object({ service_id: z.string().min(1), name: z.string().min(1).max(200), key: z.string().min(1).max(4096) }).strict(),
+  inputSchema: {
+    type: 'object',
+    properties: {
+      service_id: { type: 'string', description: 'Service ID from list_services.' },
+      name: { type: 'string', maxLength: 200, description: 'A label for the key.' },
+      key: { type: 'string', maxLength: 4096, description: 'The SSH public key material.' },
+    },
+    required: ['service_id', 'name', 'key'],
+    additionalProperties: false,
+  },
+  buildPath: (a) => `/v1/services/${encodeSegment(a.service_id, 'service_id')}/ssh-keys/library`,
+  buildBody: (a) => ({ name: a.name, key: a.key }),
+});
+
+export const applyServiceSshKeyLibrary: ToolDefinition = writeTool({
+  name: 'apply_service_ssh_key_library',
+  description:
+    'Apply a SET of library SSH keys (see list_service_ssh_key_library) to a legacy VPS, replacing whichever ' +
+    'keys are currently authorized on the server. Requires scope services:write. Omit keyIds (or pass an ' +
+    'empty array) to apply an empty set. Plain write — no billing impact, not destructive. service_id from ' +
+    'list_services.',
+  method: 'POST',
+  input: z.object({ service_id: z.string().min(1), keyIds: z.array(z.string().min(1).max(64)).max(50).optional() }).strict(),
+  inputSchema: {
+    type: 'object',
+    properties: {
+      service_id: { type: 'string', description: 'Service ID from list_services.' },
+      keyIds: {
+        type: 'array',
+        items: { type: 'string', maxLength: 64 },
+        maxItems: 50,
+        description: 'Library key ids to apply (see list_service_ssh_key_library). Omit for an empty set.',
+      },
+    },
+    required: ['service_id'],
+    additionalProperties: false,
+  },
+  buildPath: (a) => `/v1/services/${encodeSegment(a.service_id, 'service_id')}/ssh-keys/library/apply`,
+  buildBody: (a) => {
+    const body: Record<string, unknown> = {};
+    if (a.keyIds !== undefined) body.keyIds = a.keyIds;
+    return body;
+  },
+});
