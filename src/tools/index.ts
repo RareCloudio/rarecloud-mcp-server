@@ -137,6 +137,18 @@ import {
   attachReservedIp,
   detachReservedIp,
 } from './infra-write.js';
+import {
+  createFirewall,
+  deleteFirewall,
+  addFirewallRule,
+  deleteFirewallRule,
+  attachFirewall,
+  detachFirewall,
+  createLoadBalancer,
+  deleteLoadBalancer,
+  addLoadBalancerMember,
+  removeLoadBalancerMember,
+} from './firewall-lb-write.js';
 
 export const TOOLS: ToolDefinition[] = [
   // Catalog (un-authed surface, "what can I deploy?")
@@ -272,6 +284,17 @@ export const TOOLS: ToolDefinition[] = [
   releaseReservedIp,
   attachReservedIp,
   detachReservedIp,
+  // Cloud infra — writes (firewalls / load-balancers)
+  createFirewall,
+  deleteFirewall,
+  addFirewallRule,
+  deleteFirewallRule,
+  attachFirewall,
+  detachFirewall,
+  createLoadBalancer,
+  deleteLoadBalancer,
+  addLoadBalancerMember,
+  removeLoadBalancerMember,
 ];
 
 export function findTool(name: string): ToolDefinition | undefined {
