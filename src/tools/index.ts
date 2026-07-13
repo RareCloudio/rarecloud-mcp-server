@@ -114,6 +114,16 @@ import {
   addServiceSshKeyToLibrary,
   applyServiceSshKeyLibrary,
 } from './services-write.js';
+import {
+  setClusterScale,
+  addClusterPool,
+  updateClusterPool,
+  deleteClusterPool,
+  renameClusterPool,
+  enableClusterHa,
+  createClusterKubeconfig,
+  revokeClusterKubeconfig,
+} from './k8s-write.js';
 
 export const TOOLS: ToolDefinition[] = [
   // Catalog (un-authed surface, "what can I deploy?")
@@ -228,6 +238,15 @@ export const TOOLS: ToolDefinition[] = [
   addServiceSshKey,
   addServiceSshKeyToLibrary,
   applyServiceSshKeyLibrary,
+  // Managed Kubernetes — writes
+  setClusterScale,
+  addClusterPool,
+  updateClusterPool,
+  deleteClusterPool,
+  renameClusterPool,
+  enableClusterHa,
+  createClusterKubeconfig,
+  revokeClusterKubeconfig,
 ];
 
 export function findTool(name: string): ToolDefinition | undefined {
