@@ -7,8 +7,25 @@ import {
   getCatalogPlan,
   listRegions,
   listImages,
+  getProductDetails,
+  listPrepurchaseOsTemplates,
+  listCatalogListings,
+  listKubernetesVersions,
 } from './catalog.js';
-import { listServices, getService, getServiceMetrics, listBackups, getProvisioningState, listOsTemplates, listUpgradeOptions } from './services.js';
+import {
+  listServices,
+  getService,
+  getServiceMetrics,
+  listBackups,
+  getProvisioningState,
+  listOsTemplates,
+  listUpgradeOptions,
+  getServiceIso,
+  listServiceSshKeyLibrary,
+  getServiceAutorenew,
+  getVpanelStatus,
+} from './services.js';
+import { listOrders, getOrder } from './orders.js';
 import {
   listInvoices,
   getInvoice,
@@ -43,6 +60,10 @@ export const TOOLS: ToolDefinition[] = [
   getCatalogPlan,
   listRegions,
   listImages,
+  getProductDetails,
+  listPrepurchaseOsTemplates,
+  listCatalogListings,
+  listKubernetesVersions,
   // Services ("what do I have running?")
   listServices,
   getService,
@@ -51,6 +72,13 @@ export const TOOLS: ToolDefinition[] = [
   getProvisioningState,
   listOsTemplates,
   listUpgradeOptions,
+  getServiceIso,
+  listServiceSshKeyLibrary,
+  getServiceAutorenew,
+  getVpanelStatus,
+  // Orders ("what have I purchased?")
+  listOrders,
+  getOrder,
   // Billing ("how much am I spending?")
   listInvoices,
   getInvoice,

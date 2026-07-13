@@ -4,6 +4,7 @@
 
 import { APIError } from '../client.js';
 import { type ToolDefinition, jsonResult, errorResult } from './types.js';
+import { readList, readTool } from './factories.js';
 
 export const listCatalogProducts: ToolDefinition = {
   name: 'list_catalog_products',
@@ -102,3 +103,55 @@ export const listImages: ToolDefinition = {
     }
   },
 };
+
+export const getProductDetails = readTool({
+  name: 'get_product_details',
+  description: 'Get the live, order-ready detail for one product SKU: every billing cycle with its price, the plans (sizes) on offer, and the config options (e.g. the OS-template field) a purchase must fill in. Richer than get_catalog_plan — use this right before building an order or quoting a price. The sku comes from list_catalog_products or a list_catalog_listings card.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      sku: { type: 'string', description: 'Product SKU from list_catalog_products / list_catalog_listings (e.g. "whmcs.kvm-servers-plus-vps").' },
+    },
+    required: ['sku'],
+    additionalProperties: false,
+  },
+  buildPath: (args) => `/v1/catalog/products/${encodeURIComponent(String(args.sku))}/details`,
+});
+
+export const listPrepurchaseOsTemplates = readTool({
+  name: 'list_prepurchase_os_templates',
+  description: 'List the OS templates selectable at purchase time for a legacy VPS / dedicated-server SKU — each with slug, display name, and version. Use to pick a valid OS before ordering one of these products. (For the OS list of an already-running server use list_os_templates with a service_id instead.) The sku comes from list_catalog_products.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      sku: { type: 'string', description: 'Legacy/dedicated product SKU from list_catalog_products.' },
+    },
+    required: ['sku'],
+    additionalProperties: false,
+  },
+  buildPath: (args) => `/v1/catalog/products/${encodeURIComponent(String(args.sku))}/os-templates`,
+});
+
+export const listCatalogListings = readTool({
+  name: 'list_catalog_listings',
+  description: 'List the deploy-wizard product cards for one category — the same tiles the console shows on the "create" screen, each with sku, display name, tier, pricing, specs, and available regions. Use to browse "what can I deploy in this category?" and to grab a sku to pass on to get_product_details.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      category: {
+        type: 'string',
+        enum: ['cloud-vm', 'cloud-k8s', 'cloud-volume', 'cloud-network', 'cloud-loadbalancer', 'cloud-reserved-ip', 'server', 'hosting', 'proxy', 'domain'],
+        description: 'Which deploy-wizard category to list cards for.',
+      },
+    },
+    required: ['category'],
+    additionalProperties: false,
+  },
+  buildPath: (args) => `/v1/catalog/listings/${encodeURIComponent(String(args.category))}`,
+});
+
+export const listKubernetesVersions = readList(
+  'list_kubernetes_versions',
+  '/v1/catalog/kubernetes-versions',
+  'List the managed-Kubernetes (Gardener shoot) versions currently offered, newest-supported first. Use to pick or validate a version before deploying a cloud-k8s cluster.',
+);

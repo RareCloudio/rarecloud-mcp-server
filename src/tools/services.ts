@@ -5,6 +5,7 @@
 
 import { APIError } from '../client.js';
 import { type ToolDefinition, jsonResult, errorResult } from './types.js';
+import { readTool } from './factories.js';
 
 export const listServices: ToolDefinition = {
   name: 'list_services',
@@ -189,3 +190,41 @@ export const listUpgradeOptions: ToolDefinition = {
     }
   },
 };
+
+// service_id-scoped detail reads. Each hits a fixed sub-path under the service.
+const serviceIdSchema = {
+  type: 'object' as const,
+  properties: {
+    service_id: { type: 'string', description: 'Service ID from list_services.' },
+  },
+  required: ['service_id'],
+  additionalProperties: false,
+};
+
+export const getServiceIso = readTool({
+  name: 'get_service_iso',
+  description: 'Get the mounted-ISO status for a legacy VPS: whether a rescue/install ISO is currently attached and, if so, which one. Use to check a server\'s boot media before a reinstall or rescue. Read-only; mount/unmount are writes and are not exposed as MCP tools. The service_id comes from list_services.',
+  inputSchema: serviceIdSchema,
+  buildPath: (args) => `/v1/services/${encodeURIComponent(String(args.service_id))}/iso`,
+});
+
+export const listServiceSshKeyLibrary = readTool({
+  name: 'list_service_ssh_key_library',
+  description: 'List the SSH keys registered in a legacy VPS\'s key library (Virtualizor) — each with id, name, publicKey, and a server-computed fingerprint. These are the keys selectable when reinstalling this server. Distinct from list_ssh_keys, which returns the keys already installed on the running server. The service_id comes from list_services.',
+  inputSchema: serviceIdSchema,
+  buildPath: (args) => `/v1/services/${encodeURIComponent(String(args.service_id))}/ssh-keys/library`,
+});
+
+export const getServiceAutorenew = readTool({
+  name: 'get_service_autorenew',
+  description: 'Get whether a service auto-renews from account balance ({enabled}). Auto-renew defaults on: at the due date the renewal invoice is paid automatically from promo bonus first, then real credit — enabled:false is the per-service opt-out (bonus still applies). Use to confirm a service won\'t lapse, or explain an unexpected renewal charge. The service_id comes from list_services.',
+  inputSchema: serviceIdSchema,
+  buildPath: (args) => `/v1/services/${encodeURIComponent(String(args.service_id))}/autorenew`,
+});
+
+export const getVpanelStatus = readTool({
+  name: 'get_vpanel_status',
+  description: 'Check whether a legacy VPS\'s management panel (Virtualizor) is reachable — a reachability probe that distinguishes a node/infra outage (available:false, reason:node-unavailable) from a working panel, and reports reason:not-a-vps when the service has no Virtualizor VPS. Returns {vpsId, available, reason}. Use before pointing a user at the panel, or to tell "the node is down" apart from "the panel works". The service_id comes from list_services.',
+  inputSchema: serviceIdSchema,
+  buildPath: (args) => `/v1/services/${encodeURIComponent(String(args.service_id))}/vpanel/status`,
+});
