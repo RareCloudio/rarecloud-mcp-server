@@ -124,6 +124,19 @@ import {
   createClusterKubeconfig,
   revokeClusterKubeconfig,
 } from './k8s-write.js';
+import {
+  createVolume,
+  deleteVolume,
+  attachVolume,
+  detachVolume,
+  createNetwork,
+  deleteNetwork,
+  attachNetworkVm,
+  reserveIp,
+  releaseReservedIp,
+  attachReservedIp,
+  detachReservedIp,
+} from './infra-write.js';
 
 export const TOOLS: ToolDefinition[] = [
   // Catalog (un-authed surface, "what can I deploy?")
@@ -247,6 +260,18 @@ export const TOOLS: ToolDefinition[] = [
   enableClusterHa,
   createClusterKubeconfig,
   revokeClusterKubeconfig,
+  // Cloud infra — writes (volumes / networks / reserved-ips)
+  createVolume,
+  deleteVolume,
+  attachVolume,
+  detachVolume,
+  createNetwork,
+  deleteNetwork,
+  attachNetworkVm,
+  reserveIp,
+  releaseReservedIp,
+  attachReservedIp,
+  detachReservedIp,
 ];
 
 export function findTool(name: string): ToolDefinition | undefined {
