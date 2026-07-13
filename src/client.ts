@@ -39,6 +39,14 @@ export class RareCloudClient {
     return this.do<T>('POST', this.url(path), body);
   }
 
+  async put<T = unknown>(path: string, body?: unknown): Promise<T> {
+    return this.do<T>('PUT', this.url(path), body);
+  }
+
+  async patch<T = unknown>(path: string, body?: unknown): Promise<T> {
+    return this.do<T>('PATCH', this.url(path), body);
+  }
+
   async delete<T = unknown>(path: string): Promise<T> {
     return this.do<T>('DELETE', this.url(path));
   }
