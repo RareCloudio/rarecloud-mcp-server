@@ -209,12 +209,16 @@ test('exclusion guard: the domains:write surface is EXACTLY the safe set', () =>
 });
 
 // ---------------------------------------------------------------------------
-// Convention invariant: every tool in the five write-scope sets above names
-// EXACTLY ONE `:write` scope literal in its description (never zero, never
-// two) — this is the assumption the six exact-set pins above rest on. If a
-// tool's description ever names a second scope (or drops its scope literal
-// entirely), the pins above would silently stop being a reliable proxy for
-// "which tools carry this scope" without this test catching it.
+// Convention invariant: every tool that names a `:write` scope literal names
+// EXACTLY ONE (never two) — so no tool can appear in two of the exact-set
+// pins above. NOTE the division of labor: this test can only see tools whose
+// description already matches SOME scope literal (membership is derived via
+// withScope), so it structurally CANNOT catch a write tool that drops its
+// scope literal entirely. That "never zero" case is owned by the hardcoded
+// exact-set pin arrays above: a pinned tool losing its literal falls out of
+// withScope()'s output and breaks the deepEqual against the pinned list.
+// Do NOT "simplify" the suite by dropping those hardcoded arrays in favor of
+// this invariant — they are the only guard for the zero-literal case.
 // ---------------------------------------------------------------------------
 
 test('exclusion guard convention: every write-scope tool names EXACTLY ONE :write scope literal', () => {
