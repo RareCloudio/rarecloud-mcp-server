@@ -52,7 +52,28 @@ import {
   listAccountContacts,
 } from './account.js';
 import { listTickets, getTicket, listTicketDepartments } from './tickets.js';
-import { listVolumes, listNetworks, listLoadBalancers, getLoadBalancer, listReservedIps, listDomains, getDomain } from './infra.js';
+import {
+  listVolumes,
+  getVolume,
+  listNetworks,
+  getNetwork,
+  listLoadBalancers,
+  getLoadBalancer,
+  listLoadBalancerMembers,
+  listReservedIps,
+  listFirewalls,
+  getFirewall,
+} from './infra.js';
+import {
+  listDomains,
+  getDomain,
+  checkDomainAvailability,
+  getTldPricing,
+  getDomainNameservers,
+  getDomainContacts,
+  getDomainDns,
+  getDomainManagement,
+} from './domains.js';
 import {
   getClusterScale,
   listClusterPools,
@@ -113,14 +134,26 @@ export const TOOLS: ToolDefinition[] = [
   getAccountActivity,
   listAccountEmails,
   listAccountContacts,
-  // Cloud infrastructure ("what storage / networks / IPs / domains do I have?")
+  // Cloud infrastructure ("what storage / networks / LBs / IPs / firewalls do I have?")
   listVolumes,
+  getVolume,
   listNetworks,
+  getNetwork,
   listLoadBalancers,
   getLoadBalancer,
+  listLoadBalancerMembers,
   listReservedIps,
+  listFirewalls,
+  getFirewall,
+  // Domains ("what domains do I own + is this name available?")
   listDomains,
   getDomain,
+  checkDomainAvailability,
+  getTldPricing,
+  getDomainNameservers,
+  getDomainContacts,
+  getDomainDns,
+  getDomainManagement,
   // Managed Kubernetes ("scale / pools / kubeconfig for my cloud-k8s clusters")
   getClusterScale,
   listClusterPools,
