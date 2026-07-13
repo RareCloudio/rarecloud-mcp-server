@@ -2,6 +2,8 @@
 // the CLI + Terraform provider use: { ok: true, data: ... } or
 // { ok: false, error: { code, message } }.
 
+import { SERVER_VERSION } from './version.js';
+
 export interface RareCloudClientConfig {
   endpoint: string;
   token: string;
@@ -65,7 +67,7 @@ export class RareCloudClient {
   private async do<T>(method: string, url: string, body?: unknown): Promise<T> {
     const headers: Record<string, string> = {
       Authorization: `Bearer ${this.config.token}`,
-      'User-Agent': this.config.userAgent ?? 'rarecloud-mcp/0.1.0',
+      'User-Agent': this.config.userAgent ?? `rarecloud-mcp/${SERVER_VERSION}`,
     };
     if (body !== undefined) headers['Content-Type'] = 'application/json';
 

@@ -6,6 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { RareCloudClient, APIError } from './client.js';
+import { SERVER_VERSION } from './version.js';
 
 interface CapturedRequest {
   url: string;
@@ -76,6 +77,28 @@ test('injects Authorization: Bearer <token> header', async () => {
     const client = new RareCloudClient({ endpoint: 'https://example.com', token: 'svc-123' });
     await client.get('/v1/account');
     assert.equal(stub.calls[0].headers.Authorization, 'Bearer svc-123');
+  } finally {
+    stub.restore();
+  }
+});
+
+test('sets a versioned default User-Agent from SERVER_VERSION', async () => {
+  const stub = stubFetch(ok({}));
+  try {
+    const client = new RareCloudClient({ endpoint: 'https://example.com', token: 't' });
+    await client.get('/v1/account');
+    assert.equal(stub.calls[0].headers['User-Agent'], `rarecloud-mcp/${SERVER_VERSION}`);
+  } finally {
+    stub.restore();
+  }
+});
+
+test('honours an explicit userAgent override', async () => {
+  const stub = stubFetch(ok({}));
+  try {
+    const client = new RareCloudClient({ endpoint: 'https://example.com', token: 't', userAgent: 'custom/9.9' });
+    await client.get('/v1/account');
+    assert.equal(stub.calls[0].headers['User-Agent'], 'custom/9.9');
   } finally {
     stub.restore();
   }
