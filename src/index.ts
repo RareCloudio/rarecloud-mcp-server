@@ -10,7 +10,9 @@
 //     Until that ships, the agent suggests and the user confirms in
 //     dashboard / CLI / Terraform.
 //   - Authenticates with a personal access token (Dashboard → Account →
-//     API tokens). Scope the token to *:read for safety.
+//     API tokens). Scope it to the explicit read scopes (account:read,
+//     services:read, billing:read, domains:read, tickets:read) for safety —
+//     scope matching is exact; wildcard patterns like *:read are unsupported.
 //   - Speaks stdio. To use with Claude Desktop, see README.md for the
 //     mcpServers config snippet.
 

@@ -113,7 +113,7 @@ npx @rarecloudio/mcp-server
 
 ## Configure
 
-Get an API token: **Dashboard → Account → API tokens → New token**. Scope it to read-only (`*:read`). Copy it — shown once.
+Get an API token: **Dashboard → Account → API tokens → New token**. For a read-only agent token, select the explicit read scopes `account:read`, `services:read`, `billing:read`, `domains:read`, `tickets:read` — or bare `*` for full access. (Scope matching is exact; wildcard patterns like `*:read` are not supported.) Copy the token — shown once.
 
 Set the env var:
 
