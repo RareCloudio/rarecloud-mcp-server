@@ -4,3 +4,6 @@ dist/
 .env
 .env.local
 .DS_Store
+# Local agent scratch (SDD briefs/reports/diffs). Tracked here — not just in
+# .git/info/exclude — so no clone can accidentally publish internal notes.
+.superpowers/
