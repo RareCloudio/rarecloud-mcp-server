@@ -8,12 +8,20 @@
 // Irreversible teardown tools (delete_firewall, delete_firewall_rule,
 // delete_load_balancer, remove_load_balancer_member) carry `confirm: true` +
 // `destructiveHint`. Plain creates/moves (create_firewall, add_firewall_rule,
-// attach/detach_firewall, create_load_balancer, add_load_balancer_member) are
-// ungated per the brief's sweep — none of these are separately billed
-// on-demand resources, so unlike create_volume/reserve_ip they don't get the
-// money-spend confirm gate. Every dynamic path segment (`id`, and the
-// firewall-rule/LB-member second segment) runs through encodeSegment;
-// `serverId` is always a BODY field, never a path segment.
+// attach/detach_firewall, add_load_balancer_member) are ungated per the
+// brief's sweep — none of these are separately billed on-demand resources.
+// `create_load_balancer` is the one exception (post-review fix, orchestrator
+// -verified against the billing pricebook): unlike a firewall or a VPC, it
+// provisions BOTH an Octavia load balancer (`loadbalancer_hour` meter) AND a
+// public floating IP (`floatingip_hour` meter), both billed hourly — see
+// api/src/lib/billing/pricebook.ts (`loadBalancerHourlyCents`,
+// `floatingIpHourlyCents`) and usage.ts (`LOADBALANCER_HOUR`,
+// `FLOATINGIP_HOUR`). The original sweep miscategorized it as a plain write;
+// it now carries `confirm: true` like create_volume/reserve_ip in
+// infra-write.ts (money-spend, NOT destructive — no `destructiveHint`).
+// Every dynamic path segment (`id`, and the firewall-rule/LB-member second
+// segment) runs through encodeSegment; `serverId` is always a BODY field,
+// never a path segment.
 //
 // Bodies + bounds re-confirmed against console openapi.json AND the route
 // source (api/src/routes/v1-firewalls.ts, v1-load-balancers.ts):
@@ -26,10 +34,13 @@
 //     maxLength:255 (not spelled out in the brief) — mirrored in both
 //     layers. The route source additionally enforces remoteCidr against a
 //     CIDR-format regex and a portRangeMin<=portRangeMax cross-field rule;
-//     neither is part of the openapi-documented request schema, so — per the
-//     Task-5 precedent of only mirroring openapi-documented bounds
-//     client-side — we do not replicate them here; an invalid value still
-//     surfaces as a server-side APIError.
+//     neither is part of the openapi-documented request schema. Post-review
+//     fix: remoteCidr's regex IS now mirrored client-side (zod `.regex()` +
+//     JSON Schema `pattern`, exactly matching v1-firewalls.ts's RuleInput),
+//     so a malformed CIDR is rejected before any request; the
+//     portRangeMin<=portRangeMax cross-field rule is still enforced only
+//     server-side (called out in the tool description) — an invalid value
+//     there still surfaces as a server-side APIError (400).
 //   - create_load_balancer: openapi documents name maxLength:253 but is
 //     silent on a minimum; the route source's CreateLbBody enforces
 //     `.min(1)`, so we mirror minLength:1 too (ambiguity resolved via route
@@ -94,7 +105,8 @@ export const addFirewallRule: ToolDefinition = writeTool({
     'gated. id is the firewall id from list_firewalls / get_firewall. direction and protocol are required; ' +
     'portRangeMin/portRangeMax (1-65535) narrow the rule to specific ports (omit both to match all ports); ' +
     "remoteCidr restricts the rule to a CIDR block (e.g. '0.0.0.0/0'); description is an optional label " +
-    '(max 255 chars).',
+    '(max 255 chars). The server enforces portRangeMin <= portRangeMax; a rule violating that ordering is ' +
+    'rejected with a 400.',
   method: 'POST',
   input: z
     .object({
@@ -103,7 +115,10 @@ export const addFirewallRule: ToolDefinition = writeTool({
       protocol: z.enum(['tcp', 'udp', 'icmp', 'all']),
       portRangeMin: z.number().int().min(1).max(65535).optional(),
       portRangeMax: z.number().int().min(1).max(65535).optional(),
-      remoteCidr: z.string().optional(),
+      remoteCidr: z
+        .string()
+        .regex(/^(\d{1,3}\.){3}\d{1,3}\/\d{1,2}$/)
+        .optional(),
       description: z.string().max(255).optional(),
     })
     .strict(),
@@ -115,7 +130,11 @@ export const addFirewallRule: ToolDefinition = writeTool({
       protocol: { type: 'string', enum: ['tcp', 'udp', 'icmp', 'all'], description: 'Protocol the rule matches.' },
       portRangeMin: { type: 'integer', minimum: 1, maximum: 65535, description: 'Lower bound of the port range (1-65535).' },
       portRangeMax: { type: 'integer', minimum: 1, maximum: 65535, description: 'Upper bound of the port range (1-65535).' },
-      remoteCidr: { type: 'string', description: "Remote CIDR block the rule applies to, e.g. '0.0.0.0/0'." },
+      remoteCidr: {
+        type: 'string',
+        pattern: '^(\\d{1,3}\\.){3}\\d{1,3}/\\d{1,2}$',
+        description: "Remote CIDR block the rule applies to, e.g. '0.0.0.0/0'.",
+      },
       description: { type: 'string', maxLength: 255, description: 'Optional label for the rule (max 255 chars).' },
     },
     required: ['id', 'direction', 'protocol'],
@@ -200,8 +219,10 @@ export const createLoadBalancer: ToolDefinition = writeTool({
   name: 'create_load_balancer',
   description:
     'Create a new L4 (TCP) load balancer: a VIP on your subnet, a listener + pool on port, the given VMs ' +
-    'as members, and a public floating IP. Requires scope services:write and per-customer tenancy. Plain ' +
-    'write — not gated. name is the display name (1-253 chars); port is the listener + member port ' +
+    'as members, and a public floating IP. Requires scope services:write and per-customer tenancy. SPENDS ' +
+    'MONEY: the load balancer is billed hourly, AND the public floating IP it allocates is billed hourly ' +
+    'as well — two separate hourly meters for one call. Pass confirm:true only after the user has ' +
+    'approved the cost. name is the display name (1-253 chars); port is the listener + member port ' +
     '(1-65535); memberServerIds are the Nova server ids to balance across (at least one); healthCheck ' +
     'enables a TCP health monitor (defaults to true server-side if omitted). Manage it afterward with ' +
     'add_load_balancer_member / remove_load_balancer_member.',
@@ -236,6 +257,7 @@ export const createLoadBalancer: ToolDefinition = writeTool({
     if (a.healthCheck !== undefined) body.healthCheck = a.healthCheck;
     return body;
   },
+  confirm: true,
 });
 
 export const deleteLoadBalancer: ToolDefinition = writeTool({

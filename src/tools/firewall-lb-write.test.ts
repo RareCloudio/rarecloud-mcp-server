@@ -321,10 +321,23 @@ test('add_firewall_rule: rejects a description over 255 chars before any request
   assert.deepEqual(calls, []);
 });
 
-test('add_firewall_rule: schema mirrors direction/protocol enums, port bounds (incl. min side), description maxLength', () => {
+test('add_firewall_rule: rejects a malformed remoteCidr before any request (mirrors route-source regex)', async () => {
+  const { client, calls } = fakeWriteClient();
+  const result = await addFirewallRule.handler(client, {
+    id: 'fw-1',
+    direction: 'inbound',
+    protocol: 'tcp',
+    remoteCidr: 'not-a-cidr',
+  });
+  assert.equal(result.isError, true);
+  assert.match(textOf(result), /^Error: Invalid input for add_firewall_rule:/);
+  assert.deepEqual(calls, []);
+});
+
+test('add_firewall_rule: schema mirrors direction/protocol enums, port bounds (incl. min side), description maxLength, remoteCidr pattern', () => {
   const props = addFirewallRule.inputSchema.properties as Record<
     string,
-    { enum?: string[]; minimum?: number; maximum?: number; maxLength?: number }
+    { enum?: string[]; minimum?: number; maximum?: number; maxLength?: number; pattern?: string }
   >;
   assert.deepEqual(props.direction.enum, ['inbound', 'outbound']);
   assert.deepEqual(props.protocol.enum, ['tcp', 'udp', 'icmp', 'all']);
@@ -333,6 +346,7 @@ test('add_firewall_rule: schema mirrors direction/protocol enums, port bounds (i
   assert.equal(props.portRangeMax.minimum, 1);
   assert.equal(props.portRangeMax.maximum, 65535);
   assert.equal(props.description.maxLength, 255);
+  assert.equal(props.remoteCidr.pattern, '^(\\d{1,3}\\.){3}\\d{1,3}/\\d{1,2}$');
 });
 
 // --- delete_firewall_rule (DELETE .../rules/{ruleId}, confirm+destr) ------
@@ -376,22 +390,24 @@ test('detach_firewall: missing serverId is rejected by zod before any request', 
   assert.deepEqual(calls, []);
 });
 
-// --- create_load_balancer (POST /v1/load-balancers, no gate per brief) ----
+// --- create_load_balancer (POST /v1/load-balancers, confirm — bills LB +
+// floating-IP hourly, post-review fix) --------------------------------------
 
-test('create_load_balancer: name + closed schema (no confirm — plain write per sweep)', () => {
+test('create_load_balancer: name + closed schema (confirm — money-spend: LB + FIP both bill hourly)', () => {
   assert.equal(createLoadBalancer.name, 'create_load_balancer');
   assert.match(createLoadBalancer.description, /services:write/);
-  assert.deepEqual(createLoadBalancer.inputSchema.required, ['name', 'port', 'memberServerIds']);
-  assert.ok(!('confirm' in createLoadBalancer.inputSchema.properties));
+  assert.deepEqual(createLoadBalancer.inputSchema.required, ['name', 'port', 'memberServerIds', 'confirm']);
+  assert.ok('confirm' in createLoadBalancer.inputSchema.properties);
   assert.equal(createLoadBalancer.annotations, undefined);
 });
 
-test('create_load_balancer: POSTs required fields to /v1/load-balancers (healthCheck omitted)', async () => {
+test('create_load_balancer: POSTs required fields to /v1/load-balancers when confirmed (healthCheck omitted)', async () => {
   const { client, calls } = fakeWriteClient();
   const result = await createLoadBalancer.handler(client, {
     name: 'web-lb',
     port: 80,
     memberServerIds: ['srv-1', 'srv-2'],
+    confirm: true,
   });
   assert.equal(result.isError, undefined);
   assert.deepEqual(calls, [
@@ -410,6 +426,7 @@ test('create_load_balancer: forwards optional healthCheck when supplied', async 
     port: 80,
     memberServerIds: ['srv-1'],
     healthCheck: false,
+    confirm: true,
   });
   assert.equal(result.isError, undefined);
   assert.deepEqual(calls, [
@@ -421,9 +438,22 @@ test('create_load_balancer: forwards optional healthCheck when supplied', async 
   ]);
 });
 
+test('create_load_balancer: refuses with NO request when confirm is absent', async () => {
+  const { client, calls } = fakeWriteClient();
+  const result = await createLoadBalancer.handler(client, { name: 'web-lb', port: 80, memberServerIds: ['srv-1'] });
+  assert.equal(result.isError, true);
+  assert.match(textOf(result), /was NOT executed/);
+  assert.deepEqual(calls, []);
+});
+
 test('create_load_balancer: rejects an empty name before any request', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await createLoadBalancer.handler(client, { name: '', port: 80, memberServerIds: ['srv-1'] });
+  const result = await createLoadBalancer.handler(client, {
+    name: '',
+    port: 80,
+    memberServerIds: ['srv-1'],
+    confirm: true,
+  });
   assert.equal(result.isError, true);
   assert.match(textOf(result), /^Error: Invalid input for create_load_balancer:/);
   assert.deepEqual(calls, []);
@@ -435,6 +465,7 @@ test('create_load_balancer: rejects a name over 253 chars before any request', a
     name: 'x'.repeat(254),
     port: 80,
     memberServerIds: ['srv-1'],
+    confirm: true,
   });
   assert.equal(result.isError, true);
   assert.match(textOf(result), /^Error: Invalid input for create_load_balancer:/);
@@ -443,7 +474,12 @@ test('create_load_balancer: rejects a name over 253 chars before any request', a
 
 test('create_load_balancer: rejects port below 1 before any request', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await createLoadBalancer.handler(client, { name: 'web-lb', port: 0, memberServerIds: ['srv-1'] });
+  const result = await createLoadBalancer.handler(client, {
+    name: 'web-lb',
+    port: 0,
+    memberServerIds: ['srv-1'],
+    confirm: true,
+  });
   assert.equal(result.isError, true);
   assert.match(textOf(result), /^Error: Invalid input for create_load_balancer:/);
   assert.deepEqual(calls, []);
@@ -455,6 +491,7 @@ test('create_load_balancer: rejects port above 65535 before any request', async 
     name: 'web-lb',
     port: 65536,
     memberServerIds: ['srv-1'],
+    confirm: true,
   });
   assert.equal(result.isError, true);
   assert.match(textOf(result), /^Error: Invalid input for create_load_balancer:/);
@@ -463,7 +500,12 @@ test('create_load_balancer: rejects port above 65535 before any request', async 
 
 test('create_load_balancer: rejects an empty memberServerIds array before any request', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await createLoadBalancer.handler(client, { name: 'web-lb', port: 80, memberServerIds: [] });
+  const result = await createLoadBalancer.handler(client, {
+    name: 'web-lb',
+    port: 80,
+    memberServerIds: [],
+    confirm: true,
+  });
   assert.equal(result.isError, true);
   assert.match(textOf(result), /^Error: Invalid input for create_load_balancer:/);
   assert.deepEqual(calls, []);
