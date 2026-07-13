@@ -345,7 +345,7 @@ export const setServicePassword: ToolDefinition = writeTool({
     type: 'object',
     properties: {
       service_id: { type: 'string', description: 'Service ID from list_services.' },
-      password: { type: 'string', description: 'New root/admin password (8–128 chars). Never echoed or logged.' },
+      password: { type: 'string', minLength: 8, maxLength: 128, description: 'New root/admin password (8–128 chars). Never echoed or logged.' },
     },
     required: ['service_id', 'password'],
     additionalProperties: false,
@@ -433,7 +433,9 @@ export const reinstallService: ToolDefinition = writeTool({
     'template/image slug (see list_os_templates / list_images / get_service os-templates). password and ' +
     'sshPublicKey are optional (sshPublicKey only applies to a cloud VM). You MUST pass confirm:true, and ' +
     'only after the user has explicitly approved the rebuild and understands the data loss. service_id ' +
-    'from list_services.',
+    'from list_services. SECURITY: the response may include a one-time consolePassword root credential ' +
+    '(cloud VM only, returned when no password was supplied). Treat it as a secret: do NOT echo it back ' +
+    'to the user or store it, unless the user explicitly asks for it.',
   method: 'POST',
   input: z
     .object({
@@ -448,7 +450,7 @@ export const reinstallService: ToolDefinition = writeTool({
     properties: {
       service_id: { type: 'string', description: 'Service ID from list_services.' },
       imageId: { type: 'string', maxLength: 128, description: 'OS template/image slug (see list_os_templates or list_images).' },
-      password: { type: 'string', description: 'Optional root password for the rebuilt server (8–128 chars). Never echoed or logged.' },
+      password: { type: 'string', minLength: 8, maxLength: 128, description: 'Optional root password for the rebuilt server (8–128 chars). Never echoed or logged.' },
       sshPublicKey: { type: 'string', maxLength: 4096, description: 'Optional inline SSH public key to install for root (cloud VM only).' },
     },
     required: ['service_id', 'imageId'],
@@ -480,7 +482,7 @@ export const resetServicePassword: ToolDefinition = writeTool({
     type: 'object',
     properties: {
       service_id: { type: 'string', description: 'Service ID from list_services (cloud VM / Nova UUID only).' },
-      password: { type: 'string', description: 'New root password (8–128 chars). Never echoed or logged.' },
+      password: { type: 'string', minLength: 8, maxLength: 128, description: 'New root password (8–128 chars). Never echoed or logged.' },
     },
     required: ['service_id', 'password'],
     additionalProperties: false,

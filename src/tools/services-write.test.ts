@@ -574,6 +574,17 @@ test('reinstall_service: missing imageId is rejected by zod before any request',
   assert.deepEqual(calls, []);
 });
 
+// Guard: the response can carry a one-time consolePassword root credential
+// (cloud VM only, when no password was supplied) — the description must carry
+// the same treat-as-secret guidance as the other credential-returning tools
+// (get_proxy_auth, get_cluster_kubeconfig).
+test('reinstall_service: description flags the one-time consolePassword as a secret', () => {
+  assert.match(reinstallService.description, /secret/i);
+  assert.match(reinstallService.description, /consolePassword/);
+  assert.match(reinstallService.description, /do not echo/i);
+  assert.match(reinstallService.description, /unless the user explicitly asks/i);
+});
+
 // --- reset_service_password (confirm + destructiveHint; requires password) ---
 
 test('reset_service_password: POSTs {password} to /actions/reset-password when confirmed', async () => {
