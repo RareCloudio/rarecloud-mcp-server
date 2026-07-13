@@ -9,10 +9,11 @@
 // renewing, cancelling, and changing auth/whitelist are writes not exposed here.
 //
 // get_proxy_list and get_proxy_request_list return LIVE proxy credentials
-// (ip, port, username, password). The endpoint returns JSON, so these stay
-// jsonResult reads — but their descriptions carry the same treat-as-secret
-// guidance as the kubeconfig tools (see k8s.ts): do not echo the result back to
-// the user unless explicitly asked.
+// (ip, port, username, password), and get_proxy_auth returns the proxy
+// credentials too (null when the service is IP-only). The endpoints return
+// JSON, so these stay jsonResult reads — but their descriptions carry the same
+// treat-as-secret guidance as the kubeconfig tools (see k8s.ts): do not echo
+// the result back to the user unless explicitly asked.
 
 import { readList, readOne, readTool } from './factories.js';
 
@@ -71,7 +72,7 @@ export const getProxyList = readTool({
 export const getProxyAuth = readTool({
   name: 'get_proxy_auth',
   description:
-    'Get the authentication settings for a proxy service: the auth method, the proxy credentials (null when the service is IP-authenticated only), the IP whitelist, and the caller\'s detected IP. Use to see how the service authenticates before adding a whitelisted IP or switching auth mode. Read-only; changing the auth method / credentials / whitelist are writes and are not exposed as MCP tools yet. The id comes from list_proxies.',
+    'Get the authentication settings for a proxy service: the auth method, the proxy credentials (null when the service is IP-authenticated only), the IP whitelist, and the caller\'s detected IP. Use to see how the service authenticates before adding a whitelisted IP or switching auth mode. SECURITY: the result may contain LIVE CREDENTIALS — the proxy username and password (null for IP-only services). Treat it as a secret: do NOT echo it back to the user or repeat its contents unless the user explicitly asks to see it; pass it straight to the tool that consumes it. Read-only; changing the auth method / credentials / whitelist are writes and are not exposed as MCP tools yet. The id comes from list_proxies.',
   inputSchema: proxyIdSchema,
   buildPath: (args) => `/v1/proxies/${encodeURIComponent(String(args.id))}/auth`,
 });

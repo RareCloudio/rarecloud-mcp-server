@@ -165,14 +165,16 @@ test('proxies: get_proxy_request_list — APIError maps to errorResult', async (
   assert.equal(textOf(result), 'Error: [NOT_FOUND] no such proxy-request');
 });
 
-// --- secret-handling guard (the two credential tools) ----------------------
+// --- secret-handling guard (the three credential tools) --------------------
 // get_proxy_list and get_proxy_request_list return live proxy credentials
-// (ip/port/username/password). Their descriptions must carry the same
-// treat-as-secret guidance as the kubeconfig tools: don't echo the result back
-// unless the user explicitly asks.
+// (ip/port/username/password); get_proxy_auth returns the proxy credentials
+// too (null when the service is IP-only). Their descriptions must carry the
+// same treat-as-secret guidance as the kubeconfig tools: don't echo the result
+// back unless the user explicitly asks.
 for (const [tool, name] of [
   [getProxyList, 'get_proxy_list'],
   [getProxyRequestList, 'get_proxy_request_list'],
+  [getProxyAuth, 'get_proxy_auth'],
 ] as Array<[ToolDefinition, string]>) {
   test(`proxies: ${name} — description carries the secret-handling warning`, () => {
     assert.match(tool.description, /secret/i);
@@ -185,7 +187,7 @@ for (const [tool, name] of [
 // The non-credential reads must NOT carry the secret warning — keeps the guard
 // meaningful and stops the warning from leaking onto metadata reads.
 test('proxies: metadata reads do not carry the secret warning', () => {
-  for (const tool of [listProxies, getProxy, getProxyAuth, listProxyRequests, getProxyReplacements]) {
+  for (const tool of [listProxies, getProxy, listProxyRequests, getProxyReplacements]) {
     assert.doesNotMatch(tool.description, /do NOT echo/);
   }
 });
