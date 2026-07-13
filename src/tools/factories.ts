@@ -112,7 +112,7 @@ const CONFIRM_PROPERTY = {
     'only pass true after the user has explicitly approved. Omit or false → the tool refuses and makes no API call.',
 };
 
-export interface WriteToolOptions<S extends z.ZodObject<z.ZodRawShape>> {
+export interface WriteToolOptions<S extends z.ZodTypeAny> {
   name: string;
   description: string;
   method: WriteMethod;
@@ -132,7 +132,7 @@ export interface WriteToolOptions<S extends z.ZodObject<z.ZodRawShape>> {
   formatResult?: (data: unknown) => ToolCallResult;
 }
 
-export function writeTool<S extends z.ZodObject<z.ZodRawShape>>(
+export function writeTool<S extends z.ZodTypeAny>(
   opts: WriteToolOptions<S>,
 ): ToolDefinition {
   // Advertise `confirm` on the JSON Schema only when the gate is on.

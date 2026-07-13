@@ -465,3 +465,59 @@ test('writeTool: APIError from the client maps to errorResult with [CODE] messag
   assert.equal(result.isError, true);
   assert.equal(textOf(result), 'Error: [FORBIDDEN] write scope required');
 });
+
+// (k) writeTool's factory bound is `S extends z.ZodTypeAny`, not just
+// z.ZodObject — a `.strict().refine(...)` schema is a ZodEffects, not a
+// ZodObject, and must flow through unchanged: `opts.input.safeParse` works
+// identically, the confirm gate and dispatch are untouched.
+test('writeTool: accepts a ZodEffects (.strict().refine()) schema and dispatches on valid input', async () => {
+  const { client, calls } = fakeWriteClient();
+  const input = z
+    .object({ productId: z.string().min(1).optional(), plan: z.string().min(1).optional() })
+    .strict()
+    .refine((v) => Boolean(v.productId || v.plan), { message: 'productId (or its alias plan) is required' });
+  const tool = writeTool({
+    name: 'deploy_thing',
+    description: 'Deploy a thing.',
+    method: 'POST',
+    input,
+    inputSchema: {
+      type: 'object',
+      properties: { productId: { type: 'string' }, plan: { type: 'string' } },
+      additionalProperties: false,
+    },
+    buildPath: () => '/v1/things',
+    buildBody: (a) => a,
+  });
+  const result = await tool.handler(client, { productId: 'sku-1' });
+  assert.equal(result.isError, undefined);
+  assert.deepEqual(calls, [{ method: 'POST', path: '/v1/things', body: { productId: 'sku-1' } }]);
+});
+
+// (l) same ZodEffects schema — a refine-violating call surfaces the zod
+// error via errorResult and issues NO request.
+test('writeTool: a ZodEffects refine violation returns errorResult and makes no request', async () => {
+  const { client, calls } = fakeWriteClient();
+  const input = z
+    .object({ productId: z.string().min(1).optional(), plan: z.string().min(1).optional() })
+    .strict()
+    .refine((v) => Boolean(v.productId || v.plan), { message: 'productId (or its alias plan) is required' });
+  const tool = writeTool({
+    name: 'deploy_thing',
+    description: 'Deploy a thing.',
+    method: 'POST',
+    input,
+    inputSchema: {
+      type: 'object',
+      properties: { productId: { type: 'string' }, plan: { type: 'string' } },
+      additionalProperties: false,
+    },
+    buildPath: () => '/v1/things',
+    buildBody: (a) => a,
+  });
+  const result = await tool.handler(client, {});
+  assert.equal(result.isError, true);
+  assert.match(textOf(result), /^Error: Invalid input for deploy_thing:/);
+  assert.match(textOf(result), /productId \(or its alias plan\) is required/);
+  assert.deepEqual(calls, [], 'a refine-violating call must issue no request');
+});
