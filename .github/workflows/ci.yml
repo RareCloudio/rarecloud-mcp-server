@@ -13,4 +13,5 @@ jobs:
           node-version: "22"
       - run: npm ci
       - run: npx tsc --noEmit
+      - run: npm run typecheck:test
       - run: npm test

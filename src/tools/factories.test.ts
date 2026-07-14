@@ -5,9 +5,10 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readList, readOne, readTool, encodeSegment } from './factories.js';
+import { z } from 'zod';
+import { readList, readOne, readTool, encodeSegment, writeTool } from './factories.js';
 import { APIError, type RareCloudClient } from '../client.js';
-import type { ToolCallResult } from './types.js';
+import { textResult, type ToolCallResult } from './types.js';
 
 // A minimal stand-in for RareCloudClient exposing only `get`, which is all
 // the read factories use. `onGet` receives the path and returns the data
@@ -217,4 +218,306 @@ test('encodeSegment: rejects "." "." ".." and empty with a named error', () => {
 test('encodeSegment: null / undefined coerce to empty and are rejected', () => {
   assert.throws(() => encodeSegment(undefined, 'id'), /Invalid id value/);
   assert.throws(() => encodeSegment(null, 'id'), /Invalid id value/);
+});
+
+// --- writeTool (Parity Phase B) -------------------------------------------
+
+// A fake client that records method+path+body across all four write verbs (no
+// network). DELETE records no `body` key so tests can assert it carries none.
+function fakeWriteClient(
+  impl: (m: string, p: string, b?: unknown) => unknown = () => ({ ok: true }),
+): { client: RareCloudClient; calls: Array<{ method: string; path: string; body?: unknown }> } {
+  const calls: Array<{ method: string; path: string; body?: unknown }> = [];
+  const withBody = (method: string) => async (path: string, body?: unknown) => {
+    calls.push({ method, path, body });
+    return impl(method, path, body);
+  };
+  const client = {
+    post: withBody('POST'),
+    put: withBody('PUT'),
+    patch: withBody('PATCH'),
+    async delete(path: string) {
+      calls.push({ method: 'DELETE', path });
+      return impl('DELETE', path);
+    },
+  } as unknown as RareCloudClient;
+  return { client, calls };
+}
+
+// (a) advertised inputSchema excludes confirm when the gate is off.
+test('writeTool: advertised inputSchema excludes confirm when confirm is unset', () => {
+  const tool = writeTool({
+    name: 'set_x',
+    description: 'Set x.',
+    method: 'POST',
+    input: z.object({ id: z.string().min(1) }).strict(),
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string' } },
+      required: ['id'],
+      additionalProperties: false,
+    },
+    buildPath: (a) => `/v1/x/${encodeSegment(a.id, 'id')}`,
+  });
+  assert.deepEqual(Object.keys(tool.inputSchema.properties), ['id']);
+  assert.ok(!('confirm' in tool.inputSchema.properties), 'confirm must not be advertised when un-gated');
+  assert.deepEqual(tool.inputSchema.required, ['id']);
+});
+
+// (b) advertised inputSchema injects a required confirm boolean when gated.
+test('writeTool: advertised inputSchema injects a required confirm boolean when gated', () => {
+  const tool = writeTool({
+    name: 'delete_x',
+    description: 'Delete x.',
+    method: 'DELETE',
+    confirm: true,
+    input: z.object({ id: z.string().min(1) }).strict(),
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string' } },
+      required: ['id'],
+      additionalProperties: false,
+    },
+    buildPath: (a) => `/v1/x/${encodeSegment(a.id, 'id')}`,
+  });
+  const confirmProp = (tool.inputSchema.properties as Record<string, { type?: string; description?: string }>).confirm;
+  assert.equal(confirmProp.type, 'boolean');
+  assert.ok((confirmProp.description ?? '').length > 0, 'confirm needs a description for the agent');
+  assert.ok(tool.inputSchema.required?.includes('confirm'), 'confirm must be required when gated');
+  assert.ok(tool.inputSchema.required?.includes('id'), 'domain required fields are preserved');
+});
+
+// (c) annotations.destructiveHint set iff destructiveHint:true, absent otherwise.
+test('writeTool: annotations.destructiveHint set iff destructiveHint:true', () => {
+  const base = {
+    name: 'x',
+    description: 'x.',
+    method: 'POST' as const,
+    input: z.object({}).strict(),
+    inputSchema: { type: 'object' as const, properties: {}, additionalProperties: false },
+    buildPath: () => '/v1/x',
+  };
+  const plain = writeTool({ ...base });
+  assert.equal(plain.annotations, undefined, 'no annotations unless destructiveHint is set');
+  const destr = writeTool({ ...base, destructiveHint: true });
+  assert.deepEqual(destr.annotations, { destructiveHint: true });
+});
+
+// (d) confirm-gated handler refuses without confirm and issues NO request.
+test('writeTool: confirm-gated handler refuses without confirm and makes NO request', async () => {
+  const { client, calls } = fakeWriteClient();
+  const tool = writeTool({
+    name: 'spend_money',
+    description: 'Spend.',
+    method: 'POST',
+    confirm: true,
+    input: z.object({}).strict(),
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    buildPath: () => '/v1/spend',
+    buildBody: () => ({ amount: 1 }),
+  });
+  for (const args of [{}, { confirm: false }]) {
+    const result = await tool.handler(client, args);
+    assert.equal(result.isError, true);
+    assert.match(textOf(result), /NOT executed/);
+  }
+  assert.deepEqual(calls, [], 'a refused confirm-gated tool must issue no request');
+});
+
+// (e) confirm:true + valid args → exactly one call with the right method/path/body.
+test('writeTool: confirm:true + valid args issues exactly one call with method/path/body', async () => {
+  const { client, calls } = fakeWriteClient();
+  const tool = writeTool({
+    name: 'set_hostname',
+    description: 'Set hostname.',
+    method: 'POST',
+    confirm: true,
+    input: z.object({ id: z.string().min(1), name: z.string().min(1) }).strict(),
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string' }, name: { type: 'string' } },
+      required: ['id', 'name'],
+      additionalProperties: false,
+    },
+    buildPath: (a) => `/v1/things/${encodeSegment(a.id, 'id')}/hostname`,
+    buildBody: (a) => ({ hostname: a.name }),
+  });
+  const result = await tool.handler(client, { id: 'a b', name: 'h', confirm: true });
+  assert.equal(result.isError, undefined);
+  assert.deepEqual(calls, [{ method: 'POST', path: '/v1/things/a%20b/hostname', body: { hostname: 'h' } }]);
+});
+
+// (f) zod failure → "Invalid input for", and no request.
+test('writeTool: zod failure returns "Invalid input for" and makes no request', async () => {
+  const { client, calls } = fakeWriteClient();
+  const tool = writeTool({
+    name: 'set_x',
+    description: 'Set x.',
+    method: 'POST',
+    input: z.object({ id: z.string().min(1) }).strict(),
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string' } },
+      required: ['id'],
+      additionalProperties: false,
+    },
+    buildPath: (a) => `/v1/x/${encodeSegment(a.id, 'id')}`,
+  });
+  const missing = await tool.handler(client, {});
+  assert.equal(missing.isError, true);
+  assert.match(textOf(missing), /^Error: Invalid input for set_x:/);
+  const wrongType = await tool.handler(client, { id: 123 });
+  assert.equal(wrongType.isError, true);
+  assert.match(textOf(wrongType), /^Error: Invalid input for set_x:/);
+  assert.deepEqual(calls, [], 'a zod-rejected call must not reach the client');
+});
+
+// (g) encodeSegment traversal token → rejected before any request.
+test('writeTool: a ".." segment via encodeSegment is rejected before any request', async () => {
+  const { client, calls } = fakeWriteClient();
+  const tool = writeTool({
+    name: 'scale_service',
+    description: 'Scale.',
+    method: 'POST',
+    input: z.object({ service_id: z.string().min(1) }).strict(),
+    inputSchema: {
+      type: 'object',
+      properties: { service_id: { type: 'string' } },
+      required: ['service_id'],
+      additionalProperties: false,
+    },
+    buildPath: (a) => `/v1/services/${encodeSegment(a.service_id, 'service_id')}/scale`,
+  });
+  const result = await tool.handler(client, { service_id: '..' });
+  assert.equal(result.isError, true);
+  assert.equal(textOf(result), 'Error: Invalid service_id value');
+  assert.deepEqual(calls, [], 'no request may reach the client for a ".." segment');
+});
+
+// (h) method dispatch: POST/PUT/PATCH carry a body; DELETE carries none.
+for (const method of ['POST', 'PUT', 'PATCH'] as const) {
+  test(`writeTool: ${method} routes through client.${method.toLowerCase()} with body`, async () => {
+    const { client, calls } = fakeWriteClient();
+    const tool = writeTool({
+      name: 'm',
+      description: 'm.',
+      method,
+      input: z.object({}).strict(),
+      inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+      buildPath: () => '/v1/m',
+      buildBody: () => ({ a: 1 }),
+    });
+    await tool.handler(client, {});
+    assert.deepEqual(calls, [{ method, path: '/v1/m', body: { a: 1 } }]);
+  });
+}
+
+test('writeTool: DELETE routes through client.delete with no body arg', async () => {
+  const { client, calls } = fakeWriteClient();
+  const tool = writeTool({
+    name: 'd',
+    description: 'd.',
+    method: 'DELETE',
+    input: z.object({ id: z.string().min(1) }).strict(),
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string' } },
+      required: ['id'],
+      additionalProperties: false,
+    },
+    buildPath: (a) => `/v1/d/${encodeSegment(a.id, 'id')}`,
+  });
+  await tool.handler(client, { id: 'x' });
+  assert.deepEqual(calls, [{ method: 'DELETE', path: '/v1/d/x' }]);
+});
+
+// (i) formatResult override transforms the returned data.
+test('writeTool: formatResult override transforms the returned data', async () => {
+  const { client } = fakeWriteClient(() => ({ kubeconfig: 'apiVersion: v1' }));
+  const tool = writeTool({
+    name: 'mint',
+    description: 'mint.',
+    method: 'POST',
+    input: z.object({}).strict(),
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    buildPath: () => '/v1/mint',
+    formatResult: (data) => textResult((data as { kubeconfig: string }).kubeconfig),
+  });
+  const result = await tool.handler(client, {});
+  assert.equal(result.isError, undefined);
+  assert.equal(textOf(result), 'apiVersion: v1');
+});
+
+// (j) APIError from the client → errorResult carrying "[CODE] message".
+test('writeTool: APIError from the client maps to errorResult with [CODE] message', async () => {
+  const { client } = fakeWriteClient(() => {
+    throw new APIError({ code: 'FORBIDDEN', message: 'write scope required' });
+  });
+  const tool = writeTool({
+    name: 'm',
+    description: 'm.',
+    method: 'POST',
+    input: z.object({}).strict(),
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    buildPath: () => '/v1/m',
+  });
+  const result = await tool.handler(client, {});
+  assert.equal(result.isError, true);
+  assert.equal(textOf(result), 'Error: [FORBIDDEN] write scope required');
+});
+
+// (k) writeTool's factory bound is `S extends z.ZodTypeAny`, not just
+// z.ZodObject — a `.strict().refine(...)` schema is a ZodEffects, not a
+// ZodObject, and must flow through unchanged: `opts.input.safeParse` works
+// identically, the confirm gate and dispatch are untouched.
+test('writeTool: accepts a ZodEffects (.strict().refine()) schema and dispatches on valid input', async () => {
+  const { client, calls } = fakeWriteClient();
+  const input = z
+    .object({ productId: z.string().min(1).optional(), plan: z.string().min(1).optional() })
+    .strict()
+    .refine((v) => Boolean(v.productId || v.plan), { message: 'productId (or its alias plan) is required' });
+  const tool = writeTool({
+    name: 'deploy_thing',
+    description: 'Deploy a thing.',
+    method: 'POST',
+    input,
+    inputSchema: {
+      type: 'object',
+      properties: { productId: { type: 'string' }, plan: { type: 'string' } },
+      additionalProperties: false,
+    },
+    buildPath: () => '/v1/things',
+    buildBody: (a) => a,
+  });
+  const result = await tool.handler(client, { productId: 'sku-1' });
+  assert.equal(result.isError, undefined);
+  assert.deepEqual(calls, [{ method: 'POST', path: '/v1/things', body: { productId: 'sku-1' } }]);
+});
+
+// (l) same ZodEffects schema — a refine-violating call surfaces the zod
+// error via errorResult and issues NO request.
+test('writeTool: a ZodEffects refine violation returns errorResult and makes no request', async () => {
+  const { client, calls } = fakeWriteClient();
+  const input = z
+    .object({ productId: z.string().min(1).optional(), plan: z.string().min(1).optional() })
+    .strict()
+    .refine((v) => Boolean(v.productId || v.plan), { message: 'productId (or its alias plan) is required' });
+  const tool = writeTool({
+    name: 'deploy_thing',
+    description: 'Deploy a thing.',
+    method: 'POST',
+    input,
+    inputSchema: {
+      type: 'object',
+      properties: { productId: { type: 'string' }, plan: { type: 'string' } },
+      additionalProperties: false,
+    },
+    buildPath: () => '/v1/things',
+    buildBody: (a) => a,
+  });
+  const result = await tool.handler(client, {});
+  assert.equal(result.isError, true);
+  assert.match(textOf(result), /^Error: Invalid input for deploy_thing:/);
+  assert.match(textOf(result), /productId \(or its alias plan\) is required/);
+  assert.deepEqual(calls, [], 'a refine-violating call must issue no request');
 });

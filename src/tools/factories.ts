@@ -9,8 +9,9 @@
 //              encoded query strings); the caller supplies the JSON Schema and
 //              a buildPath() that returns the full `/v1/...` path.
 
-import { APIError } from '../client.js';
-import { type ToolDefinition, jsonResult, errorResult } from './types.js';
+import { z } from 'zod';
+import { APIError, type RareCloudClient } from '../client.js';
+import { type ToolDefinition, type ToolCallResult, jsonResult, errorResult } from './types.js';
 
 // Encode a value as a single URL path segment, rejecting path-traversal tokens.
 // Segments come straight from tool args; a raw "." / ".." (or an empty value)
@@ -84,4 +85,118 @@ export function readTool(opts: {
       }
     },
   };
+}
+
+// --- write factory (Parity Phase B) ---------------------------------------
+//
+// writeTool builds a mutating tool (POST/PUT/PATCH/DELETE) on the same
+// APIError -> errorResult contract as the read factories, plus three things
+// reads never need:
+//   1. runtime input validation via a per-tool `.strict()` zod schema (the
+//      advertised JSON Schema is what the agent sees; the zod schema is the
+//      belt-and-suspenders guard at call time);
+//   2. a confirm gate — for money-spend / irreversible tools, the factory
+//      injects a required `confirm` boolean and REFUSES (with no HTTP request)
+//      unless the caller passes confirm:true;
+//   3. MCP annotations (destructiveHint) so a client can warn the user.
+// The confirm flag is owned entirely here so per-tool schemas never repeat it.
+
+type WriteMethod = 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+
+// The confirm param the factory injects when a tool is gated. Owned here so
+// per-tool schemas never repeat it.
+const CONFIRM_PROPERTY = {
+  type: 'boolean' as const,
+  description:
+    'Set to true to execute. This operation spends from your account balance and/or is irreversible; ' +
+    'only pass true after the user has explicitly approved. Omit or false → the tool refuses and makes no API call.',
+};
+
+export interface WriteToolOptions<S extends z.ZodTypeAny> {
+  name: string;
+  description: string;
+  method: WriteMethod;
+  /** zod schema for the caller's DOMAIN args (never `confirm` — the factory owns that). */
+  input: S;
+  /** Advertised JSON Schema (closed). Do NOT list `confirm` — the factory injects it when gated. */
+  inputSchema: ToolDefinition['inputSchema'];
+  /** Build the request path; run EVERY dynamic segment through encodeSegment. */
+  buildPath: (args: z.infer<S>) => string;
+  /** Build the JSON body. Omit for no-body writes (DELETE, no-body POST). */
+  buildBody?: (args: z.infer<S>) => unknown;
+  /** true → require confirm:true before any request (money-spend / destructive). */
+  confirm?: boolean;
+  /** true → advertise annotations.destructiveHint (irreversible). */
+  destructiveHint?: boolean;
+  /** Override result formatting (e.g. unwrap a returned credential). Default: jsonResult. */
+  formatResult?: (data: unknown) => ToolCallResult;
+}
+
+export function writeTool<S extends z.ZodTypeAny>(
+  opts: WriteToolOptions<S>,
+): ToolDefinition {
+  // Advertise `confirm` on the JSON Schema only when the gate is on.
+  const inputSchema: ToolDefinition['inputSchema'] = opts.confirm
+    ? {
+        ...opts.inputSchema,
+        properties: { ...opts.inputSchema.properties, confirm: CONFIRM_PROPERTY },
+        required: [...(opts.inputSchema.required ?? []), 'confirm'],
+      }
+    : opts.inputSchema;
+
+  return {
+    name: opts.name,
+    description: opts.description,
+    inputSchema,
+    ...(opts.destructiveHint ? { annotations: { destructiveHint: true } } : {}),
+    async handler(client, args) {
+      try {
+        // Separate the factory-owned confirm flag from the domain args so the
+        // per-tool .strict() zod schema never sees it.
+        const { confirm, ...domainArgs } = args as { confirm?: unknown } & Record<string, unknown>;
+
+        // 1. Runtime input validation (in addition to the advertised JSON Schema).
+        const parsed = opts.input.safeParse(domainArgs);
+        if (!parsed.success) {
+          return errorResult(`Invalid input for ${opts.name}: ${formatZodError(parsed.error)}`);
+        }
+
+        // 2. Confirm gate — refuse with NO request when required and not granted.
+        if (opts.confirm && confirm !== true) {
+          return errorResult(
+            `${opts.name} was NOT executed: it spends from your account balance and/or is ` +
+              `irreversible. Re-call with confirm:true only after the user has explicitly approved.`,
+          );
+        }
+
+        // 3. Build path/body. encodeSegment throws on a traversal token → caught
+        //    below → errorResult, so NO request goes out for a bad segment.
+        const path = opts.buildPath(parsed.data);
+        const body = opts.buildBody ? opts.buildBody(parsed.data) : undefined;
+
+        // 4. Dispatch.
+        const data = await callMethod(client, opts.method, path, body);
+        return opts.formatResult ? opts.formatResult(data) : jsonResult(data);
+      } catch (e) {
+        return errorResult(e instanceof APIError ? e.message : (e as Error).message);
+      }
+    },
+  };
+}
+
+function callMethod(client: RareCloudClient, method: WriteMethod, path: string, body: unknown): Promise<unknown> {
+  switch (method) {
+    case 'POST':
+      return client.post(path, body);
+    case 'PUT':
+      return client.put(path, body);
+    case 'PATCH':
+      return client.patch(path, body);
+    case 'DELETE':
+      return client.delete(path);
+  }
+}
+
+function formatZodError(err: z.ZodError): string {
+  return err.issues.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`).join('; ');
 }
