@@ -14,7 +14,7 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/index.ts",
-    "test": "node --test --import tsx/esm src/**/*.test.ts",
+    "test": "node --test --import tsx/esm \"src/**/*.test.ts\"",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {

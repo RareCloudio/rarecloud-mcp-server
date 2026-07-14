@@ -7,12 +7,91 @@ import {
   getCatalogPlan,
   listRegions,
   listImages,
+  getProductDetails,
+  listPrepurchaseOsTemplates,
+  listCatalogListings,
+  listKubernetesVersions,
 } from './catalog.js';
-import { listServices, getService, getServiceMetrics, listBackups, getProvisioningState, listOsTemplates, listUpgradeOptions } from './services.js';
-import { listInvoices, getInvoice, getCreditBalance, getCreditLedger } from './billing.js';
-import { getAccount, listSshKeys, getAccountLimits } from './account.js';
-import { listTickets, getTicket } from './tickets.js';
-import { listVolumes, listNetworks, listLoadBalancers, getLoadBalancer, listReservedIps, listDomains, getDomain } from './infra.js';
+import {
+  listServices,
+  getService,
+  getServiceMetrics,
+  listBackups,
+  getProvisioningState,
+  listOsTemplates,
+  listUpgradeOptions,
+  getServiceIso,
+  listServiceSshKeyLibrary,
+  getServiceAutorenew,
+} from './services.js';
+import { listOrders, getOrder } from './orders.js';
+import {
+  listInvoices,
+  getInvoice,
+  getCreditBalance,
+  getCreditLedger,
+  getInvoicePayPreview,
+  listPaymentMethods,
+  getBillingCampaign,
+  getBonusBalance,
+  getBonusLedger,
+  getBillingAlert,
+  getBillingState,
+} from './billing.js';
+import {
+  getAccount,
+  listSshKeys,
+  getAccountLimits,
+  listAccountClients,
+  getAffiliate,
+  getTwoFactorStatus,
+  listAccountSshKeys,
+  getAccountActivity,
+  listAccountEmails,
+  listAccountContacts,
+} from './account.js';
+import { listTickets, getTicket, listTicketDepartments } from './tickets.js';
+import {
+  listVolumes,
+  getVolume,
+  listNetworks,
+  getNetwork,
+  listLoadBalancers,
+  getLoadBalancer,
+  listLoadBalancerMembers,
+  listReservedIps,
+  listFirewalls,
+  getFirewall,
+} from './infra.js';
+import {
+  listDomains,
+  getDomain,
+  checkDomainAvailability,
+  getTldPricing,
+  getDomainNameservers,
+  getDomainContacts,
+  getDomainDns,
+  getDomainManagement,
+} from './domains.js';
+import {
+  getClusterScale,
+  listClusterPools,
+  getClusterKubeconfig,
+  listClusterKubeconfigs,
+  downloadClusterKubeconfig,
+} from './k8s.js';
+import {
+  listProxies,
+  getProxyCatalog,
+  getProxy,
+  getProxyList,
+  getProxyAuth,
+  listGbResidentialCountries,
+  listGbRotationIntervals,
+  listProxyRequests,
+  getProxyRequestList,
+  getProxyReplacements,
+} from './proxies.js';
 
 export const TOOLS: ToolDefinition[] = [
   // Catalog (un-authed surface, "what can I deploy?")
@@ -20,6 +99,10 @@ export const TOOLS: ToolDefinition[] = [
   getCatalogPlan,
   listRegions,
   listImages,
+  getProductDetails,
+  listPrepurchaseOsTemplates,
+  listCatalogListings,
+  listKubernetesVersions,
   // Services ("what do I have running?")
   listServices,
   getService,
@@ -28,26 +111,76 @@ export const TOOLS: ToolDefinition[] = [
   getProvisioningState,
   listOsTemplates,
   listUpgradeOptions,
+  getServiceIso,
+  listServiceSshKeyLibrary,
+  getServiceAutorenew,
+  // Orders ("what have I purchased?")
+  listOrders,
+  getOrder,
   // Billing ("how much am I spending?")
   listInvoices,
   getInvoice,
   getCreditBalance,
   getCreditLedger,
+  getInvoicePayPreview,
+  listPaymentMethods,
+  getBillingCampaign,
+  getBonusBalance,
+  getBonusLedger,
+  getBillingAlert,
+  getBillingState,
   // Support ("any open tickets?")
   listTickets,
   getTicket,
+  listTicketDepartments,
   // Account ("who am I + what are my keys?")
   getAccount,
   listSshKeys,
   getAccountLimits,
-  // Cloud infrastructure ("what storage / networks / IPs / domains do I have?")
+  listAccountClients,
+  getAffiliate,
+  getTwoFactorStatus,
+  listAccountSshKeys,
+  getAccountActivity,
+  listAccountEmails,
+  listAccountContacts,
+  // Cloud infrastructure ("what storage / networks / LBs / IPs / firewalls do I have?")
   listVolumes,
+  getVolume,
   listNetworks,
+  getNetwork,
   listLoadBalancers,
   getLoadBalancer,
+  listLoadBalancerMembers,
   listReservedIps,
+  listFirewalls,
+  getFirewall,
+  // Domains ("what domains do I own + is this name available?")
   listDomains,
   getDomain,
+  checkDomainAvailability,
+  getTldPricing,
+  getDomainNameservers,
+  getDomainContacts,
+  getDomainDns,
+  getDomainManagement,
+  // Managed Kubernetes ("scale / pools / kubeconfig for my cloud-k8s clusters")
+  getClusterScale,
+  listClusterPools,
+  getClusterKubeconfig,
+  listClusterKubeconfigs,
+  downloadClusterKubeconfig,
+  // Proxies ("residential proxy services — ISP plans + GB Residential buckets")
+  listProxies,
+  getProxyCatalog,
+  getProxy,
+  getProxyList,
+  getProxyAuth,
+  listGbResidentialCountries,
+  listGbRotationIntervals,
+  listProxyRequests,
+  getProxyRequestList,
+  getProxyReplacements,
 ];
 
 export function findTool(name: string): ToolDefinition | undefined {
