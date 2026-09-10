@@ -8,7 +8,7 @@ import { TOOLS, findTool } from './index.js';
 
 // Bump this in the same commit that adds/removes tools. A mismatch means the
 // registry changed without the test acknowledging it.
-const EXPECTED_TOOL_COUNT = 156;
+const EXPECTED_TOOL_COUNT = 175;
 
 test('registry: tool count matches the expected total', () => {
   assert.equal(TOOLS.length, EXPECTED_TOOL_COUNT);
@@ -129,6 +129,13 @@ test('exclusion guard: the account/billing/tickets write surface is EXACTLY the 
 // infra-write.ts + firewall-lb-write.ts + proxies-write.ts (60 tools) — the
 // README's "services:write covers IaaS AND proxies" note names this exact
 // sharing. domains:write is domains-write.ts (7 tools).
+//
+// Plan 4 Task 5 EXTENSION: registry-write.ts's 11 tools also carry
+// services:write. There is no separate registry scope, the same sharing
+// services:write already does for k8s/infra/proxies above (60 -> 71). See
+// the CR-12 policy-ruling test further below for why registry robot
+// credentials get a tool at all despite superficially looking like the
+// "credential" operations the identity exclusion above forbids.
 // ---------------------------------------------------------------------------
 
 test('exclusion guard: the services:write surface is EXACTLY the safe set (IaaS + k8s + proxies)', () => {
@@ -169,6 +176,17 @@ test('exclusion guard: the services:write surface is EXACTLY the safe set (IaaS 
     'mount_service_iso',
     'order_proxy',
     'reboot_service',
+    'registry_close',
+    'registry_cluster_link',
+    'registry_cluster_rotate',
+    'registry_cluster_unlink',
+    'registry_credentials_create',
+    'registry_credentials_revoke',
+    'registry_enable',
+    'registry_kubernetes_manifest',
+    'registry_repository_delete',
+    'registry_set_tier',
+    'registry_tag_delete',
     'reinstall_service',
     'release_reserved_ip',
     'remove_load_balancer_member',
@@ -233,4 +251,72 @@ test('exclusion guard convention: every write-scope tool names EXACTLY ONE :writ
       `${t.name} must name exactly one :write scope literal, found: ${matches.join(', ') || '(none)'}`,
     );
   }
+});
+
+// ---------------------------------------------------------------------------
+// Plan 4 Task 5 REGISTRY-LEVEL EXCLUSION GUARD EXTENSION (policy ruling,
+// binding; see registry-write.ts's header for the full text).
+//
+// The Task 8 exclusion guard above proves account IDENTITY operations
+// (password, 2FA, sub-user invites, affiliate activate/withdraw) have NO
+// tool. Registry ROBOT credentials (docker login / pull / push) and the BYO
+// Kubernetes manifest are a DIFFERENT class: infrastructure ACCESS
+// material, the same category add_account_ssh_key and
+// create_cluster_kubeconfig already occupy, not identity. Spec CR-12
+// explicitly allows them behind an agent PAT, gated by confirm:true, with
+// the minted secret shown exactly once. This guard proves BOTH halves at
+// once: the identity list is untouched (still zero matches) AND the
+// registry credential-minting tools ARE registered.
+// ---------------------------------------------------------------------------
+
+test('registry policy (CR-12): identity exclusion still holds, no forbidden identity tool exists', () => {
+  // Re-run the Task 8 blocklist check explicitly in this section too, so a
+  // regression here is caught by a test whose name and comment point
+  // straight at the registry policy ruling, not just the older Task 8 one.
+  const names = new Set(TOOLS.map((t) => t.name));
+  const present = FORBIDDEN_TOOL_NAMES.filter((n) => names.has(n));
+  assert.deepEqual(present, [], `forbidden identity tool(s) registered: ${present.join(', ')}`);
+});
+
+test('registry policy (CR-12): robot/infra credential-minting tools ARE registered, gated by confirm', () => {
+  const byName = new Map(TOOLS.map((t) => [t.name, t]));
+  // These three mint a live secret (robot credential secret, or a BYO
+  // manifest's embedded secret) and MUST require confirm:true.
+  for (const name of ['registry_credentials_create', 'registry_kubernetes_manifest']) {
+    const tool = byName.get(name);
+    assert.ok(tool, `${name} must be registered per CR-12`);
+    assert.ok(
+      (tool!.inputSchema.required ?? []).includes('confirm'),
+      `${name} must require confirm:true (it mints a live secret)`,
+    );
+  }
+  // registry_credentials_revoke does not mint anything, but it is the other
+  // half of the robot-credential lifecycle this ruling covers. Confirm it
+  // exists too (gated as destructive, checked in registry-write.test.ts).
+  assert.ok(byName.has('registry_credentials_revoke'), 'registry_credentials_revoke must be registered');
+});
+
+test('registry policy (CR-12): the full registry surface is EXACTLY 19 tools, all named registry_*', () => {
+  const registryTools = TOOLS.filter((t) => t.name.startsWith('registry_')).map((t) => t.name).sort();
+  assert.deepEqual(registryTools, [
+    'registry_close',
+    'registry_cluster_link',
+    'registry_cluster_rotate',
+    'registry_cluster_unlink',
+    'registry_clusters_list',
+    'registry_credentials_create',
+    'registry_credentials_list',
+    'registry_credentials_revoke',
+    'registry_enable',
+    'registry_get',
+    'registry_handle_suggest',
+    'registry_kubernetes_manifest',
+    'registry_repositories_list',
+    'registry_repository_delete',
+    'registry_repository_get',
+    'registry_repository_vulnerabilities',
+    'registry_set_tier',
+    'registry_tag_delete',
+    'registry_tiers',
+  ]);
 });
