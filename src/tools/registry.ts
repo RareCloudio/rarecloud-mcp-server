@@ -17,12 +17,12 @@
 // tag) AND the route sources (api/src/routes/v1-registry.ts,
 // v1-registry-repos.ts, v1-registry-clusters.ts, v1-registry-tiers.ts):
 //
-//   - registry_tiers (GET /registry/tiers): this endpoint is being added in
-//     PARALLEL by a concurrent task on the same effort and does not exist yet
-//     on the route sources this file was written against. Modeled directly
-//     from the ruled response shape handed down for this task:
+//   - registry_tiers (GET /registry/tiers): modeled from the ruled response
+//     shape while the route was being added in parallel; the route now exists
+//     (api/src/routes/v1-registry-tiers.ts) and answers exactly
 //     `{items: [{tier, quotaGb, burstCeilingGb, monthlyCents: {EUR, USD},
-//     overageCentsPerGbMonth, available}]}`. No input, matching the
+//     overageCentsPerGbMonth, available}]}`; unauthenticated callers receive
+//     only `available: true` rows, so the tool sees the full table. No input, matching the
 //     catalog.ts convention for un-authed/no-argument "what are my options"
 //     reads (list_catalog_products, list_regions, ...).
 //   - registry_handle_suggest (GET /registry/handles/suggest): follow-up tool
