@@ -130,6 +130,14 @@ export interface WriteToolOptions<S extends z.ZodTypeAny> {
   destructiveHint?: boolean;
   /** Override result formatting (e.g. unwrap a returned credential). Default: jsonResult. */
   formatResult?: (data: unknown) => ToolCallResult;
+  /**
+   * Extra request headers for this tool's one HTTP call. Additive over the
+   * client's own Authorization/User-Agent/Content-Type, used ONLY by
+   * registry_kubernetes_manifest today, whose endpoint answers with a raw
+   * `application/yaml` manifest unless the request carries
+   * `Accept: application/json`. Every other write tool omits this.
+   */
+  extraHeaders?: Record<string, string>;
 }
 
 export function writeTool<S extends z.ZodTypeAny>(
@@ -175,7 +183,7 @@ export function writeTool<S extends z.ZodTypeAny>(
         const body = opts.buildBody ? opts.buildBody(parsed.data) : undefined;
 
         // 4. Dispatch.
-        const data = await callMethod(client, opts.method, path, body);
+        const data = await callMethod(client, opts.method, path, body, opts.extraHeaders);
         return opts.formatResult ? opts.formatResult(data) : jsonResult(data);
       } catch (e) {
         return errorResult(e instanceof APIError ? e.message : (e as Error).message);
@@ -184,10 +192,16 @@ export function writeTool<S extends z.ZodTypeAny>(
   };
 }
 
-function callMethod(client: RareCloudClient, method: WriteMethod, path: string, body: unknown): Promise<unknown> {
+function callMethod(
+  client: RareCloudClient,
+  method: WriteMethod,
+  path: string,
+  body: unknown,
+  extraHeaders?: Record<string, string>,
+): Promise<unknown> {
   switch (method) {
     case 'POST':
-      return client.post(path, body);
+      return client.post(path, body, extraHeaders);
     case 'PUT':
       return client.put(path, body);
     case 'PATCH':

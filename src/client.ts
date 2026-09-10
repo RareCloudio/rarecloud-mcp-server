@@ -37,8 +37,17 @@ export class RareCloudClient {
     return this.do<T>('GET', url);
   }
 
-  async post<T = unknown>(path: string, body?: unknown): Promise<T> {
-    return this.do<T>('POST', this.url(path), body);
+  // `headers` is an additive overlay on top of the standard Authorization /
+  // User-Agent / Content-Type set below, used by exactly one call site today
+  // (registry_kubernetes_manifest): that endpoint's DEFAULT response is a raw
+  // `application/yaml` manifest for a plain `curl | kubectl apply -f -` flow,
+  // and only answers with the structured `{credential,manifest,secret}` JSON
+  // envelope every other tool expects when the request carries
+  // `Accept: application/json` (mirrors the CLI's own `DoAccept` addition for
+  // the same endpoint). Every existing caller omits `headers` and is
+  // unaffected.
+  async post<T = unknown>(path: string, body?: unknown, headers?: Record<string, string>): Promise<T> {
+    return this.do<T>('POST', this.url(path), body, headers);
   }
 
   async put<T = unknown>(path: string, body?: unknown): Promise<T> {
@@ -64,10 +73,11 @@ export class RareCloudClient {
     return url.toString();
   }
 
-  private async do<T>(method: string, url: string, body?: unknown): Promise<T> {
+  private async do<T>(method: string, url: string, body?: unknown, extraHeaders?: Record<string, string>): Promise<T> {
     const headers: Record<string, string> = {
       Authorization: `Bearer ${this.config.token}`,
       'User-Agent': this.config.userAgent ?? `rarecloud-mcp/${SERVER_VERSION}`,
+      ...extraHeaders,
     };
     if (body !== undefined) headers['Content-Type'] = 'application/json';
 

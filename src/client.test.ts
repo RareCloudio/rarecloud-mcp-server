@@ -141,6 +141,37 @@ test('put() sends PUT with a JSON body and returns the data envelope', async () 
   }
 });
 
+test('post() accepts an extra-headers overlay without dropping Authorization/User-Agent', async () => {
+  const stub = stubFetch(ok({ minted: true }));
+  try {
+    const client = new RareCloudClient({ endpoint: 'https://example.com', token: 't' });
+    await client.post('/v1/registry/docker-credentials/kubernetes', undefined, { Accept: 'application/json' });
+    const req = stub.calls[0];
+    assert.equal(req.headers.Accept, 'application/json');
+    assert.equal(req.headers.Authorization, 'Bearer t');
+    assert.equal(req.headers['User-Agent'], `rarecloud-mcp/${SERVER_VERSION}`);
+    // No body was passed, so no Content-Type is set (matches the plain post()
+    // behaviour: this endpoint's real request carries query params, no body).
+    assert.equal(req.headers['Content-Type'], undefined);
+    assert.equal(req.body, undefined);
+  } finally {
+    stub.restore();
+  }
+});
+
+test('post() without a headers overlay behaves exactly as before (no Accept header)', async () => {
+  const stub = stubFetch(ok({ id: 'x' }));
+  try {
+    const client = new RareCloudClient({ endpoint: 'https://example.com', token: 't' });
+    await client.post('/v1/volumes', { name: 'v' });
+    const req = stub.calls[0];
+    assert.equal(req.headers.Accept, undefined);
+    assert.equal(req.headers['Content-Type'], 'application/json');
+  } finally {
+    stub.restore();
+  }
+});
+
 test('patch() sends PATCH with a JSON body and returns the data envelope', async () => {
   const stub = stubFetch(ok({ id: 'svc-123', auto_renew: false }));
   try {

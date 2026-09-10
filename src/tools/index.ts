@@ -81,6 +81,15 @@ import {
   downloadClusterKubeconfig,
 } from './k8s.js';
 import {
+  registryGet,
+  registryTiers,
+  registryCredentialsList,
+  registryRepositoriesList,
+  registryRepositoryGet,
+  registryRepositoryVulnerabilities,
+  registryClustersList,
+} from './registry.js';
+import {
   listProxies,
   getProxyCatalog,
   getProxy,
@@ -168,6 +177,19 @@ import {
 } from './account-write.js';
 import { setBillingAlert, deleteBillingAlert, redeemVoucher } from './billing-write.js';
 import { createTicket, replyTicket, closeTicket } from './tickets-write.js';
+import {
+  registryEnable,
+  registrySetTier,
+  registryClose,
+  registryCredentialsCreate,
+  registryCredentialsRevoke,
+  registryRepositoryDelete,
+  registryTagDelete,
+  registryClusterLink,
+  registryClusterUnlink,
+  registryClusterRotate,
+  registryKubernetesManifest,
+} from './registry-write.js';
 import {
   orderProxy,
   renewProxy,
@@ -270,6 +292,14 @@ export const TOOLS: ToolDefinition[] = [
   listProxyRequests,
   getProxyRequestList,
   getProxyReplacements,
+  // Container Registry ("my private OCI registry: account/tiers/creds/repos/clusters")
+  registryGet,
+  registryTiers,
+  registryCredentialsList,
+  registryRepositoriesList,
+  registryRepositoryGet,
+  registryRepositoryVulnerabilities,
+  registryClustersList,
 
   // --- WRITE / ACTION TOOLS (Parity Phase B) ---
   // Services — writes
@@ -362,6 +392,18 @@ export const TOOLS: ToolDefinition[] = [
   requestProxyReplacement,
   createProxyRequest,
   deleteProxyRequest,
+  // Container Registry writes (enable/tier/close, robot credentials, repo/tag delete, cluster link)
+  registryEnable,
+  registrySetTier,
+  registryClose,
+  registryCredentialsCreate,
+  registryCredentialsRevoke,
+  registryRepositoryDelete,
+  registryTagDelete,
+  registryClusterLink,
+  registryClusterUnlink,
+  registryClusterRotate,
+  registryKubernetesManifest,
 ];
 
 export function findTool(name: string): ToolDefinition | undefined {
