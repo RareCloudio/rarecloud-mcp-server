@@ -10,6 +10,7 @@ import assert from 'node:assert/strict';
 import {
   registryGet,
   registryTiers,
+  registryHandleSuggest,
   registryCredentialsList,
   registryRepositoriesList,
   registryRepositoryGet,
@@ -104,6 +105,47 @@ test('registry_tiers: names registry_tiers and returns the items array verbatim'
   };
   const { client } = fakeClient(() => payload);
   const result = await registryTiers.handler(client, {});
+  assert.deepEqual(JSON.parse(textOf(result)), payload);
+});
+
+// --- registry_handle_suggest (optional `base` query) ------------------------
+
+test('registry_handle_suggest: name + schema advertises an optional base, closed, nothing required', () => {
+  assert.equal(registryHandleSuggest.name, 'registry_handle_suggest');
+  assert.equal(registryHandleSuggest.inputSchema.additionalProperties, false);
+  assert.deepEqual(Object.keys(registryHandleSuggest.inputSchema.properties), ['base']);
+  assert.equal(registryHandleSuggest.inputSchema.required, undefined);
+  assert.doesNotMatch(registryHandleSuggest.description, /services:(read|write)/, 'must not name a scope');
+});
+
+test('registry_handle_suggest: no base given -> bare path', async () => {
+  const { client, calls } = fakeClient(() => ({ suggestions: [] }));
+  await registryHandleSuggest.handler(client, {});
+  assert.deepEqual(calls, ['/v1/registry/handles/suggest']);
+});
+
+test('registry_handle_suggest: forwards base as a query param', async () => {
+  const { client, calls } = fakeClient(() => ({ suggestions: ['acme01', 'acme02', 'acme03'] }));
+  await registryHandleSuggest.handler(client, { base: 'acme' });
+  assert.deepEqual(calls, ['/v1/registry/handles/suggest?base=acme']);
+});
+
+test('registry_handle_suggest: an empty-string base is dropped, not sent literally', async () => {
+  const { client, calls } = fakeClient(() => ({ suggestions: [] }));
+  await registryHandleSuggest.handler(client, { base: '' });
+  assert.deepEqual(calls, ['/v1/registry/handles/suggest']);
+});
+
+test('registry_handle_suggest: a base needing URL-encoding is escaped (space, punctuation)', async () => {
+  const { client, calls } = fakeClient(() => ({ suggestions: [] }));
+  await registryHandleSuggest.handler(client, { base: 'my app!' });
+  assert.deepEqual(calls, ['/v1/registry/handles/suggest?base=my+app%21']);
+});
+
+test('registry_handle_suggest: returns the suggestions array verbatim', async () => {
+  const payload = { suggestions: ['bluefalcon42', 'redotter17'] };
+  const { client } = fakeClient(() => payload);
+  const result = await registryHandleSuggest.handler(client, {});
   assert.deepEqual(JSON.parse(textOf(result)), payload);
 });
 

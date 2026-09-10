@@ -83,6 +83,7 @@ import {
 import {
   registryGet,
   registryTiers,
+  registryHandleSuggest,
   registryCredentialsList,
   registryRepositoriesList,
   registryRepositoryGet,
@@ -295,6 +296,7 @@ export const TOOLS: ToolDefinition[] = [
   // Container Registry ("my private OCI registry: account/tiers/creds/repos/clusters")
   registryGet,
   registryTiers,
+  registryHandleSuggest,
   registryCredentialsList,
   registryRepositoriesList,
   registryRepositoryGet,

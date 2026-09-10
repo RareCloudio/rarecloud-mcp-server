@@ -15,7 +15,7 @@
 //
 // Bodies + shapes re-confirmed against console openapi.json (the Registry
 // tag) AND the route sources (api/src/routes/v1-registry.ts,
-// v1-registry-repos.ts, v1-registry-clusters.ts):
+// v1-registry-repos.ts, v1-registry-clusters.ts, v1-registry-tiers.ts):
 //
 //   - registry_tiers (GET /registry/tiers): this endpoint is being added in
 //     PARALLEL by a concurrent task on the same effort and does not exist yet
@@ -25,6 +25,23 @@
 //     overageCentsPerGbMonth, available}]}`. No input, matching the
 //     catalog.ts convention for un-authed/no-argument "what are my options"
 //     reads (list_catalog_products, list_regions, ...).
+//   - registry_handle_suggest (GET /registry/handles/suggest): follow-up tool
+//     (the route now exists for real, in v1-registry-tiers.ts alongside
+//     registry_tiers above). `base` is optional free-form text, typically
+//     whatever the customer has typed so far in an onboarding form; the route
+//     passes it straight to suggestHandle() in registry/handles.ts with no
+//     length bound of its own, matching that route's openapi.json parameter
+//     schema (`{type: 'string'}`, no min/maxLength), so this tool advertises
+//     none either. An empty-string base is dropped before the request is
+//     sent, the same idiom as an empty cursor below: after suggestHandle()'s
+//     own cleaning step, a stripped-empty base behaves identically to no
+//     base at all. Output is `{suggestions: string[]}`, up to 3 items (fewer
+//     only if the handle namespace around `base` is extremely crowded), each
+//     always matching the handle grammar `^[a-z0-9]{3,30}$` (registry/
+//     handles.ts's HANDLE_RE, which mirrors the app.registry_accounts.handle
+//     column's own CHECK constraint verbatim). No reserved word
+//     (registry/handles.ts's RESERVED_HANDLES) and no already-taken handle
+//     is ever suggested.
 //   - registry_repository_get / registry_repository_vulnerabilities: `repo`
 //     MAY itself contain `/` (e.g. `team/app`); the API always resolves it
 //     under the caller's own handle and never trusts it as a full name. This
@@ -72,6 +89,34 @@ export const registryTiers = readList(
     'available to select. No input. Use before registry_enable to choose a starting tier, or before ' +
     'registry_set_tier to compare options.',
 );
+
+export const registryHandleSuggest = readTool({
+  name: 'registry_handle_suggest',
+  description:
+    'Suggest up to 3 free, valid container-registry handles derived from `base` (typically whatever the ' +
+    'customer has typed so far). Each suggestion always matches the handle shape (3 to 30 lowercase letters ' +
+    'or digits), is never a reserved word, and is never already taken by another account. Omit `base` for ' +
+    'unrelated suggestions; may return fewer than 3 in rare cases, never zero unless the namespace around ' +
+    '`base` is extremely crowded. Use before registry_enable to help a customer pick a handle.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      base: {
+        type: 'string',
+        description:
+          'Free-form text to base the suggestions on, e.g. what the customer has typed so far. Lowercased ' +
+          'and stripped to the handle character class before use; omit for unrelated suggestions.',
+      },
+    },
+    additionalProperties: false,
+  },
+  buildPath: (args) => {
+    const q = new URLSearchParams();
+    if (args.base !== undefined && args.base !== '') q.set('base', String(args.base));
+    const s = q.toString();
+    return s ? `/v1/registry/handles/suggest?${s}` : '/v1/registry/handles/suggest';
+  },
+});
 
 export const registryCredentialsList = readList(
   'registry_credentials_list',

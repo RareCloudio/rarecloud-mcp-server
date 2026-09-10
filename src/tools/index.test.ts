@@ -8,7 +8,7 @@ import { TOOLS, findTool } from './index.js';
 
 // Bump this in the same commit that adds/removes tools. A mismatch means the
 // registry changed without the test acknowledging it.
-const EXPECTED_TOOL_COUNT = 174;
+const EXPECTED_TOOL_COUNT = 175;
 
 test('registry: tool count matches the expected total', () => {
   assert.equal(TOOLS.length, EXPECTED_TOOL_COUNT);
@@ -296,7 +296,7 @@ test('registry policy (CR-12): robot/infra credential-minting tools ARE register
   assert.ok(byName.has('registry_credentials_revoke'), 'registry_credentials_revoke must be registered');
 });
 
-test('registry policy (CR-12): the full registry surface is EXACTLY 18 tools, all named registry_*', () => {
+test('registry policy (CR-12): the full registry surface is EXACTLY 19 tools, all named registry_*', () => {
   const registryTools = TOOLS.filter((t) => t.name.startsWith('registry_')).map((t) => t.name).sort();
   assert.deepEqual(registryTools, [
     'registry_close',
@@ -309,6 +309,7 @@ test('registry policy (CR-12): the full registry surface is EXACTLY 18 tools, al
     'registry_credentials_revoke',
     'registry_enable',
     'registry_get',
+    'registry_handle_suggest',
     'registry_kubernetes_manifest',
     'registry_repositories_list',
     'registry_repository_delete',

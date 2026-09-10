@@ -6,9 +6,9 @@ Drop into [Claude Code](https://claude.com/claude-code), Claude Desktop, [Cursor
 
 ## What it does
 
-Exposes **174 tools** wrapping the RareCloud REST API: **84 read tools** (inspect / list / get, always safe) plus **90 write/action tools** (deploy, resize, destroy, order, renew, and similar mutations, gated where money or irreversibility is involved). See [Reads + gated writes](#reads--gated-writes) below for how the gate works.
+Exposes **175 tools** wrapping the RareCloud REST API: **85 read tools** (inspect / list / get, always safe) plus **90 write/action tools** (deploy, resize, destroy, order, renew, and similar mutations, gated where money or irreversibility is involved). See [Reads + gated writes](#reads--gated-writes) below for how the gate works.
 
-### Read tools (84)
+### Read tools (85)
 
 | Category | Tool | Purpose |
 |---|---|---|
@@ -91,6 +91,7 @@ Exposes **174 tools** wrapping the RareCloud REST API: **84 read tools** (inspec
 | | `get_proxy_replacements` | IP-replacement allowance + history for a proxy service |
 | Container Registry | `registry_get` | The account's private OCI registry: handle, hostname, tier, status, live usage/quota/push state, linked-cluster counts |
 | | `registry_tiers` | Billing tiers: storage quota, burst ceiling, monthly price (EUR/USD), overage rate, availability |
+| | `registry_handle_suggest` | Up to 3 free, valid, non-reserved handle suggestions from a `base` string |
 | | `registry_credentials_list` | Robot credentials (docker login / pull / push), metadata only, never a secret |
 | | `registry_repositories_list` | Repositories under the account's registry handle, paginated |
 | | `registry_repository_get` | One repository's tags, each with CVE severity counts |
@@ -336,14 +337,14 @@ Then point Claude Desktop at your local checkout:
 npm test
 ```
 
-Tests run on the built-in Node test runner (`node:test`) via `tsx`, no build step, no network. Each tool is exercised against an injected mock client that records the request path and returns a canned payload, so the suite asserts path construction, input-schema shape, JSON-vs-raw output, secret-handling guidance, and error mapping without ever calling the live API. For write tools, the same fake-client harness also proves the confirm gate makes zero requests when `confirm` is omitted, that both the zod input and the JSON `inputSchema` enforce the same bounds (mirrored both layers), and that every dynamic path segment is guarded against path traversal. A registry invariant test pins the exposed tool count (174) and enforces unique names, well-formed schemas, and, for the write-scope surfaces, an exact pinned set of tool names per scope, so a future change can't silently add a tool under the wrong scope.
+Tests run on the built-in Node test runner (`node:test`) via `tsx`, no build step, no network. Each tool is exercised against an injected mock client that records the request path and returns a canned payload, so the suite asserts path construction, input-schema shape, JSON-vs-raw output, secret-handling guidance, and error mapping without ever calling the live API. For write tools, the same fake-client harness also proves the confirm gate makes zero requests when `confirm` is omitted, that both the zod input and the JSON `inputSchema` enforce the same bounds (mirrored both layers), and that every dynamic path segment is guarded against path traversal. A registry invariant test pins the exposed tool count (175) and enforces unique names, well-formed schemas, and, for the write-scope surfaces, an exact pinned set of tool names per scope, so a future change can't silently add a tool under the wrong scope.
 
 ## Security
 
 - Tokens never touch shell history (we use env vars, not CLI flags).
 - Each tool maps 1:1 to a RareCloud API endpoint; the MCP server doesn't aggregate or transform data beyond what the API returns.
 - **Scope is exact-match per token, enforced server-side.** A token only unlocks the tools whose scope it carries; there is no wildcard scope matching (`*:read` does not imply `services:read`) and no client-side scope bypass — an unscoped or under-scoped token gets the API's own `[FORBIDDEN]` response back.
-- **Writes exist and are gated.** 90 of the 174 tools mutate state. The ones that spend money or destroy something require `confirm:true` and make no API call at all without it (see [Reads + gated writes](#reads--gated-writes)). The remaining write tools are plain (no charge, nothing torn down) and run unconditionally once the token's scope allows them.
+- **Writes exist and are gated.** 90 of the 175 tools mutate state. The ones that spend money or destroy something require `confirm:true` and make no API call at all without it (see [Reads + gated writes](#reads--gated-writes)). The remaining write tools are plain (no charge, nothing torn down) and run unconditionally once the token's scope allows them.
 - **No identity/credential/money-movement surface, by design, not by gate.** Password/2FA changes, sub-user invites, payment-method management, API-token management, credit top-up, invoice payment, and affiliate activate/withdraw have no tool here at all — an agent holding even a maximally-scoped token cannot reach them. A registry test pins this exclusion list so a future change can't quietly add one back.
 - The handful of tools that return live credentials (kubeconfigs — including the long-lived `create_cluster_kubeconfig` — and proxy endpoint/auth lists) carry explicit secret-handling guidance so the agent doesn't echo them back unprompted.
 - Revoke a token at any time: **Dashboard → Account → API tokens**. Revocation is instant, no propagation delay.
