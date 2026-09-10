@@ -187,3 +187,60 @@ test('patch() sends PATCH with a JSON body and returns the data envelope', async
     stub.restore();
   }
 });
+
+// --- Fix round 1: empty-body responses (a bare 204 from a DELETE route) ----
+//
+// Bug: do() called JSON.parse on the response text unconditionally. A real
+// 204 No Content response (registry_credentials_revoke, registry_tag_delete,
+// and any future DELETE route with no body) has an EMPTY text body, and
+// JSON.parse('') throws, which the old code mapped to a false
+// INVALID_RESPONSE error on every successful call. None of the tool tests
+// caught this because they fake the client at the RareCloudClient level, so
+// this real fetch is never exercised there; these two tests stub global
+// fetch with genuine `Response` objects (not the fakeWriteClient/stubFetch
+// shape) so do()'s actual resp.ok / resp.status handling is exercised.
+
+function stubRealFetch(response: Response): { restore: () => void } {
+  const original = globalThis.fetch;
+  globalThis.fetch = (async () => response) as typeof fetch;
+  return { restore: () => { globalThis.fetch = original; } };
+}
+
+test('delete() treats an empty 204 No Content body as a success, not INVALID_RESPONSE', async () => {
+  const stub = stubRealFetch(new Response(null, { status: 204 }));
+  try {
+    const client = new RareCloudClient({ endpoint: 'https://example.com', token: 't' });
+    const data = await client.delete('/v1/registry/credentials/cred-1');
+    assert.deepEqual(data, {});
+  } finally {
+    stub.restore();
+  }
+});
+
+test('delete() with an empty body on a NON-2xx status still throws an APIError', async () => {
+  const stub = stubRealFetch(new Response(null, { status: 500 }));
+  try {
+    const client = new RareCloudClient({ endpoint: 'https://example.com', token: 't' });
+    await assert.rejects(
+      () => client.delete('/v1/registry/credentials/cred-1'),
+      (err: unknown) => {
+        assert.ok(err instanceof APIError, 'expected an APIError');
+        assert.equal(err.code, 'HTTP_500');
+        return true;
+      },
+    );
+  } finally {
+    stub.restore();
+  }
+});
+
+test('post() with an empty 2xx body (no Content-Length case) is also a success', async () => {
+  const stub = stubRealFetch(new Response(null, { status: 200 }));
+  try {
+    const client = new RareCloudClient({ endpoint: 'https://example.com', token: 't' });
+    const data = await client.post('/v1/some/action');
+    assert.deepEqual(data, {});
+  } finally {
+    stub.restore();
+  }
+});

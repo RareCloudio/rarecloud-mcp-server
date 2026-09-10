@@ -22,7 +22,7 @@ import {
   registryClusterRotate,
   registryKubernetesManifest,
 } from './registry-write.js';
-import { APIError, type RareCloudClient } from '../client.js';
+import { APIError, RareCloudClient } from '../client.js';
 import type { ToolCallResult, ToolDefinition } from './types.js';
 
 function fakeWriteClient(
@@ -556,4 +556,47 @@ test('registry_kubernetes_manifest: the secret is never passed to console.log/wa
     console.error = originalError;
   }
   assert.ok(!seen.some((s) => s.includes(MANIFEST_RESPONSE.secret)), 'the secret must never reach console.*');
+});
+
+// ---------------------------------------------------------------------------
+// Fix round 1: registry_credentials_revoke and registry_tag_delete both hit
+// a REAL 204 No Content route (v1-registry.ts's credentialDELETE and
+// v1-registry-repos.ts's tag-delete branch, both `new Response(null,
+// {status: 204})`). The fakeWriteClient used everywhere above never touches
+// the real client.ts fetch/JSON.parse path, so it could not have caught the
+// bug where an empty body threw a false INVALID_RESPONSE on every success.
+// These two tests go through a REAL RareCloudClient with global fetch
+// stubbed to a genuine empty-body 204 Response, exercising the actual
+// client.ts code the fake normally bypasses.
+// ---------------------------------------------------------------------------
+
+function stubRealFetch(response: Response): { restore: () => void } {
+  const original = globalThis.fetch;
+  globalThis.fetch = (async () => response) as typeof fetch;
+  return { restore: () => { globalThis.fetch = original; } };
+}
+
+test('registry_credentials_revoke: a real 204 No Content response is a success, not INVALID_RESPONSE', async () => {
+  const stub = stubRealFetch(new Response(null, { status: 204 }));
+  try {
+    const client = new RareCloudClient({ endpoint: 'https://example.com', token: 't' });
+    const result = await registryCredentialsRevoke.handler(client, {
+      id: '11111111-1111-1111-1111-111111111111',
+      confirm: true,
+    });
+    assert.equal(result.isError, undefined, textOf(result));
+  } finally {
+    stub.restore();
+  }
+});
+
+test('registry_tag_delete: a real 204 No Content response is a success, not INVALID_RESPONSE', async () => {
+  const stub = stubRealFetch(new Response(null, { status: 204 }));
+  try {
+    const client = new RareCloudClient({ endpoint: 'https://example.com', token: 't' });
+    const result = await registryTagDelete.handler(client, { repo: 'app', tag: '1.0', confirm: true });
+    assert.equal(result.isError, undefined, textOf(result));
+  } finally {
+    stub.restore();
+  }
 });

@@ -93,6 +93,24 @@ export class RareCloudClient {
     }
 
     const text = await resp.text();
+
+    // Fix round 1: a bare 204 No Content (registry_credentials_revoke,
+    // registry_tag_delete, and any future DELETE-style route with no body)
+    // has an EMPTY text body. JSON.parse('') throws, which used to map every
+    // one of these successful calls to a false INVALID_RESPONSE error. An
+    // empty body on a 2xx status is a genuine success with nothing to
+    // report, so it resolves the same way a `{data: undefined}` envelope
+    // already does below ({} as T). An empty body on a NON-2xx status is
+    // still a real error, just one with no JSON envelope to read a code or
+    // message from, so it maps to a synthetic HTTP_<status> code instead of
+    // the misleading INVALID_RESPONSE.
+    if (text.trim() === '') {
+      if (resp.ok) {
+        return {} as T;
+      }
+      throw new APIError({ code: `HTTP_${resp.status}`, message: `HTTP ${resp.status} (empty body)` });
+    }
+
     let env: Envelope<T>;
     try {
       env = JSON.parse(text) as Envelope<T>;
