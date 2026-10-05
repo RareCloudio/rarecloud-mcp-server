@@ -6,9 +6,9 @@ Drop into [Claude Code](https://claude.com/claude-code), Claude Desktop, [Cursor
 
 ## What it does
 
-Exposes **156 tools** wrapping the RareCloud REST API: **77 read tools** (inspect / list / get — always safe) plus **79 write/action tools** (deploy, resize, destroy, order, renew, and similar mutations — gated where money or irreversibility is involved). See [Reads + gated writes](#reads--gated-writes) below for how the gate works.
+Exposes **175 tools** wrapping the RareCloud REST API: **85 read tools** (inspect / list / get, always safe) plus **90 write/action tools** (deploy, resize, destroy, order, renew, and similar mutations, gated where money or irreversibility is involved). See [Reads + gated writes](#reads--gated-writes) below for how the gate works.
 
-### Read tools (77)
+### Read tools (85)
 
 | Category | Tool | Purpose |
 |---|---|---|
@@ -89,12 +89,20 @@ Exposes **156 tools** wrapping the RareCloud REST API: **77 read tools** (inspec
 | | `list_proxy_requests` | Proxy-requests on a GB Residential bucket (country + rotation + count groups) |
 | | `get_proxy_request_list` | Live endpoints + credentials for one GB Residential proxy-request — **live secret** |
 | | `get_proxy_replacements` | IP-replacement allowance + history for a proxy service |
+| Container Registry | `registry_get` | The account's private OCI registry: handle, hostname, tier, status, live usage/quota/push state, linked-cluster counts |
+| | `registry_tiers` | Billing tiers: storage quota, burst ceiling, monthly price (EUR/USD), overage rate, availability |
+| | `registry_handle_suggest` | Up to 3 free, valid, non-reserved handle suggestions from a `base` string |
+| | `registry_credentials_list` | Robot credentials (docker login / pull / push), metadata only, never a secret |
+| | `registry_repositories_list` | Repositories under the account's registry handle, paginated |
+| | `registry_repository_get` | One repository's tags, each with CVE severity counts |
+| | `registry_repository_vulnerabilities` | Paginated CVE findings for one tag |
+| | `registry_clusters_list` | Kubernetes clusters linked to the registry, with syncer health |
 
 Tools marked **live secret** return a real credential (a kubeconfig bearer token, or proxy `ip:port:user:pass`). Their descriptions instruct the agent to treat the result as a secret and not echo it back unless you explicitly ask.
 
-### Write / action tools (79)
+### Write / action tools (90)
 
-Legend: **(spends)** = places a real order or otherwise charges the account; **(destructive — needs `confirm`)** = irreversibly tears something down. Both kinds refuse to run — making **no** API call — unless the call passes `confirm:true`; an agent must always surface the action and its cost/consequence to the user first. Tools with neither marker are plain writes (no charge, nothing torn down) and run unconditionally.
+Legend: **(spends)** = places a real order or otherwise charges the account; **(destructive — needs `confirm`)** = irreversibly tears something down; **(mints a secret, needs `confirm`)** = the result carries a live credential shown exactly once; **(disruptive, needs `confirm`)** = swaps or otherwise disturbs a live credential without showing it. All four kinds refuse to run, making **no** API call, unless the call passes `confirm:true`; an agent must always surface the action and its consequence to the user first. Tools with neither marker are plain writes (no charge, nothing torn down, no secret minted) and run unconditionally.
 
 | Category | Tool | Purpose |
 |---|---|---|
@@ -177,8 +185,19 @@ Legend: **(spends)** = places a real order or otherwise charges the account; **(
 | | `request_proxy_replacement` | Request an IP replacement, consuming the monthly allowance |
 | | `create_proxy_request` | Create a proxy-request on a GB Residential bucket |
 | | `delete_proxy_request` | Delete a proxy-request from a GB Residential bucket **(destructive — needs `confirm`)** |
+| Container Registry | `registry_enable` | Enable the registry, or reopen/re-enable a previously closed one |
+| | `registry_set_tier` | Change the registry's billing tier |
+| | `registry_close` | Close the registry (storage deletion is scheduled, not immediate) **(destructive — needs `confirm`)** |
+| | `registry_credentials_create` | Create a robot credential for docker login / pull / push **(mints a secret, needs `confirm`)** |
+| | `registry_credentials_revoke` | Revoke a robot credential immediately **(destructive — needs `confirm`)** |
+| | `registry_repository_delete` | Delete an entire repository (every image in it) **(destructive — needs `confirm`)** |
+| | `registry_tag_delete` | Delete one tag from a repository **(destructive — needs `confirm`)** |
+| | `registry_cluster_link` | Link an owned Kubernetes cluster to the registry (installs a secret-syncer controller) |
+| | `registry_cluster_unlink` | Unlink a cluster, removing everything the link installed **(destructive — needs `confirm`)** |
+| | `registry_cluster_rotate` | Rotate a linked cluster's pull credential **(disruptive, needs `confirm`)** |
+| | `registry_kubernetes_manifest` | Get a ready-to-apply pull-secret manifest for a BYO (self-managed) cluster **(mints a secret, needs `confirm`)** |
 
-Notably absent by design: no password/2FA changes, no sub-user invites, no payment-method or API-token management, no credit top-up, no invoice payment, no affiliate activate/withdraw. Those are identity, credential, or raw-money-movement operations that stay out of an agent's reach — see [Reads + gated writes](#reads--gated-writes).
+Notably absent by design: no password/2FA changes, no sub-user invites, no payment-method or API-token management, no credit top-up, no invoice payment, no affiliate activate/withdraw. Those are identity, credential, or raw-money-movement operations that stay out of an agent's reach; see [Reads + gated writes](#reads--gated-writes). Registry ROBOT credentials are a different, allowed class: infrastructure access material, not identity (spec CR-12); see [Reads + gated writes](#reads--gated-writes) below.
 
 ## Reads + gated writes
 
@@ -189,9 +208,9 @@ Two independent things are true of every gated tool:
 - **`confirm: true` required** — the caller must actively opt in per call; there is no "confirm once, run twice" shortcut.
 - **`destructiveHint` annotation** — set on the subset of gated tools whose effect is irreversible teardown (delete, revoke, cancel, remove-member, …), so an MCP client's own UI/guardrails can treat those more cautiously than a merely money-spending gated tool (deploy, resize, renew, …). See the legend above the write-tools table for which tools carry which marker.
 
-A handful of tools also return a **live credential** in their result — long-lived kubeconfigs (`create_cluster_kubeconfig`, plus the read-only `get_cluster_kubeconfig` / `download_cluster_kubeconfig`) and proxy endpoint/auth data (`get_proxy_list`, `get_proxy_auth`, `get_proxy_request_list`). Their descriptions explicitly instruct the agent to treat the value as a secret — never echo it back or log it — and pass it straight to whatever consumes it unless the user explicitly asks to see it.
+A handful of tools also return a **live credential** in their result: long-lived kubeconfigs (`create_cluster_kubeconfig`, plus the read-only `get_cluster_kubeconfig` / `download_cluster_kubeconfig`), proxy endpoint/auth data (`get_proxy_list`, `get_proxy_auth`, `get_proxy_request_list`), and registry robot credentials (`registry_credentials_create`, `registry_kubernetes_manifest`). Their descriptions explicitly instruct the agent to treat the value as a secret, never echo it back or log it, and pass it straight to whatever consumes it unless the user explicitly asks to see it. The two registry tools additionally require `confirm: true` (spec CR-12) and append a one-line warning after the secret in their result, since the secret can never be retrieved again once shown.
 
-For anything still outside the 79 write tools: the agent can read, recommend, and generate Terraform/CLI commands. The user copy-pastes them or runs them via [the RareCloud CLI](https://github.com/RareCloudio/rarecloud-cli).
+For anything still outside the 90 write tools: the agent can read, recommend, and generate Terraform/CLI commands. The user copy-pastes them or runs them via [the RareCloud CLI](https://github.com/RareCloudio/rarecloud-cli).
 
 ## Install
 
@@ -212,10 +231,10 @@ npx @rarecloudio/mcp-server
 Get an API token: **Dashboard → Account → API tokens → New token**. Pick scopes for what you want the agent to do:
 
 - Read-only agent: the explicit read scopes `account:read`, `services:read`, `billing:read`, `domains:read`, `tickets:read`.
-- An agent that can also act: add the matching `{domain}:write` scope(s) — `services:write` (covers cloud VMs, managed Kubernetes, volumes, networks, reserved IPs, firewalls, load balancers, **and residential proxies** — there is no separate proxy scope), `domains:write`, `account:write`, `billing:write`, `tickets:write`.
+- An agent that can also act: add the matching `{domain}:write` scope(s): `services:write` (covers cloud VMs, managed Kubernetes, volumes, networks, reserved IPs, firewalls, load balancers, residential proxies, **and the container registry**, there is no separate proxy or registry scope), `domains:write`, `account:write`, `billing:write`, `tickets:write`.
 - Full access: bare `*`.
 
-Scope matching is **exact per token** — wildcard patterns like `*:read` are not supported; a token must carry the precise scope string a tool's description names. `account:write` / `billing:write` / `tickets:write` are deliberately narrow: they cover only the safe write tools listed above (profile fields, SSH keys, contacts, spend alerts, voucher redemption, tickets) and exclude every identity/credential/money-movement operation (password/2FA changes, sub-user invites, payment methods, API tokens, credit top-up, invoice payment, affiliate activate/withdraw) — those simply have no tool here, gated or otherwise.
+Scope matching is **exact per token**: wildcard patterns like `*:read` are not supported; a token must carry the precise scope string a tool's description names. `account:write` / `billing:write` / `tickets:write` are deliberately narrow: they cover only the safe write tools listed above (profile fields, SSH keys, contacts, spend alerts, voucher redemption, tickets) and exclude every identity/credential/money-movement operation (password/2FA changes, sub-user invites, payment methods, API tokens, credit top-up, invoice payment, affiliate activate/withdraw); those simply have no tool here, gated or otherwise. Registry robot credentials (`registry_credentials_create`/`_revoke`, `registry_kubernetes_manifest`) are NOT part of that exclusion: they are infrastructure access material, the same class as SSH keys and kubeconfigs, not account identity (spec CR-12); see [Reads + gated writes](#reads--gated-writes) above.
 
 Copy the token — shown once.
 
@@ -318,14 +337,14 @@ Then point Claude Desktop at your local checkout:
 npm test
 ```
 
-Tests run on the built-in Node test runner (`node:test`) via `tsx` — no build step, no network. Each tool is exercised against an injected mock client that records the request path and returns a canned payload, so the suite asserts path construction, input-schema shape, JSON-vs-raw output, secret-handling guidance, and error mapping without ever calling the live API. For write tools, the same fake-client harness also proves the confirm gate makes zero requests when `confirm` is omitted, that both the zod input and the JSON `inputSchema` enforce the same bounds (mirrored both layers), and that every dynamic path segment is guarded against path traversal. A registry invariant test pins the exposed tool count (156) and enforces unique names, well-formed schemas, and — for the write-scope surfaces — an exact pinned set of tool names per scope, so a future change can't silently add a tool under the wrong scope.
+Tests run on the built-in Node test runner (`node:test`) via `tsx`, no build step, no network. Each tool is exercised against an injected mock client that records the request path and returns a canned payload, so the suite asserts path construction, input-schema shape, JSON-vs-raw output, secret-handling guidance, and error mapping without ever calling the live API. For write tools, the same fake-client harness also proves the confirm gate makes zero requests when `confirm` is omitted, that both the zod input and the JSON `inputSchema` enforce the same bounds (mirrored both layers), and that every dynamic path segment is guarded against path traversal. A registry invariant test pins the exposed tool count (175) and enforces unique names, well-formed schemas, and, for the write-scope surfaces, an exact pinned set of tool names per scope, so a future change can't silently add a tool under the wrong scope.
 
 ## Security
 
 - Tokens never touch shell history (we use env vars, not CLI flags).
 - Each tool maps 1:1 to a RareCloud API endpoint; the MCP server doesn't aggregate or transform data beyond what the API returns.
 - **Scope is exact-match per token, enforced server-side.** A token only unlocks the tools whose scope it carries; there is no wildcard scope matching (`*:read` does not imply `services:read`) and no client-side scope bypass — an unscoped or under-scoped token gets the API's own `[FORBIDDEN]` response back.
-- **Writes exist and are gated.** 79 of the 156 tools mutate state. The ones that spend money or destroy something require `confirm:true` and make no API call at all without it (see [Reads + gated writes](#reads--gated-writes)). The remaining write tools are plain (no charge, nothing torn down) and run unconditionally once the token's scope allows them.
+- **Writes exist and are gated.** 90 of the 175 tools mutate state. The ones that spend money or destroy something require `confirm:true` and make no API call at all without it (see [Reads + gated writes](#reads--gated-writes)). The remaining write tools are plain (no charge, nothing torn down) and run unconditionally once the token's scope allows them.
 - **No identity/credential/money-movement surface, by design, not by gate.** Password/2FA changes, sub-user invites, payment-method management, API-token management, credit top-up, invoice payment, and affiliate activate/withdraw have no tool here at all — an agent holding even a maximally-scoped token cannot reach them. A registry test pins this exclusion list so a future change can't quietly add one back.
 - The handful of tools that return live credentials (kubeconfigs — including the long-lived `create_cluster_kubeconfig` — and proxy endpoint/auth lists) carry explicit secret-handling guidance so the agent doesn't echo them back unprompted.
 - Revoke a token at any time: **Dashboard → Account → API tokens**. Revocation is instant, no propagation delay.
