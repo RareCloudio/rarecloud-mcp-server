@@ -166,6 +166,24 @@ import {
   manageAccountContact,
   createAffiliateLink,
 } from './account-write.js';
+import {
+  getObjectStorage,
+  listObjectStorageRegions,
+  getObjectStorageUsage,
+  listBuckets,
+  getBucket,
+  getBucketUsage,
+  listObjectStorageKeys,
+} from './object-storage.js';
+import {
+  enableObjectStorage,
+  disableObjectStorage,
+  createBucket,
+  updateBucket,
+  deleteBucket,
+  createObjectStorageKey,
+  deleteObjectStorageKey,
+} from './object-storage-write.js';
 import { setBillingAlert, deleteBillingAlert, redeemVoucher } from './billing-write.js';
 import { createTicket, replyTicket, closeTicket } from './tickets-write.js';
 import {
@@ -244,6 +262,14 @@ export const TOOLS: ToolDefinition[] = [
   listReservedIps,
   listFirewalls,
   getFirewall,
+  // Object Storage ("what buckets / keys do I have, and what do they cost?")
+  getObjectStorage,
+  listObjectStorageRegions,
+  getObjectStorageUsage,
+  listBuckets,
+  getBucket,
+  getBucketUsage,
+  listObjectStorageKeys,
   // Domains ("what domains do I own + is this name available?")
   listDomains,
   getDomain,
@@ -327,6 +353,14 @@ export const TOOLS: ToolDefinition[] = [
   deleteLoadBalancer,
   addLoadBalancerMember,
   removeLoadBalancerMember,
+  // Object Storage writes (service / buckets / access keys)
+  enableObjectStorage,
+  disableObjectStorage,
+  createBucket,
+  updateBucket,
+  deleteBucket,
+  createObjectStorageKey,
+  deleteObjectStorageKey,
   // Domains — writes (register / transfer / renew / nameservers / contacts / dns / manage)
   registerDomain,
   transferDomain,

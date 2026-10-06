@@ -6,9 +6,9 @@ Drop into [Claude Code](https://claude.com/claude-code), Claude Desktop, [Cursor
 
 ## What it does
 
-Exposes **156 tools** wrapping the RareCloud REST API: **77 read tools** (inspect / list / get, always safe) plus **79 write/action tools** (deploy, resize, destroy, order, renew, and similar mutations). 56 of the writes are gated behind an explicit `confirm:true`; the other 23 are plain. See [Safety model](#safety-model) below for how it works.
+Exposes **170 tools** wrapping the RareCloud REST API: **84 read tools** (inspect / list / get, always safe) plus **86 write/action tools** (deploy, resize, destroy, order, renew, and similar mutations). 63 of the writes are gated behind an explicit `confirm:true`; the other 23 are plain. See [Safety model](#safety-model) below for how it works.
 
-### Read tools (77)
+### Read tools (84)
 
 | Category | Tool | Purpose |
 |---|---|---|
@@ -66,6 +66,13 @@ Exposes **156 tools** wrapping the RareCloud REST API: **77 read tools** (inspec
 | | `list_reserved_ips` | Reserved (static) public IPs and their attachments |
 | | `list_firewalls` | Cloud firewalls (security groups): status, attached VMs, rule count |
 | | `get_firewall` | One firewall with its full rule set and attached VMs |
+| Object Storage | `get_object_storage` | The S3-compatible storage service: status, namespace handle, price card, month-to-date charge, limits (null if not enabled) |
+| | `list_object_storage_regions` | Regions a bucket can be created in, with their S3 endpoints |
+| | `get_object_storage_usage` | Daily usage series for the account: stored bytes, egress, CDN traffic (1-90 days) |
+| | `list_buckets` | Buckets: id, full name, region, status, versioning, public (CDN) state, size |
+| | `get_bucket` | One bucket: endpoint and URLs, public URL, versioning, size and object count |
+| | `get_bucket_usage` | Daily usage series for one bucket (1-90 days) |
+| | `list_object_storage_keys` | S3 access keys: id, name, access key id, scope, status (never the secret) |
 | Domains | `list_domains` | Registered domains: id, name, status, expiry, auto-renew |
 | | `get_domain` | One domain: nameservers, transfer lock, WHOIS privacy, auto-renew, expiry |
 | | `check_domain_availability` | Whether a domain name is available to register |
@@ -90,11 +97,11 @@ Exposes **156 tools** wrapping the RareCloud REST API: **77 read tools** (inspec
 | | `get_proxy_request_list` | Live endpoints + credentials for one GB Residential proxy-request, **live secret** |
 | | `get_proxy_replacements` | IP-replacement allowance + history for a proxy service |
 
-Tools marked **live secret** return a real credential (a kubeconfig bearer token, or proxy `ip:port:user:pass`). Their descriptions carry the standard SECURITY sentence (see [Safety model](#safety-model)).
+Tools marked **live secret** return a real credential (a kubeconfig bearer token, proxy `ip:port:user:pass`, or an S3 secret access key). Their descriptions carry the standard SECURITY sentence (see [Safety model](#safety-model)).
 
-### Write / action tools (79)
+### Write / action tools (86)
 
-The **Safety** column is each tool's kind (see [Safety model](#safety-model)). **spends**, **destructive**, **disruptive** and **sensitive** tools are gated (56 tools): they refuse to run, making **no** API call, unless the call passes `confirm:true`, so an agent must surface the action and its cost or consequence to the user first. **plain** tools (23) cost nothing, tear nothing down, and run without confirmation.
+The **Safety** column is each tool's kind (see [Safety model](#safety-model)). **spends**, **destructive**, **disruptive** and **sensitive** tools are gated (63 tools): they refuse to run, making **no** API call, unless the call passes `confirm:true`, so an agent must surface the action and its cost or consequence to the user first. **plain** tools (23) cost nothing, tear nothing down, and run without confirmation.
 
 | Category | Tool | Safety | Purpose |
 |---|---|---|---|
@@ -147,6 +154,13 @@ The **Safety** column is each tool's kind (see [Safety model](#safety-model)). *
 | | `delete_load_balancer` | **destructive** | Delete a load balancer |
 | | `add_load_balancer_member` | plain | Add a VM as a member of a load-balancer pool |
 | | `remove_load_balancer_member` | **destructive** | Remove a member from a load-balancer pool |
+| Object Storage | `enable_object_storage` | **spends** | Enable Object Storage (starts the monthly base fee); optional, the first bucket does it too |
+| | `disable_object_storage` | **destructive** | Delete the storage account for good (only once every bucket is deleted and every key revoked) |
+| | `create_bucket` | **spends** | Create a bucket (the first one enables or wakes the service and its base fee) |
+| | `update_bucket` | **sensitive** | Toggle a bucket's versioning or public CDN delivery (public makes every object readable by anyone) |
+| | `delete_bucket` | **destructive** | Delete a bucket; `purge:true` deletes every object in it first |
+| | `create_object_storage_key` | **sensitive** | Create an S3 access key scoped to buckets + read/readwrite (returns a **live secret**, shown once) |
+| | `delete_object_storage_key` | **destructive** | Revoke an S3 access key |
 | Domains | `register_domain` | **spends** | Register a new domain name |
 | | `transfer_domain` | **spends** | Transfer a domain in from another registrar |
 | | `renew_domain` | **spends** | Renew an owned domain |
@@ -195,9 +209,9 @@ Every read tool only inspects account state and is always safe to call. Every wr
 - **Gated tools refuse with zero API calls unless the call passes `confirm: true`.** No side effect, no partial charge, nothing to undo. The refusal says what the tool would have done, for example `stop_service was NOT executed because it is disruptive: it powers the server off; everything running on it stops until it is started again.`, so the agent can go back to you for an explicit go-ahead. The confirm is per call; there is no "confirm once, run twice" shortcut.
 - **Every description ends with one standard `Safety:` sentence** naming the kind and the concrete consequence, so the agent sees the same information before it calls.
 - **Every tool carries MCP annotations.** All reads set `readOnlyHint: true` (so a client can auto-approve them), plus `idempotentHint: true` and `destructiveHint: false`. All writes set `readOnlyHint: false`, and `destructiveHint` is true for destructive and disruptive tools, so an MCP client's own guardrails can treat those more cautiously. Every tool sets `openWorldHint: true` (it talks to the live RareCloud API).
-- **Credentials are marked.** Tools whose result contains a live credential (`deploy_service` and `reinstall_service` when they return a one-time console password, `order_proxy` for an ISP plan's proxy list, `create_cluster_kubeconfig`, `get_cluster_kubeconfig`, `download_cluster_kubeconfig`, `get_proxy_list`, `get_proxy_auth`, `get_proxy_request_list`) carry one standard sentence: *SECURITY: the result contains ..., a live credential. Treat it as a secret: do not repeat it to the user, or write it to files or logs, unless the user explicitly asks; pass it straight to whatever needs it.* Tools that take a secret as input (`set_service_password`, `reset_service_password`, `set_proxy_credentials`) tell the agent never to echo the value back.
+- **Credentials are marked.** Tools whose result contains a live credential (`deploy_service` and `reinstall_service` when they return a one-time console password, `order_proxy` for an ISP plan's proxy list, `create_cluster_kubeconfig`, `create_object_storage_key`, `get_cluster_kubeconfig`, `download_cluster_kubeconfig`, `get_proxy_list`, `get_proxy_auth`, `get_proxy_request_list`) carry one standard sentence: *SECURITY: the result contains ..., a live credential. Treat it as a secret: do not repeat it to the user, or write it to files or logs, unless the user explicitly asks; pass it straight to whatever needs it.* Tools that take a secret as input (`set_service_password`, `reset_service_password`, `set_proxy_credentials`) tell the agent never to echo the value back.
 
-For anything outside the 79 write tools, the agent can read, recommend, and generate Terraform/CLI commands. You copy-paste them or run them via [the RareCloud CLI](https://github.com/RareCloudio/rarecloud-cli).
+For anything outside the 86 write tools, the agent can read, recommend, and generate Terraform/CLI commands. You copy-paste them or run them via [the RareCloud CLI](https://github.com/RareCloudio/rarecloud-cli).
 
 ## Install
 
@@ -218,7 +232,7 @@ npx @rarecloudio/mcp-server
 Get an API token: **Dashboard → Account → API tokens → New token**. Pick scopes for what you want the agent to do:
 
 - Read-only agent: the explicit read scopes `account:read`, `services:read`, `billing:read`, `domains:read`, `tickets:read`.
-- An agent that can also act: add the matching `{domain}:write` scope(s): `services:write` (covers cloud VMs, managed Kubernetes, volumes, networks, reserved IPs, firewalls, load balancers, **and residential proxies**: there is no separate proxy scope), `domains:write`, `account:write`, `billing:write`, `tickets:write`.
+- An agent that can also act: add the matching `{domain}:write` scope(s): `services:write` (covers cloud VMs, managed Kubernetes, volumes, networks, reserved IPs, firewalls, load balancers, Object Storage, **and residential proxies**: there is no separate proxy scope), `domains:write`, `account:write`, `billing:write`, `tickets:write`.
 - Full access: bare `*`.
 
 Scope matching is **exact per token**: wildcard patterns like `*:read` are not supported; a token must carry the precise scope string a tool's description names. `account:write` / `billing:write` / `tickets:write` are deliberately narrow: they cover only the safe write tools listed above (profile fields, SSH keys, contacts, spend alerts, voucher redemption, tickets) and exclude every identity/credential/money-movement operation (password/2FA changes, sub-user invites, payment methods, API tokens, credit top-up, invoice payment, affiliate activate/withdraw): those simply have no tool here, gated or otherwise.
@@ -323,14 +337,14 @@ Then point Claude Desktop at your local checkout:
 npm test
 ```
 
-Tests run on the built-in Node test runner (`node:test`) via `tsx`: no build step, no network. Each tool is exercised against an injected mock client that records the request path and returns a canned payload, so the suite asserts path construction, input-schema shape, JSON-vs-raw output, secret-handling guidance, and error mapping without ever calling the live API. For write tools, the same fake-client harness also proves every gated tool (56, pinned by name and kind) refuses with its reason and makes zero requests when `confirm` is omitted, that every tool carries the right MCP annotations, that both the zod input and the JSON `inputSchema` enforce the same bounds (mirrored both layers), and that every dynamic path segment is guarded against path traversal. A registry invariant test pins the exposed tool count (156) and enforces unique names, well-formed schemas, and, for the write-scope surfaces, an exact pinned set of tool names per scope, so a future change can't silently add a tool under the wrong scope.
+Tests run on the built-in Node test runner (`node:test`) via `tsx`: no build step, no network. Each tool is exercised against an injected mock client that records the request path and returns a canned payload, so the suite asserts path construction, input-schema shape, JSON-vs-raw output, secret-handling guidance, and error mapping without ever calling the live API. For write tools, the same fake-client harness also proves every gated tool (63, pinned by name and kind) refuses with its reason and makes zero requests when `confirm` is omitted, that every tool carries the right MCP annotations, that both the zod input and the JSON `inputSchema` enforce the same bounds (mirrored both layers), and that every dynamic path segment is guarded against path traversal. A registry invariant test pins the exposed tool count (170) and enforces unique names, well-formed schemas, and, for the write-scope surfaces, an exact pinned set of tool names per scope, so a future change can't silently add a tool under the wrong scope.
 
 ## Security
 
 - Tokens never touch shell history (we use env vars, not CLI flags).
 - Each tool maps 1:1 to a RareCloud API endpoint; the MCP server doesn't aggregate or transform data beyond what the API returns.
 - **Scope is exact-match per token, enforced server-side.** A token only unlocks the tools whose scope it carries; there is no wildcard scope matching (`*:read` does not imply `services:read`) and no client-side scope bypass: an unscoped or under-scoped token gets the API's own `[FORBIDDEN]` response back.
-- **Writes exist and are gated.** 79 of the 156 tools mutate state. The 56 that spend money, destroy something, disrupt something running, or are security-sensitive require `confirm:true` and make no API call at all without it (see [Safety model](#safety-model)). The remaining 23 are plain (no charge, nothing torn down) and run without confirmation once the token's scope allows them.
+- **Writes exist and are gated.** 86 of the 170 tools mutate state. The 63 that spend money, destroy something, disrupt something running, or are security-sensitive require `confirm:true` and make no API call at all without it (see [Safety model](#safety-model)). The remaining 23 are plain (no charge, nothing torn down) and run without confirmation once the token's scope allows them.
 - **No identity/credential/money-movement surface, by design, not by gate.** Password/2FA changes, sub-user invites, payment-method management, API-token management, credit top-up, invoice payment, and affiliate activate/withdraw have no tool here at all: an agent holding even a maximally-scoped token cannot reach them. A registry test pins this exclusion list so a future change can't quietly add one back.
 - The tools that return live credentials (kubeconfigs, proxy endpoint/auth lists, one-time console passwords) carry the standard SECURITY sentence so the agent doesn't echo them back unprompted.
 - Revoke a token at any time: **Dashboard → Account → API tokens**. Revocation is instant, no propagation delay.

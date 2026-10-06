@@ -4,6 +4,25 @@ All notable changes to `@rarecloudio/mcp-server` are recorded here.
 
 ## Unreleased
 
+### Added: Object Storage tools
+
+Object Storage (S3-compatible buckets with optional CDN delivery) had no MCP
+coverage. 14 new tools cover every customer route under `/v1/object-storage`
+(scopes `services:read` / `services:write`):
+
+- Reads: `get_object_storage`, `list_object_storage_regions`,
+  `get_object_storage_usage`, `list_buckets`, `get_bucket`, `get_bucket_usage`,
+  `list_object_storage_keys`.
+- Writes, all gated: `enable_object_storage` (spends), `create_bucket`
+  (spends: the first bucket starts the base fee), `update_bucket` (sensitive:
+  `public:true` makes every object readable by anyone over the CDN),
+  `delete_bucket` (destructive), `disable_object_storage` (destructive),
+  `create_object_storage_key` (sensitive, returns the secret access key once,
+  marked with the SECURITY sentence), `delete_object_storage_key`
+  (destructive).
+
+The server now exposes 170 tools: 84 reads and 86 writes, 63 of them gated.
+
 ### BREAKING: 23 more write tools now require `confirm: true`
 
 These tools ran without confirmation in 0.2.0. They now refuse, making no API
