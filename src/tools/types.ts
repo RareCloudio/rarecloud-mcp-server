@@ -8,13 +8,15 @@
 
 import type { RareCloudClient } from '../client.js';
 
-// MCP tool annotations (hints the client may surface to the user). We only
-// advertise the ones the write factory needs today; the rest are declared for
-// completeness so later tasks can set them without touching this interface.
+// MCP tool annotations (hints the client may surface to the user, e.g. to
+// auto-approve reads or to warn before a destructive call). Every tool carries
+// them: the read factories set readOnlyHint, and writeTool derives the write
+// hints from the tool's safety classification (see factories.ts).
 export interface ToolAnnotations {
-  destructiveHint?: boolean;
   readOnlyHint?: boolean;
+  destructiveHint?: boolean;
   idempotentHint?: boolean;
+  openWorldHint?: boolean;
 }
 
 export interface ToolDefinition {
@@ -26,7 +28,7 @@ export interface ToolDefinition {
     required?: string[];
     additionalProperties?: boolean;
   };
-  annotations?: ToolAnnotations;
+  annotations: ToolAnnotations;
   handler: (
     client: RareCloudClient,
     args: Record<string, unknown>,

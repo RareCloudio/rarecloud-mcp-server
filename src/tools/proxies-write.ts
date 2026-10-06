@@ -86,13 +86,13 @@ import { type ToolDefinition } from './types.js';
 import { writeTool, encodeSegment } from './factories.js';
 
 const SCOPE_NOTE =
-  'proxy writes share the same scope as VM/k8s mutations — there is no proxy-specific scope';
+  'proxy writes share the same scope as VM/k8s mutations: there is no proxy-specific scope';
 
 const RENEW_PERIODS = [1, 3, 6, 12] as const;
 const AUTH_METHODS = ['ip', 'password', 'combined'] as const;
 const ROTATION_INTERVALS = ['all', 'high', '1min', '10min', '30min'] as const;
 
-// --- order_proxy (POST /v1/proxies, confirm — money-spend; oneOf union) ----
+// --- order_proxy (POST /v1/proxies, spends) --------------------------------
 // POST /v1/proxies body is a oneOf: US Residential ISP | GB Residential.
 const orderProxyInput = z.union([
   z
@@ -116,11 +116,16 @@ const orderProxyInput = z.union([
 export const orderProxy: ToolDefinition = writeTool({
   name: 'order_proxy',
   description:
-    `Order a new residential proxy plan and CHARGE the account. Requires scope services:write (${SCOPE_NOTE}). ` +
-    'Two shapes: a US Residential ISP plan {ips, cycle, locationId, protocol, authType} (discover options with ' +
-    'get_proxy_catalog / list_regions), or a GB Residential bucket {kind:"residential-gb", gb}. SPENDS ' +
-    'MONEY — pass confirm:true only after the user approves the plan and cost.',
+    `Order a new residential proxy plan. Requires scope services:write (${SCOPE_NOTE}). Two shapes: a US ` +
+    `Residential ISP plan {ips, cycle, locationId, protocol, authType} (discover the options and prices ` +
+    `with get_proxy_catalog), or a GB Residential bucket {kind:"residential-gb", gb}. For an ISP plan the ` +
+    `result includes the new proxy list.`,
   method: 'POST',
+  safety: {
+    kind: 'spends',
+    reason: "places a charged order for a new proxy plan",
+  },
+  returnsSecret: "the new proxy endpoints with their usernames and passwords (ISP plans)",
   input: orderProxyInput,
   inputSchema: {
     type: 'object',
@@ -128,7 +133,7 @@ export const orderProxy: ToolDefinition = writeTool({
       kind: { type: 'string', enum: ['residential-isp', 'residential-gb'], description: 'Plan family; defaults to residential-isp.' },
       ips: { type: 'integer', minimum: 1, description: 'ISP: IP-count tier (1,3,5,10,20,25,50,100,150,200).' },
       cycle: { type: 'string', enum: ['day', 'week', 'month'], description: 'ISP: billing cycle.' },
-      locationId: { type: 'string', minLength: 1, description: 'ISP: catalog location id.' },
+      locationId: { type: 'string', minLength: 1, description: 'ISP: location id from get_proxy_catalog.' },
       protocol: { type: 'string', enum: ['http', 'socks'], description: 'ISP: protocol.' },
       authType: { type: 'string', enum: ['password', 'combined'], description: 'ISP: auth type.' },
       gb: { type: 'integer', minimum: 1, description: 'GB: bucket tier (1,2,5,10,50,100,250,500,1000; monthly only).' },
@@ -138,22 +143,24 @@ export const orderProxy: ToolDefinition = writeTool({
   },
   buildPath: () => '/v1/proxies',
   buildBody: (a) => a,
-  confirm: true,
 });
 
-// --- renew_proxy (POST /v1/proxies/{id}/renew, confirm — money-spend) -----
+// --- renew_proxy (POST /v1/proxies/{id}/renew, spends) ---------------------
 // DEVIATION FROM BRIEF: `periods` is restricted to openapi's documented enum
 // [1,3,6,12] (bulk-discount tiers), not a bare int as the brief's row says.
 
 export const renewProxy: ToolDefinition = writeTool({
   name: 'renew_proxy',
   description:
-    `Renew a proxy service for another billing term. Requires scope services:write (${SCOPE_NOTE}). SPENDS ` +
-    'MONEY: creates a CHARGED renewal invoice, settled from credit/bonus when available. periods (1, 3, 6, ' +
-    'or 12 — default 1) selects how many terms to prolong in one call; bulk periods carry a discount (3 -> ' +
-    '5%, 6 -> 10%, 12 -> 20%). Pass confirm:true only after the user has approved the cost. id comes from ' +
-    'list_proxies.',
+    `Renew a proxy service for another billing term. Requires scope services:write (${SCOPE_NOTE}). ISP ` +
+    `proxy services only. periods (1, 3, 6, or 12; default 1) selects how many terms to prolong in one ` +
+    `call; bulk periods carry a discount (3 -> 5%, 6 -> 10%, 12 -> 20%); see get_proxy_catalog for ` +
+    `prices. id comes from list_proxies.`,
   method: 'POST',
+  safety: {
+    kind: 'spends',
+    reason: "creates a charged renewal invoice for the proxy service, settled from credit or bonus when available",
+  },
   input: z
     .object({
       id: z.string().min(1),
@@ -180,18 +187,18 @@ export const renewProxy: ToolDefinition = writeTool({
     if (a.periods !== undefined) body.periods = a.periods;
     return body;
   },
-  confirm: true,
 });
 
-// --- set_proxy_auto_renew (POST /v1/proxies/{id}/auto-renew, no gate) -----
+// --- set_proxy_auto_renew (POST /v1/proxies/{id}/auto-renew, plain) --------
 
 export const setProxyAutoRenew: ToolDefinition = writeTool({
   name: 'set_proxy_auto_renew',
   description:
-    `Turn a proxy service's auto-renew on or off. Requires scope services:write (${SCOPE_NOTE}). ISP proxy ` +
-    'services only. Plain write — not gated (no charge happens now; a future auto-renewal will still spend ' +
-    'money on its own schedule). id comes from list_proxies.',
+    `Turn a proxy service's auto-renew on or off. Requires scope services:write (${SCOPE_NOTE}). ISP ` +
+    `proxy services only. Nothing is charged now; a later automatic renewal is billed on its own ` +
+    `schedule. id comes from list_proxies.`,
   method: 'POST',
+  safety: { kind: 'plain' },
   input: z.object({ id: z.string().min(1), enabled: z.boolean() }).strict(),
   inputSchema: {
     type: 'object',
@@ -206,18 +213,21 @@ export const setProxyAutoRenew: ToolDefinition = writeTool({
   buildBody: (a) => ({ enabled: a.enabled }),
 });
 
-// --- cancel_proxy (POST /v1/proxies/{id}/cancel, confirm+destr) -----------
+// --- cancel_proxy (POST /v1/proxies/{id}/cancel, destructive) --------------
 
 export const cancelProxy: ToolDefinition = writeTool({
   name: 'cancel_proxy',
   description:
-    `Cancel a proxy service (ISP, GB Residential, or mobile — any kind). Requires scope services:write ` +
-    `(${SCOPE_NOTE}). Prepaid semantics: flags the service to stop auto-renewing; it stays usable until its ` +
-    'paid expiry, then ends normally (no upstream teardown call, no refund). cancel:true (the default) ' +
-    'cancels at period end; cancel:false undoes a prior cancel and restores auto-renew. IRREVERSIBLE in the ' +
-    'sense that the service will stop working at expiry unless undone first — pass confirm:true only after ' +
-    'the user has explicitly approved. id comes from list_proxies.',
+    `Cancel a proxy service (ISP, GB Residential, or mobile, any kind). Requires scope services:write ` +
+    `(${SCOPE_NOTE}). Prepaid semantics: flags the service to stop auto-renewing; it stays usable until ` +
+    `its paid expiry, then ends normally (no upstream teardown call, no refund). cancel:true (the ` +
+    `default) cancels at period end; cancel:false undoes a prior cancel and restores auto-renew. id comes ` +
+    `from list_proxies.`,
   method: 'POST',
+  safety: {
+    kind: 'destructive',
+    reason: "stops the proxy service from renewing; it stops working at its paid expiry (no refund) unless the cancellation is undone first",
+  },
   input: z.object({ id: z.string().min(1), cancel: z.boolean().optional() }).strict(),
   inputSchema: {
     type: 'object',
@@ -237,20 +247,22 @@ export const cancelProxy: ToolDefinition = writeTool({
     if (a.cancel !== undefined) body.cancel = a.cancel;
     return body;
   },
-  confirm: true,
-  destructiveHint: true,
 });
 
-// --- set_proxy_auth_method (PATCH /v1/proxies/{id}/auth, no gate) ---------
+// --- set_proxy_auth_method (PATCH /v1/proxies/{id}/auth, disruptive) -------
 
 export const setProxyAuthMethod: ToolDefinition = writeTool({
   name: 'set_proxy_auth_method',
   description:
     `Switch a proxy service's authentication method (ip / password / combined). Requires scope ` +
-    `services:write (${SCOPE_NOTE}). ISP proxy services only. Plain write — not gated. Switching to 'ip' ` +
-    "relies on add_proxy_whitelisted_ip entries instead of a username/password. Use get_proxy_auth first to " +
-    'see the current method. id comes from list_proxies.',
+    `services:write (${SCOPE_NOTE}). ISP proxy services only (GB Residential is always combined). ` +
+    `Switching to 'ip' relies on add_proxy_whitelisted_ip entries instead of a username/password. Use ` +
+    `get_proxy_auth first to see the current method. id comes from list_proxies.`,
   method: 'PATCH',
+  safety: {
+    kind: 'disruptive',
+    reason: "changes how the proxy authenticates; clients that rely on the current method stop working",
+  },
   input: z.object({ id: z.string().min(1), method: z.enum(AUTH_METHODS) }).strict(),
   inputSchema: {
     type: 'object',
@@ -265,7 +277,7 @@ export const setProxyAuthMethod: ToolDefinition = writeTool({
   buildBody: (a) => ({ method: a.method }),
 });
 
-// --- set_proxy_credentials (PUT /v1/proxies/{id}/auth/credentials, no gate) -
+// --- set_proxy_credentials (PUT /v1/proxies/{id}/auth/credentials, disruptive) ---
 // SECURITY: username/password are secrets sent in the REQUEST body — never
 // echo or log them. The response is just {ok:true} (no echo server-side
 // either). See file header for the min(1)/max(64) enrichment from route
@@ -274,11 +286,16 @@ export const setProxyAuthMethod: ToolDefinition = writeTool({
 export const setProxyCredentials: ToolDefinition = writeTool({
   name: 'set_proxy_credentials',
   description:
-    `Set a proxy service's username/password credentials. Requires scope services:write (${SCOPE_NOTE}). ISP ` +
-    'proxy services only. username and password are secrets (1-64 chars each) — never echo them back to the ' +
-    'user or log them; the response does not return them either. Plain write — not gated (see ' +
-    'set_proxy_auth_method to also flip the auth method itself). id comes from list_proxies.',
+    `Set a proxy service's username/password credentials. Requires scope services:write (${SCOPE_NOTE}). ` +
+    `Works for ISP and GB Residential services (GB Residential changes only the password) and mobile ` +
+    `non-VPN lines. username and password are 1-64 chars each; the response does not return them. See ` +
+    `set_proxy_auth_method to also switch the auth method itself. id comes from list_proxies.`,
   method: 'PUT',
+  safety: {
+    kind: 'disruptive',
+    reason: "replaces the proxy username and password; clients using the old credentials stop working",
+  },
+  acceptsSecret: "the username and password",
   input: z
     .object({
       id: z.string().min(1),
@@ -300,16 +317,17 @@ export const setProxyCredentials: ToolDefinition = writeTool({
   buildBody: (a) => ({ username: a.username, password: a.password }),
 });
 
-// --- add_proxy_whitelisted_ip (POST .../auth/whitelisted-ips, no gate) ----
+// --- add_proxy_whitelisted_ip (POST .../auth/whitelisted-ips, plain) -------
 
 export const addProxyWhitelistedIp: ToolDefinition = writeTool({
   name: 'add_proxy_whitelisted_ip',
   description:
     `Add an IP address to a proxy service's whitelist (used by the 'ip' auth method). Requires scope ` +
-    `services:write (${SCOPE_NOTE}). ISP proxy services only. ip must be a valid IPv4 or IPv6 address — use ` +
-    "get_proxy_auth's yourIp field to whitelist the caller's own detected IP. Plain write — not gated. id " +
-    'comes from list_proxies.',
+    `services:write (${SCOPE_NOTE}). Works for ISP and GB Residential services and mobile non-VPN lines. ` +
+    `ip must be a valid IPv4 or IPv6 address; use get_proxy_auth's yourIp field to whitelist the caller's ` +
+    `own detected IP. id comes from list_proxies.`,
   method: 'POST',
+  safety: { kind: 'plain' },
   input: z.object({ id: z.string().min(1), ip: z.string().ip() }).strict(),
   inputSchema: {
     type: 'object',
@@ -324,16 +342,19 @@ export const addProxyWhitelistedIp: ToolDefinition = writeTool({
   buildBody: (a) => ({ ip: a.ip }),
 });
 
-// --- remove_proxy_whitelisted_ip (DELETE .../whitelisted-ips/{ip}, confirm+destr) -
+// --- remove_proxy_whitelisted_ip (DELETE .../whitelisted-ips/{ip}, destructive) ---
 
 export const removeProxyWhitelistedIp: ToolDefinition = writeTool({
   name: 'remove_proxy_whitelisted_ip',
   description:
-    `Remove an IP address from a proxy service's whitelist. Requires scope services:write (${SCOPE_NOTE}). ISP ` +
-    'proxy services only. IRREVERSIBLE: that address immediately loses IP-based access to the proxy. Pass ' +
-    'confirm:true only after the user has explicitly approved. id comes from list_proxies; ip comes from ' +
-    'get_proxy_auth.',
+    `Remove an IP address from a proxy service's whitelist. Requires scope services:write ` +
+    `(${SCOPE_NOTE}). Works for ISP and GB Residential services and mobile non-VPN lines. id comes from ` +
+    `list_proxies; ip comes from get_proxy_auth.`,
   method: 'DELETE',
+  safety: {
+    kind: 'destructive',
+    reason: "removes the address from the whitelist; it loses IP-based access to the proxy right away",
+  },
   input: z.object({ id: z.string().min(1), ip: z.string().ip() }).strict(),
   inputSchema: {
     type: 'object',
@@ -345,21 +366,22 @@ export const removeProxyWhitelistedIp: ToolDefinition = writeTool({
     additionalProperties: false,
   },
   buildPath: (a) => `/v1/proxies/${encodeSegment(a.id, 'id')}/auth/whitelisted-ips/${encodeSegment(a.ip, 'ip')}`,
-  confirm: true,
-  destructiveHint: true,
 });
 
-// --- request_proxy_replacement (POST /v1/proxies/{id}/replacements, no gate) -
+// --- request_proxy_replacement (POST /v1/proxies/{id}/replacements, disruptive) ---
 
 export const requestProxyReplacement: ToolDefinition = writeTool({
   name: 'request_proxy_replacement',
   description:
     `Request an IP replacement for a proxy service, consuming the included monthly allowance (1/month). ` +
     `Requires scope services:write (${SCOPE_NOTE}). ISP proxy services only. Opens a support ticket that ` +
-    'fulfils the swap; check get_proxy_replacements first to confirm an allowance is available this month — ' +
-    'the request is refused server-side once the allowance is used. Plain write — not gated. id comes from ' +
-    'list_proxies.',
+    `fulfils the swap; check get_proxy_replacements first to confirm an allowance is available this month ` +
+    `(the request is refused server-side once the allowance is used). id comes from list_proxies.`,
   method: 'POST',
+  safety: {
+    kind: 'disruptive',
+    reason: "uses this month's included replacement and swaps an IP out; clients pinned to the old IP stop working once it is replaced",
+  },
   input: z.object({ id: z.string().min(1) }).strict(),
   inputSchema: {
     type: 'object',
@@ -370,7 +392,7 @@ export const requestProxyReplacement: ToolDefinition = writeTool({
   buildPath: (a) => `/v1/proxies/${encodeSegment(a.id, 'id')}/replacements`,
 });
 
-// --- create_proxy_request (POST /v1/proxies/{id}/proxy-requests, no gate) -
+// --- create_proxy_request (POST /v1/proxies/{id}/proxy-requests, plain) ----
 // DEVIATION FROM BRIEF: rotationInterval is restricted to openapi's/the
 // route's real enum, not a bare string as the brief's row says.
 
@@ -378,11 +400,13 @@ export const createProxyRequest: ToolDefinition = writeTool({
   name: 'create_proxy_request',
   description:
     `Create a proxy-request (country + rotation-interval + count group) on a GB Residential bucket, ` +
-    `allocating endpoints from it. Requires scope services:write (${SCOPE_NOTE}). GB Residential only — ISP ` +
-    'fixed-IP plans expose their endpoints directly via get_proxy_list. countryId comes from ' +
-    'list_gb_residential_countries; rotationInterval comes from list_gb_rotation_intervals. Plain write — ' +
-    'not gated. id comes from list_proxies (a GB Residential service).',
+    `allocating endpoints from it. Requires scope services:write (${SCOPE_NOTE}). GB Residential only: ` +
+    `ISP fixed-IP plans expose their endpoints directly via get_proxy_list. The result is the request ` +
+    `metadata only; fetch its endpoints with get_proxy_request_list. countryId comes from ` +
+    `list_gb_residential_countries; rotationInterval comes from list_gb_rotation_intervals. id comes from ` +
+    `list_proxies (a GB Residential service).`,
   method: 'POST',
+  safety: { kind: 'plain' },
   input: z
     .object({
       id: z.string().min(1),
@@ -410,16 +434,18 @@ export const createProxyRequest: ToolDefinition = writeTool({
   buildBody: (a) => ({ countryId: a.countryId, proxyCount: a.proxyCount, rotationInterval: a.rotationInterval }),
 });
 
-// --- delete_proxy_request (DELETE .../proxy-requests/{reqId}, confirm+destr) -
+// --- delete_proxy_request (DELETE .../proxy-requests/{reqId}, destructive) ---
 
 export const deleteProxyRequest: ToolDefinition = writeTool({
   name: 'delete_proxy_request',
   description:
-    `Delete a proxy-request from a GB Residential bucket. Requires scope services:write (${SCOPE_NOTE}). GB ` +
-    'Residential only. IRREVERSIBLE: the allocated endpoints stop working immediately. Pass confirm:true ' +
-    'only after the user has explicitly approved. id comes from list_proxies; reqId comes from ' +
-    'list_proxy_requests.',
+    `Delete a proxy-request from a GB Residential bucket. Requires scope services:write (${SCOPE_NOTE}). ` +
+    `GB Residential only. id comes from list_proxies; reqId comes from list_proxy_requests.`,
   method: 'DELETE',
+  safety: {
+    kind: 'destructive',
+    reason: "deletes the proxy-request; its endpoints stop working right away",
+  },
   input: z.object({ id: z.string().min(1), reqId: z.string().min(1) }).strict(),
   inputSchema: {
     type: 'object',
@@ -431,6 +457,4 @@ export const deleteProxyRequest: ToolDefinition = writeTool({
     additionalProperties: false,
   },
   buildPath: (a) => `/v1/proxies/${encodeSegment(a.id, 'id')}/proxy-requests/${encodeSegment(a.reqId, 'reqId')}`,
-  confirm: true,
-  destructiveHint: true,
 });

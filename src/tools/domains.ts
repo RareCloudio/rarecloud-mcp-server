@@ -3,7 +3,7 @@
 // check, per-TLD pricing, and the per-domain nameservers / registrant contact /
 // DNS records / management snapshot. Read-only by design (same as the rest of
 // this server); the matching setters (change nameservers / contact / DNS /
-// dispatch a management action) are write operations not exposed here.
+// dispatch a management action) are the gated write tools in domains-write.ts.
 
 import { readList, readOne, readTool, encodeSegment } from './factories.js';
 
@@ -17,12 +17,14 @@ export const getDomain = readOne(
   'get_domain',
   '/v1/domains',
   'Get one domain: nameservers, transfer lock, WHOIS privacy, auto-renew, expiry. Use after list_domains for management detail.',
+  'id',
+  { idSource: 'list_domains' },
 );
 
 export const checkDomainAvailability = readTool({
   name: 'check_domain_availability',
   description:
-    'Check whether a domain name is available to register — a pre-purchase WHOIS availability lookup for a single domain. Pass the full domain (e.g. example.com). Use before quoting a registration or suggesting an alternative name.',
+    'Check whether a domain name is available to register: a pre-purchase WHOIS availability lookup for a single domain. Pass the full domain (e.g. example.com). Use before quoting a registration or suggesting an alternative name.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -44,7 +46,7 @@ export const getTldPricing = readList(
 export const getDomainNameservers = readTool({
   name: 'get_domain_nameservers',
   description:
-    'Get the nameservers currently set on an owned domain — where its DNS is delegated. Use to see the domain\'s delegation before recommending a change. Read-only; replacing the nameservers is a write and is not exposed as an MCP tool yet. The id comes from list_domains.',
+    'Get the nameservers currently set on an owned domain: where its DNS is delegated. Use to see the domain\'s delegation before recommending a change. Read-only; change them with set_domain_nameservers. The id comes from list_domains.',
   inputSchema: {
     type: 'object',
     properties: { id: { type: 'string', description: 'Domain id from list_domains.' } },
@@ -57,7 +59,7 @@ export const getDomainNameservers = readTool({
 export const getDomainContacts = readTool({
   name: 'get_domain_contacts',
   description:
-    'Get the registrant WHOIS contact on an owned domain (registrar-dependent). Use to review who the domain is registered to. Read-only; updating the contact is a write and is not exposed as an MCP tool yet. The id comes from list_domains.',
+    'Get the registrant WHOIS contact on an owned domain (registrar-dependent). Use to review who the domain is registered to. Read-only; change it with set_domain_contacts. The id comes from list_domains.',
   inputSchema: {
     type: 'object',
     properties: { id: { type: 'string', description: 'Domain id from list_domains.' } },
@@ -70,7 +72,7 @@ export const getDomainContacts = readTool({
 export const getDomainDns = readTool({
   name: 'get_domain_dns',
   description:
-    'Get the DNS host records on an owned domain — its A / CNAME / MX / TXT / etc entries (registrar-dependent; returns a not-implemented error when the registrar exposes no DNS API). Use to read the domain\'s current records. Read-only; replacing the records is a write and is not exposed as an MCP tool yet. The id comes from list_domains.',
+    'Get the DNS host records on an owned domain: its A / CNAME / MX / TXT / etc entries (registrar-dependent; returns a not-implemented error when the registrar exposes no DNS API). Use to read the domain\'s current records. Read-only; replace them with set_domain_dns. The id comes from list_domains.',
   inputSchema: {
     type: 'object',
     properties: { id: { type: 'string', description: 'Domain id from list_domains.' } },

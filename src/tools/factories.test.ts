@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { z } from 'zod';
-import { readList, readOne, readTool, encodeSegment, writeTool } from './factories.js';
+import { readList, readOne, readTool, encodeSegment, writeTool, defineReadTool, secretSentence, inputSecretSentence } from './factories.js';
 import { APIError, type RareCloudClient } from '../client.js';
 import { textResult, type ToolCallResult } from './types.js';
 
@@ -244,12 +244,13 @@ function fakeWriteClient(
   return { client, calls };
 }
 
-// (a) advertised inputSchema excludes confirm when the gate is off.
-test('writeTool: advertised inputSchema excludes confirm when confirm is unset', () => {
+// (a) advertised inputSchema excludes confirm for a plain write.
+test('writeTool: advertised inputSchema excludes confirm for a plain write', () => {
   const tool = writeTool({
     name: 'set_x',
     description: 'Set x.',
     method: 'POST',
+    safety: { kind: 'plain' },
     input: z.object({ id: z.string().min(1) }).strict(),
     inputSchema: {
       type: 'object',
@@ -264,31 +265,35 @@ test('writeTool: advertised inputSchema excludes confirm when confirm is unset',
   assert.deepEqual(tool.inputSchema.required, ['id']);
 });
 
-// (b) advertised inputSchema injects a required confirm boolean when gated.
-test('writeTool: advertised inputSchema injects a required confirm boolean when gated', () => {
-  const tool = writeTool({
-    name: 'delete_x',
-    description: 'Delete x.',
-    method: 'DELETE',
-    confirm: true,
-    input: z.object({ id: z.string().min(1) }).strict(),
-    inputSchema: {
-      type: 'object',
-      properties: { id: { type: 'string' } },
-      required: ['id'],
-      additionalProperties: false,
-    },
-    buildPath: (a) => `/v1/x/${encodeSegment(a.id, 'id')}`,
+// (b) every non-plain kind injects a required confirm boolean whose
+//     description carries the tool-specific reason.
+for (const kind of ['spends', 'destructive', 'disruptive', 'sensitive'] as const) {
+  test(`writeTool: kind=${kind} injects a required confirm whose description names the reason`, () => {
+    const tool = writeTool({
+      name: 'act_x',
+      description: 'Act on x.',
+      method: 'POST',
+      safety: { kind, reason: 'does the very specific thing' },
+      input: z.object({ id: z.string().min(1) }).strict(),
+      inputSchema: {
+        type: 'object',
+        properties: { id: { type: 'string' } },
+        required: ['id'],
+        additionalProperties: false,
+      },
+      buildPath: (a) => `/v1/x/${encodeSegment(a.id, 'id')}`,
+    });
+    const confirmProp = (tool.inputSchema.properties as Record<string, { type?: string; description?: string }>).confirm;
+    assert.equal(confirmProp.type, 'boolean');
+    assert.match(confirmProp.description ?? '', /does the very specific thing/);
+    assert.doesNotMatch(confirmProp.description ?? '', /and\/or is irreversible/, 'no generic spend-or-destroy text');
+    assert.ok(tool.inputSchema.required?.includes('confirm'), 'confirm must be required when gated');
+    assert.ok(tool.inputSchema.required?.includes('id'), 'domain required fields are preserved');
   });
-  const confirmProp = (tool.inputSchema.properties as Record<string, { type?: string; description?: string }>).confirm;
-  assert.equal(confirmProp.type, 'boolean');
-  assert.ok((confirmProp.description ?? '').length > 0, 'confirm needs a description for the agent');
-  assert.ok(tool.inputSchema.required?.includes('confirm'), 'confirm must be required when gated');
-  assert.ok(tool.inputSchema.required?.includes('id'), 'domain required fields are preserved');
-});
+}
 
-// (c) annotations.destructiveHint set iff destructiveHint:true, absent otherwise.
-test('writeTool: annotations.destructiveHint set iff destructiveHint:true', () => {
+// (c) annotations are derived from the kind, on every write tool.
+test('writeTool: annotations derived from the safety kind', () => {
   const base = {
     name: 'x',
     description: 'x.',
@@ -297,31 +302,162 @@ test('writeTool: annotations.destructiveHint set iff destructiveHint:true', () =
     inputSchema: { type: 'object' as const, properties: {}, additionalProperties: false },
     buildPath: () => '/v1/x',
   };
-  const plain = writeTool({ ...base });
-  assert.equal(plain.annotations, undefined, 'no annotations unless destructiveHint is set');
-  const destr = writeTool({ ...base, destructiveHint: true });
-  assert.deepEqual(destr.annotations, { destructiveHint: true });
+  const expected: Record<string, boolean> = {
+    plain: false,
+    spends: false,
+    sensitive: false,
+    destructive: true,
+    disruptive: true,
+  };
+  for (const [kind, destructiveHint] of Object.entries(expected)) {
+    const safety = kind === 'plain' ? { kind: 'plain' as const } : { kind: kind as 'spends', reason: 'r' };
+    const tool = writeTool({ ...base, safety });
+    assert.deepEqual(
+      tool.annotations,
+      { readOnlyHint: false, destructiveHint, openWorldHint: true },
+      `annotations for kind=${kind}`,
+    );
+  }
 });
 
-// (d) confirm-gated handler refuses without confirm and issues NO request.
-test('writeTool: confirm-gated handler refuses without confirm and makes NO request', async () => {
-  const { client, calls } = fakeWriteClient();
+// (c2) the description ends with exactly one standardized Safety sentence.
+test('writeTool: description gets exactly one standardized trailing Safety sentence per kind', () => {
+  const base = {
+    name: 'x',
+    description: 'Does x. Requires scope services:write.',
+    method: 'POST' as const,
+    input: z.object({}).strict(),
+    inputSchema: { type: 'object' as const, properties: {}, additionalProperties: false },
+    buildPath: () => '/v1/x',
+  };
+  const plain = writeTool({ ...base, safety: { kind: 'plain' } });
+  assert.ok(plain.description.startsWith('Does x. Requires scope services:write. '));
+  assert.ok(plain.description.endsWith('Safety: plain write; no charge, nothing torn down, runs without confirmation.'));
+  const labels = {
+    spends: 'Safety: SPENDS MONEY; this costs a lot.',
+    destructive: 'Safety: IRREVERSIBLE; this costs a lot.',
+    disruptive: 'Safety: DISRUPTIVE; this costs a lot.',
+    sensitive: 'Safety: SECURITY-SENSITIVE; this costs a lot.',
+  } as const;
+  for (const [kind, prefix] of Object.entries(labels)) {
+    const tool = writeTool({ ...base, safety: { kind: kind as 'spends', reason: 'costs a lot' } });
+    const tail = tool.description.slice(tool.description.indexOf('Safety:'));
+    assert.ok(tail.startsWith(prefix), `${kind}: ${tail}`);
+    assert.match(tail, /Requires confirm:true/);
+    assert.equal(tool.description.split('Safety:').length - 1, 1, 'exactly one Safety sentence');
+  }
+});
+
+// (c3) returnsSecret / acceptsSecret append the standard SECURITY sentences
+//      (before the trailing Safety sentence).
+test('writeTool: returnsSecret appends the standard SECURITY sentence before Safety', () => {
   const tool = writeTool({
-    name: 'spend_money',
-    description: 'Spend.',
+    name: 'x',
+    description: 'Does x.',
     method: 'POST',
-    confirm: true,
+    safety: { kind: 'plain' },
+    returnsSecret: 'the magic token',
     input: z.object({}).strict(),
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
-    buildPath: () => '/v1/spend',
-    buildBody: () => ({ amount: 1 }),
+    buildPath: () => '/v1/x',
   });
-  for (const args of [{}, { confirm: false }]) {
-    const result = await tool.handler(client, args);
-    assert.equal(result.isError, true);
-    assert.match(textOf(result), /NOT executed/);
+  assert.ok(tool.description.includes(secretSentence('the magic token')));
+  assert.match(secretSentence('the magic token'), /^SECURITY: the result contains the magic token, a live credential\./);
+  assert.ok(tool.description.indexOf('SECURITY:') < tool.description.indexOf('Safety:'));
+});
+
+test('writeTool: acceptsSecret appends the never-echo input sentence', () => {
+  const tool = writeTool({
+    name: 'x',
+    description: 'Does x.',
+    method: 'POST',
+    safety: { kind: 'plain' },
+    acceptsSecret: 'the password',
+    input: z.object({}).strict(),
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    buildPath: () => '/v1/x',
+  });
+  assert.ok(tool.description.includes(inputSecretSentence('the password')));
+  assert.match(inputSecretSentence('the password'), /^SECURITY: treat the password you pass in as a secret/);
+  assert.match(inputSecretSentence('the password'), /never echo the value back/);
+});
+
+// (d) a gated handler refuses without confirm, names the reason, and issues NO request.
+for (const [kind, label] of [
+  ['spends', /spends money/],
+  ['destructive', /irreversible/],
+  ['disruptive', /disruptive/],
+  ['sensitive', /security-sensitive/],
+] as const) {
+  test(`writeTool: kind=${kind} refuses without confirm, names the reason, makes NO request`, async () => {
+    const { client, calls } = fakeWriteClient();
+    const tool = writeTool({
+      name: 'act_now',
+      description: 'Act.',
+      method: 'POST',
+      safety: { kind, reason: 'turns the lights off' },
+      input: z.object({}).strict(),
+      inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+      buildPath: () => '/v1/act',
+      buildBody: () => ({ amount: 1 }),
+    });
+    for (const args of [{}, { confirm: false }, { confirm: 'true' }]) {
+      const result = await tool.handler(client, args);
+      assert.equal(result.isError, true);
+      const text = textOf(result);
+      assert.match(text, /act_now was NOT executed/);
+      assert.match(text, label);
+      assert.match(text, /it turns the lights off/);
+      assert.match(text, /confirm:true/);
+    }
+    assert.deepEqual(calls, [], 'a refused gated tool must issue no request');
+  });
+}
+
+// --- read factories: annotations + returnsSecret --------------------------
+
+test('read factories + defineReadTool: every read carries the read-only annotations', () => {
+  const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true };
+  const list = readList('list_x', '/v1/x', 'List x.');
+  const one = readOne('get_x', '/v1/x', 'Get x.');
+  const tool = readTool({
+    name: 'find_x',
+    description: 'Find x.',
+    inputSchema: { type: 'object', properties: {} },
+    buildPath: () => '/v1/x',
+  });
+  const hand = defineReadTool({
+    name: 'hand_x',
+    description: 'Hand x.',
+    inputSchema: { type: 'object', properties: {} },
+    handler: async () => textResult('ok'),
+  });
+  for (const t of [list, one, tool, hand]) assert.deepEqual(t.annotations, READ, t.name);
+});
+
+test('read factories + defineReadTool: returnsSecret appends the standard SECURITY sentence once', () => {
+  const s = secretSentence('the token');
+  const list = readList('list_x', '/v1/x', 'List x.', { returnsSecret: 'the token' });
+  const one = readOne('get_x', '/v1/x', 'Get x.', 'id', { returnsSecret: 'the token' });
+  const tool = readTool({
+    name: 'find_x',
+    description: 'Find x.',
+    inputSchema: { type: 'object', properties: {} },
+    buildPath: () => '/v1/x',
+    returnsSecret: 'the token',
+  });
+  const hand = defineReadTool(
+    {
+      name: 'hand_x',
+      description: 'Hand x.',
+      inputSchema: { type: 'object', properties: {} },
+      handler: async () => textResult('ok'),
+    },
+    { returnsSecret: 'the token' },
+  );
+  for (const t of [list, one, tool, hand]) {
+    assert.equal(t.description.split(s).length - 1, 1, t.name);
   }
-  assert.deepEqual(calls, [], 'a refused confirm-gated tool must issue no request');
 });
 
 // (e) confirm:true + valid args → exactly one call with the right method/path/body.
@@ -331,7 +467,7 @@ test('writeTool: confirm:true + valid args issues exactly one call with method/p
     name: 'set_hostname',
     description: 'Set hostname.',
     method: 'POST',
-    confirm: true,
+    safety: { kind: 'disruptive', reason: 'renames the thing' },
     input: z.object({ id: z.string().min(1), name: z.string().min(1) }).strict(),
     inputSchema: {
       type: 'object',
@@ -354,6 +490,7 @@ test('writeTool: zod failure returns "Invalid input for" and makes no request', 
     name: 'set_x',
     description: 'Set x.',
     method: 'POST',
+    safety: { kind: 'plain' },
     input: z.object({ id: z.string().min(1) }).strict(),
     inputSchema: {
       type: 'object',
@@ -379,6 +516,7 @@ test('writeTool: a ".." segment via encodeSegment is rejected before any request
     name: 'scale_service',
     description: 'Scale.',
     method: 'POST',
+    safety: { kind: 'plain' },
     input: z.object({ service_id: z.string().min(1) }).strict(),
     inputSchema: {
       type: 'object',
@@ -402,6 +540,7 @@ for (const method of ['POST', 'PUT', 'PATCH'] as const) {
       name: 'm',
       description: 'm.',
       method,
+      safety: { kind: 'plain' },
       input: z.object({}).strict(),
       inputSchema: { type: 'object', properties: {}, additionalProperties: false },
       buildPath: () => '/v1/m',
@@ -418,6 +557,7 @@ test('writeTool: DELETE routes through client.delete with no body arg', async ()
     name: 'd',
     description: 'd.',
     method: 'DELETE',
+    safety: { kind: 'plain' },
     input: z.object({ id: z.string().min(1) }).strict(),
     inputSchema: {
       type: 'object',
@@ -438,6 +578,7 @@ test('writeTool: formatResult override transforms the returned data', async () =
     name: 'mint',
     description: 'mint.',
     method: 'POST',
+    safety: { kind: 'plain' },
     input: z.object({}).strict(),
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     buildPath: () => '/v1/mint',
@@ -457,6 +598,7 @@ test('writeTool: APIError from the client maps to errorResult with [CODE] messag
     name: 'm',
     description: 'm.',
     method: 'POST',
+    safety: { kind: 'plain' },
     input: z.object({}).strict(),
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     buildPath: () => '/v1/m',
@@ -480,6 +622,7 @@ test('writeTool: accepts a ZodEffects (.strict().refine()) schema and dispatches
     name: 'deploy_thing',
     description: 'Deploy a thing.',
     method: 'POST',
+    safety: { kind: 'plain' },
     input,
     inputSchema: {
       type: 'object',
@@ -506,6 +649,7 @@ test('writeTool: a ZodEffects refine violation returns errorResult and makes no 
     name: 'deploy_thing',
     description: 'Deploy a thing.',
     method: 'POST',
+    safety: { kind: 'plain' },
     input,
     inputSchema: {
       type: 'object',

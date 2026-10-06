@@ -75,11 +75,15 @@ test('task8 account: each tool has its name, closed schema, and names scope acco
   }
 });
 
-test('task8 account: only delete_account_ssh_key is gated + destructive; the rest are plain writes', () => {
+// delete_account_ssh_key is destructive; update_account and manage_account_contact
+// are security-sensitive (gated, no destructiveHint); the rest are plain writes.
+test('task8 account: gate + destructiveHint follow each tool\'s safety kind', () => {
+  const GATED = new Set(['delete_account_ssh_key', 'update_account', 'manage_account_contact']);
   for (const [name, tool] of Object.entries(ALL)) {
-    const gated = name === 'delete_account_ssh_key';
+    const gated = GATED.has(name);
+    const destructive = name === 'delete_account_ssh_key';
     assert.equal('confirm' in tool.inputSchema.properties, gated, `${name}: confirm-in-schema must match gated=${gated}`);
-    assert.equal(tool.annotations?.destructiveHint ?? false, gated, `${name}: destructiveHint must match gated=${gated}`);
+    assert.equal(tool.annotations.destructiveHint, destructive, `${name}: destructiveHint must match ${destructive}`);
   }
 });
 
@@ -93,7 +97,7 @@ test('task8 account: only delete_account_ssh_key is gated + destructive; the res
 
 test('update_account: PATCHes only the provided fields to /v1/account (optionals omitted)', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await updateAccount.handler(client, { firstName: 'Ada', lastName: 'Lovelace', city: 'Bucuresti' });
+  const result = await updateAccount.handler(client, {confirm: true,  firstName: 'Ada', lastName: 'Lovelace', city: 'Bucuresti' });
   assert.equal(result.isError, undefined);
   assert.deepEqual(calls, [
     { method: 'PATCH', path: '/v1/account', body: { firstName: 'Ada', lastName: 'Lovelace', city: 'Bucuresti' } },
@@ -102,7 +106,7 @@ test('update_account: PATCHes only the provided fields to /v1/account (optionals
 
 test('update_account: forwards every accepted field when supplied', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await updateAccount.handler(client, {
+  const result = await updateAccount.handler(client, {confirm: true, 
     firstName: 'Ada',
     lastName: 'Lovelace',
     companyName: 'Analytical Engines',
@@ -139,7 +143,7 @@ test('update_account: forwards every accepted field when supplied', async () => 
 
 test('update_account: rejects preferredCurrency (deviation: brief listed it; route does not accept it)', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await updateAccount.handler(client, { preferredCurrency: 'USD' });
+  const result = await updateAccount.handler(client, {confirm: true,  preferredCurrency: 'USD' });
   assert.equal(result.isError, true);
   assert.match(textOf(result), /^Error: Invalid input for update_account:/);
   assert.deepEqual(calls, []);
@@ -147,7 +151,7 @@ test('update_account: rejects preferredCurrency (deviation: brief listed it; rou
 
 test('update_account: rejects a malformed email before any request', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await updateAccount.handler(client, { email: 'not-an-email' });
+  const result = await updateAccount.handler(client, {confirm: true,  email: 'not-an-email' });
   assert.equal(result.isError, true);
   assert.match(textOf(result), /^Error: Invalid input for update_account:/);
   assert.deepEqual(calls, []);
@@ -155,14 +159,14 @@ test('update_account: rejects a malformed email before any request', async () =>
 
 test('update_account: rejects a country code that is not exactly 2 letters', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await updateAccount.handler(client, { country: 'ROU' });
+  const result = await updateAccount.handler(client, {confirm: true,  country: 'ROU' });
   assert.equal(result.isError, true);
   assert.deepEqual(calls, []);
 });
 
 test('update_account: rejects an unknown language before any request', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await updateAccount.handler(client, { language: 'fr' });
+  const result = await updateAccount.handler(client, {confirm: true,  language: 'fr' });
   assert.equal(result.isError, true);
   assert.deepEqual(calls, []);
 });
@@ -269,14 +273,14 @@ test('resend_email_verification: rejects any supplied property (strict empty sch
 // --- manage_account_contact (POST /v1/account/contacts, account:write) -----
 
 test('manage_account_contact: name + closed schema, action enum required', () => {
-  assert.deepEqual(manageAccountContact.inputSchema.required, ['action']);
+  assert.deepEqual(manageAccountContact.inputSchema.required, ['action', 'confirm']);
   const props = manageAccountContact.inputSchema.properties as Record<string, { enum?: string[] }>;
   assert.deepEqual(props.action.enum, ['add', 'update', 'delete']);
 });
 
 test('manage_account_contact: POSTs {action} + only the provided fields (omit undefined)', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await manageAccountContact.handler(client, {
+  const result = await manageAccountContact.handler(client, {confirm: true, 
     action: 'add',
     firstname: 'Ada',
     lastname: 'Lovelace',
@@ -295,14 +299,14 @@ test('manage_account_contact: POSTs {action} + only the provided fields (omit un
 
 test('manage_account_contact: forwards id for update/delete', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await manageAccountContact.handler(client, { action: 'delete', id: 42 });
+  const result = await manageAccountContact.handler(client, {confirm: true,  action: 'delete', id: 42 });
   assert.equal(result.isError, undefined);
   assert.deepEqual(calls, [{ method: 'POST', path: '/v1/account/contacts', body: { action: 'delete', id: 42 } }]);
 });
 
 test('manage_account_contact: rejects an unknown action before any request', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await manageAccountContact.handler(client, { action: 'purge' });
+  const result = await manageAccountContact.handler(client, {confirm: true,  action: 'purge' });
   assert.equal(result.isError, true);
   assert.match(textOf(result), /^Error: Invalid input for manage_account_contact:/);
   assert.deepEqual(calls, []);
@@ -311,7 +315,7 @@ test('manage_account_contact: rejects an unknown action before any request', asy
 test('manage_account_contact: rejects a non-positive / non-integer id', async () => {
   const { client, calls } = fakeWriteClient();
   for (const id of [0, -1, 1.5]) {
-    const result = await manageAccountContact.handler(client, { action: 'delete', id });
+    const result = await manageAccountContact.handler(client, {confirm: true,  action: 'delete', id });
     assert.equal(result.isError, true, `id=${id} must be rejected`);
   }
   assert.deepEqual(calls, []);
@@ -319,7 +323,7 @@ test('manage_account_contact: rejects a non-positive / non-integer id', async ()
 
 test('manage_account_contact: rejects a malformed email before any request', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await manageAccountContact.handler(client, { action: 'add', email: 'not-an-email' });
+  const result = await manageAccountContact.handler(client, {confirm: true,  action: 'add', email: 'not-an-email' });
   assert.equal(result.isError, true);
   assert.deepEqual(calls, []);
 });
@@ -357,7 +361,7 @@ test('task8 account: APIError maps to a [CODE] message (representative)', async 
   const { client } = fakeWriteClient(() => {
     throw new APIError({ code: 'FORBIDDEN', message: 'account:write scope required' });
   });
-  const result = await updateAccount.handler(client, { firstName: 'Ada' });
+  const result = await updateAccount.handler(client, {confirm: true,  firstName: 'Ada' });
   assert.equal(result.isError, true);
   assert.equal(textOf(result), 'Error: [FORBIDDEN] account:write scope required');
 });

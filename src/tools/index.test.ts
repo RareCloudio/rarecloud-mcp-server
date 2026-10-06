@@ -5,6 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { TOOLS, findTool } from './index.js';
+import type { RareCloudClient } from '../client.js';
 
 // Bump this in the same commit that adds/removes tools. A mismatch means the
 // registry changed without the test acknowledging it.
@@ -232,5 +233,329 @@ test('exclusion guard convention: every write-scope tool names EXACTLY ONE :writ
       1,
       `${t.name} must name exactly one :write scope literal, found: ${matches.join(', ') || '(none)'}`,
     );
+  }
+});
+
+// ---------------------------------------------------------------------------
+// SAFETY MODEL (tool-safety-metadata). Every tool carries MCP annotations;
+// every write tool has exactly one safety kind, derived by the factory into
+// the confirm gate, the refusal text, a single trailing "Safety:" sentence,
+// and destructiveHint. The exact gated and plain sets are pinned below, each
+// with its kind, so a reclassification is always a deliberate test change.
+// ---------------------------------------------------------------------------
+
+type Kind = 'plain' | 'spends' | 'destructive' | 'disruptive' | 'sensitive';
+
+const GATED_TOOLS: Record<string, Exclude<Kind, 'plain'>> = {
+  add_cluster_pool: 'spends',
+  add_service_ssh_key: 'sensitive',
+  apply_service_ssh_key_library: 'disruptive',
+  cancel_proxy: 'destructive',
+  cancel_service: 'destructive',
+  create_cluster_kubeconfig: 'sensitive',
+  create_load_balancer: 'spends',
+  create_ticket: 'sensitive',
+  create_volume: 'spends',
+  delete_account_ssh_key: 'destructive',
+  delete_billing_alert: 'destructive',
+  delete_cluster_pool: 'destructive',
+  delete_firewall: 'destructive',
+  delete_firewall_rule: 'destructive',
+  delete_load_balancer: 'destructive',
+  delete_network: 'destructive',
+  delete_proxy_request: 'destructive',
+  delete_volume: 'destructive',
+  deploy_service: 'spends',
+  destroy_service: 'destructive',
+  detach_firewall: 'disruptive',
+  detach_reserved_ip: 'disruptive',
+  detach_volume: 'disruptive',
+  enable_cluster_ha: 'spends',
+  manage_account_contact: 'sensitive',
+  manage_domain: 'sensitive',
+  order_proxy: 'spends',
+  reboot_service: 'disruptive',
+  register_domain: 'spends',
+  reinstall_service: 'destructive',
+  release_reserved_ip: 'destructive',
+  remove_load_balancer_member: 'destructive',
+  remove_proxy_whitelisted_ip: 'destructive',
+  renew_domain: 'spends',
+  renew_proxy: 'spends',
+  renew_service: 'spends',
+  reply_ticket: 'sensitive',
+  request_proxy_replacement: 'disruptive',
+  reserve_ip: 'spends',
+  reset_service_password: 'disruptive',
+  resize_service: 'spends',
+  revoke_cluster_kubeconfig: 'destructive',
+  set_cluster_scale: 'disruptive',
+  set_domain_contacts: 'sensitive',
+  set_domain_dns: 'disruptive',
+  set_domain_nameservers: 'disruptive',
+  set_proxy_auth_method: 'disruptive',
+  set_proxy_credentials: 'disruptive',
+  set_service_password: 'disruptive',
+  stop_service: 'disruptive',
+  transfer_domain: 'spends',
+  update_account: 'sensitive',
+  update_cluster_pool: 'disruptive',
+  upgrade_service: 'spends',
+};
+
+const PLAIN_TOOLS = [
+  'add_account_ssh_key',
+  'add_firewall_rule',
+  'add_load_balancer_member',
+  'add_proxy_whitelisted_ip',
+  'add_service_ssh_key_to_library',
+  'attach_firewall',
+  'attach_network_vm',
+  'attach_reserved_ip',
+  'attach_volume',
+  'close_ticket',
+  'create_affiliate_link',
+  'create_firewall',
+  'create_network',
+  'create_proxy_request',
+  'create_service_backup',
+  'mount_service_iso',
+  'redeem_voucher',
+  'rename_cluster_pool',
+  'resend_email_verification',
+  'set_billing_alert',
+  'set_proxy_auto_renew',
+  'set_service_autorenew',
+  'set_service_hostname',
+  'start_service',
+  'unmount_service_iso',
+];
+
+const SAFETY_TAG: Record<Kind, string> = {
+  plain: 'Safety: plain write;',
+  spends: 'Safety: SPENDS MONEY;',
+  destructive: 'Safety: IRREVERSIBLE;',
+  disruptive: 'Safety: DISRUPTIVE;',
+  sensitive: 'Safety: SECURITY-SENSITIVE;',
+};
+
+// A write tool is any tool whose annotations say it is not read-only.
+const writeTools = () => TOOLS.filter((t) => t.annotations.readOnlyHint === false);
+const readTools = () => TOOLS.filter((t) => t.annotations.readOnlyHint === true);
+
+// The tool-specific reason, as the factory embedded it in the Safety sentence.
+function reasonOf(description: string): string {
+  const m = /Safety: [A-Z -]+; this (.*)\. Requires confirm:true/.exec(description);
+  assert.ok(m, `no gated Safety sentence in: ${description}`);
+  return m[1];
+}
+
+test('safety: every tool (all 156) carries annotations; reads are readOnly, writes are not', () => {
+  assert.equal(readTools().length + writeTools().length, TOOLS.length, 'every tool sets readOnlyHint');
+  assert.equal(readTools().length, 77);
+  assert.equal(writeTools().length, 79);
+  for (const t of readTools()) {
+    assert.deepEqual(
+      t.annotations,
+      { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+      `${t.name} read annotations`,
+    );
+  }
+});
+
+test('safety: the gated set (54) and the plain set (25) are exactly the pinned ones', () => {
+  const gated = writeTools().filter((t) => 'confirm' in t.inputSchema.properties).map((t) => t.name).sort();
+  const plain = writeTools().filter((t) => !('confirm' in t.inputSchema.properties)).map((t) => t.name).sort();
+  assert.deepEqual(gated, Object.keys(GATED_TOOLS).sort());
+  assert.deepEqual(plain, [...PLAIN_TOOLS].sort());
+  assert.equal(gated.length, 54);
+  assert.equal(plain.length, 25);
+});
+
+test('safety: each write tool carries its kind (Safety tag + destructiveHint + openWorldHint)', () => {
+  for (const t of writeTools()) {
+    const kind: Kind = GATED_TOOLS[t.name] ?? 'plain';
+    assert.ok(t.description.includes(SAFETY_TAG[kind]), `${t.name} must carry "${SAFETY_TAG[kind]}"`);
+    assert.deepEqual(
+      t.annotations,
+      { readOnlyHint: false, destructiveHint: kind === 'destructive' || kind === 'disruptive', openWorldHint: true },
+      `${t.name} write annotations for kind=${kind}`,
+    );
+  }
+});
+
+test('safety: every write description ends with exactly one "Safety:" sentence', () => {
+  for (const t of writeTools()) {
+    assert.equal(t.description.split('Safety:').length - 1, 1, `${t.name} must have exactly one Safety sentence`);
+    const tail = t.description.slice(t.description.indexOf('Safety:'));
+    assert.ok(
+      tail === 'Safety: plain write; no charge, nothing torn down, runs without confirmation.' ||
+        /^Safety: [A-Z -]+; this [^]*\. Requires confirm:true, only after the user [^]*\.$/.test(tail),
+      `${t.name} Safety sentence must be the last sentence: ${tail}`,
+    );
+  }
+  for (const t of readTools()) {
+    assert.ok(!t.description.includes('Safety:'), `${t.name} is a read and carries no Safety sentence`);
+  }
+});
+
+test('safety: no description carries stale hand-written safety phrasing', () => {
+  for (const t of TOOLS) {
+    for (const phrase of [/Plain write/, /not destructive/i, /not gated/i, /not exposed/i, /and\/or is irreversible/i]) {
+      assert.doesNotMatch(t.description, phrase, `${t.name} description must not say ${phrase}`);
+    }
+    assert.ok(!t.description.includes('—'), `${t.name} description must not contain an em dash`);
+  }
+});
+
+test('safety: every gated confirm property names the tool-specific reason', () => {
+  for (const name of Object.keys(GATED_TOOLS)) {
+    const t = findTool(name)!;
+    const confirm = t.inputSchema.properties.confirm as { type: string; description: string };
+    assert.equal(confirm.type, 'boolean', `${name} confirm type`);
+    assert.ok(t.inputSchema.required?.includes('confirm'), `${name} must require confirm`);
+    assert.ok(confirm.description.includes(reasonOf(t.description)), `${name} confirm description must name the reason`);
+  }
+});
+
+// Minimal VALID domain args per gated tool (validation runs before the gate,
+// so the refusal can only be observed with otherwise-valid input).
+const ID = { id: 'res-1' };
+const SVC = { service_id: 'svc-1' };
+const GATED_ARGS: Record<string, Record<string, unknown>> = {
+  add_cluster_pool: { ...SVC, name: 'workers', minimum: 1, maximum: 2 },
+  add_service_ssh_key: { ...SVC, public_key: 'ssh-ed25519 AAAA' },
+  apply_service_ssh_key_library: { ...SVC },
+  cancel_proxy: { ...ID },
+  cancel_service: { ...SVC },
+  create_cluster_kubeconfig: { ...SVC, name: 'ci', role: 'view' },
+  create_load_balancer: { name: 'lb', port: 80, memberServerIds: ['vm-1'] },
+  create_ticket: { subject: 's', department: '1', priority: 'low', body: 'b' },
+  create_volume: { sizeGb: 10 },
+  delete_account_ssh_key: { ...ID },
+  delete_billing_alert: {},
+  delete_cluster_pool: { ...SVC, pool: 'workers' },
+  delete_firewall: { ...ID },
+  delete_firewall_rule: { ...ID, ruleId: 'r-1' },
+  delete_load_balancer: { ...ID },
+  delete_network: { ...ID },
+  delete_proxy_request: { ...ID, reqId: 'q-1' },
+  delete_volume: { ...ID },
+  deploy_service: { productId: 'sku-1' },
+  destroy_service: { ...SVC },
+  detach_firewall: { ...ID, serverId: 'vm-1' },
+  detach_reserved_ip: { ...ID },
+  detach_volume: { ...ID, serverId: 'vm-1' },
+  enable_cluster_ha: { ...SVC },
+  manage_account_contact: { action: 'delete', id: 1 },
+  manage_domain: { ...ID, action: 'epp' },
+  order_proxy: { kind: 'residential-gb', gb: 1 },
+  reboot_service: { ...SVC },
+  register_domain: { domain: 'example.com' },
+  reinstall_service: { ...SVC, imageId: 'ubuntu-24.04' },
+  release_reserved_ip: { ...ID },
+  remove_load_balancer_member: { ...ID, memberId: 'm-1' },
+  remove_proxy_whitelisted_ip: { ...ID, ip: '203.0.113.5' },
+  renew_domain: { ...ID },
+  renew_proxy: { ...ID },
+  renew_service: { ...SVC },
+  reply_ticket: { ...ID, body: 'b' },
+  request_proxy_replacement: { ...ID },
+  reserve_ip: {},
+  reset_service_password: { ...SVC, password: 'supersecret1' },
+  resize_service: { ...SVC, flavor: 'c-2vcpu-4gb' },
+  revoke_cluster_kubeconfig: { ...SVC, credential_id: 'c-1' },
+  set_cluster_scale: { ...SVC, minimum: 1, maximum: 2 },
+  set_domain_contacts: { ...ID, contact: { city: 'X' } },
+  set_domain_dns: { ...ID, records: [] },
+  set_domain_nameservers: { ...ID, nameservers: ['ns1.example.com', 'ns2.example.com'] },
+  set_proxy_auth_method: { ...ID, method: 'password' },
+  set_proxy_credentials: { ...ID, username: 'u', password: 'p' },
+  set_service_password: { ...SVC, password: 'supersecret1' },
+  stop_service: { ...SVC },
+  transfer_domain: { domain: 'example.com', epp: 'code' },
+  update_account: { city: 'X' },
+  update_cluster_pool: { ...SVC, pool: 'workers', maximum: 3 },
+  upgrade_service: { ...SVC, newProductId: 'p2', cycle: 'monthly' },
+};
+
+function recordingClient(): { client: RareCloudClient; calls: string[] } {
+  const calls: string[] = [];
+  const rec = (m: string) => async (path: string) => {
+    calls.push(`${m} ${path}`);
+    return { ok: true };
+  };
+  const client = { get: rec('GET'), post: rec('POST'), put: rec('PUT'), patch: rec('PATCH'), delete: rec('DELETE') };
+  return { client: client as unknown as RareCloudClient, calls };
+}
+
+test('safety: every gated tool refuses without confirm, names its reason, and makes NO request', async () => {
+  assert.deepEqual(Object.keys(GATED_ARGS).sort(), Object.keys(GATED_TOOLS).sort(), 'args table covers every gated tool');
+  for (const [name, args] of Object.entries(GATED_ARGS)) {
+    const t = findTool(name)!;
+    for (const confirm of [undefined, false]) {
+      const { client, calls } = recordingClient();
+      const result = await t.handler(client, confirm === undefined ? { ...args } : { ...args, confirm });
+      const text = result.content[0].type === 'text' ? result.content[0].text : '';
+      assert.equal(result.isError, true, `${name} must refuse without confirm`);
+      assert.ok(text.startsWith(`Error: ${name} was NOT executed because it `), `${name} refusal: ${text}`);
+      assert.ok(text.includes(`: it ${reasonOf(t.description)}.`), `${name} refusal must name the reason: ${text}`);
+      assert.deepEqual(calls, [], `${name} must make no request without confirm`);
+    }
+    // ...and the same args with confirm:true do reach the API (the args are valid).
+    const { client, calls } = recordingClient();
+    await t.handler(client, { ...args, confirm: true });
+    assert.equal(calls.length, 1, `${name} must dispatch exactly one request with confirm:true`);
+  }
+});
+
+// Tools whose RESULT holds a live credential carry the standard SECURITY
+// sentence exactly once; no other tool carries it.
+const RETURNS_SECRET = [
+  'create_cluster_kubeconfig',
+  'deploy_service',
+  'download_cluster_kubeconfig',
+  'get_cluster_kubeconfig',
+  'get_proxy_auth',
+  'get_proxy_list',
+  'get_proxy_request_list',
+  'order_proxy',
+  'reinstall_service',
+];
+
+test('safety: exactly the credential-returning tools carry the standard SECURITY sentence, once', () => {
+  const RESULT_SECRET = /SECURITY: the result contains [^]*?, a live credential\. Treat it as a secret: do not repeat it to the user, or write it to files or logs, unless the user explicitly asks; pass it straight to whatever needs it\./g;
+  for (const t of TOOLS) {
+    const n = (t.description.match(RESULT_SECRET) ?? []).length;
+    assert.equal(n, RETURNS_SECRET.includes(t.name) ? 1 : 0, `${t.name}: SECURITY result sentence count`);
+  }
+});
+
+test('safety: tools that take a secret as input carry the never-echo sentence', () => {
+  for (const name of ['set_service_password', 'reset_service_password', 'set_proxy_credentials']) {
+    assert.match(findTool(name)!.description, /SECURITY: treat .* you pass in as a secret \(a live credential\): never echo the value back/, name);
+  }
+});
+
+test('safety: every serverId parameter says it is the cloud VM service_id from list_services', () => {
+  for (const t of TOOLS) {
+    for (const key of ['serverId', 'memberServerIds']) {
+      const prop = t.inputSchema.properties[key] as { description?: string } | undefined;
+      if (!prop) continue;
+      assert.match(prop.description ?? '', /service_id from list_services/, `${t.name}.${key}`);
+    }
+  }
+});
+
+test('descriptions: every id parameter names the specific tool its value comes from', () => {
+  // Caller-chosen ids (not looked up anywhere) are exempt.
+  const CALLER_CHOSEN = new Set(['add_service_ssh_key.id']);
+  for (const t of TOOLS) {
+    for (const [key, prop] of Object.entries(t.inputSchema.properties)) {
+      if (!/(^id$|Id$|_id$|Ids$)/.test(key) || key === 'taxId' || CALLER_CHOSEN.has(`${t.name}.${key}`)) continue;
+      const d = (prop as { description?: string }).description ?? '';
+      assert.match(d, /\b(list|get)_[a-z_]+[a-z]\b/, `${t.name}.${key} must name its source tool: "${d}"`);
+      assert.ok(!d.includes('list_*'), `${t.name}.${key} must name a concrete tool, not list_*: "${d}"`);
+    }
   }
 });

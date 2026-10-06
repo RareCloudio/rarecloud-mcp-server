@@ -80,7 +80,7 @@ const ID_TOOLS: Record<string, IdToolCase> = {
     secondSeg: 'ruleId',
   },
   attach_firewall: { tool: attachFirewall, gated: false, destructive: false, args: { serverId: 'srv-1' } },
-  detach_firewall: { tool: detachFirewall, gated: false, destructive: false, args: { serverId: 'srv-1' } },
+  detach_firewall: { tool: detachFirewall, gated: true, destructive: true, args: { serverId: 'srv-1' } },
   delete_load_balancer: { tool: deleteLoadBalancer, gated: true, destructive: true, args: {} },
   add_load_balancer_member: {
     tool: addLoadBalancerMember,
@@ -178,7 +178,7 @@ test('create_firewall: name + closed schema (no confirm — not gated per brief)
   assert.match(createFirewall.description, /services:write/);
   assert.deepEqual(createFirewall.inputSchema.required, ['name']);
   assert.ok(!('confirm' in createFirewall.inputSchema.properties));
-  assert.equal(createFirewall.annotations, undefined);
+  assert.equal(createFirewall.annotations.destructiveHint, false);
 });
 
 test('create_firewall: POSTs {name} to /v1/firewalls', async () => {
@@ -226,7 +226,7 @@ test('add_firewall_rule: name + closed schema, requires direction+protocol (no c
   assert.match(addFirewallRule.description, /services:write/);
   assert.deepEqual(addFirewallRule.inputSchema.required, ['id', 'direction', 'protocol']);
   assert.ok(!('confirm' in addFirewallRule.inputSchema.properties));
-  assert.equal(addFirewallRule.annotations, undefined);
+  assert.equal(addFirewallRule.annotations.destructiveHint, false);
 });
 
 test('add_firewall_rule: POSTs the bare FirewallRuleInput (not wrapped) with only required fields', async () => {
@@ -377,14 +377,14 @@ test('attach_firewall: missing serverId is rejected by zod before any request', 
 
 test('detach_firewall: POSTs {serverId} to /v1/firewalls/{id}/detach', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await detachFirewall.handler(client, { id: 'fw-1', serverId: 'srv-1' });
+  const result = await detachFirewall.handler(client, {confirm: true,  id: 'fw-1', serverId: 'srv-1' });
   assert.equal(result.isError, undefined);
   assert.deepEqual(calls, [{ method: 'POST', path: '/v1/firewalls/fw-1/detach', body: { serverId: 'srv-1' } }]);
 });
 
 test('detach_firewall: missing serverId is rejected by zod before any request', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await detachFirewall.handler(client, { id: 'fw-1' });
+  const result = await detachFirewall.handler(client, {confirm: true,  id: 'fw-1' });
   assert.equal(result.isError, true);
   assert.match(textOf(result), /^Error: Invalid input for detach_firewall:/);
   assert.deepEqual(calls, []);
@@ -398,7 +398,7 @@ test('create_load_balancer: name + closed schema (confirm — money-spend: LB + 
   assert.match(createLoadBalancer.description, /services:write/);
   assert.deepEqual(createLoadBalancer.inputSchema.required, ['name', 'port', 'memberServerIds', 'confirm']);
   assert.ok('confirm' in createLoadBalancer.inputSchema.properties);
-  assert.equal(createLoadBalancer.annotations, undefined);
+  assert.equal(createLoadBalancer.annotations.destructiveHint, false);
 });
 
 test('create_load_balancer: POSTs required fields to /v1/load-balancers when confirmed (healthCheck omitted)', async () => {

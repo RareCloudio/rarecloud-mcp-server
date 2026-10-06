@@ -4,10 +4,11 @@
 // `encodeSegment` path encoding, and the APIError -> errorResult mapping stay
 // uniform with services-write.ts / k8s-write.ts. All scope services:write.
 //
-// Money-spend tools (create_volume, reserve_ip — both per-unit billed
-// on-demand resources) carry `confirm: true`; irreversible teardown tools
-// (delete_volume, delete_network, release_reserved_ip) carry `confirm: true` +
-// `destructiveHint`. Plain moves (attach/detach) are ungated. Every dynamic
+// create_volume and reserve_ip (per-unit billed on-demand resources) are
+// `spends`; delete_volume, delete_network, release_reserved_ip are
+// `destructive`; the detach tools are `disruptive` (they cut a running VM off
+// its storage or public address); create_network and the attach tools are
+// `plain`. Every dynamic
 // path segment is the single param `id` (matching the read-tool convention in
 // infra.ts) run through encodeSegment; `serverId` is a BODY field, never a
 // path segment. Bodies + bounds re-confirmed against console openapi.json AND
@@ -27,11 +28,14 @@ import { writeTool, encodeSegment } from './factories.js';
 export const createVolume: ToolDefinition = writeTool({
   name: 'create_volume',
   description:
-    'Create a new block storage volume (Cinder). Requires scope services:write. SPENDS MONEY: billed ' +
-    'per-GB monthly, not a catalog SKU. Pass confirm:true only after the user has approved the size and ' +
-    'its cost. sizeGb is the size in GB (1-2048); name is an optional display name (max 253 chars, ' +
-    "defaults to 'volume' server-side). Attach it to a VM afterward with attach_volume.",
+    `Create a new block storage volume (Cinder), billed per GB monthly (not a catalog SKU). Requires ` +
+    `scope services:write. sizeGb is the size in GB (1-2048); name is an optional display name (max 253 ` +
+    `chars, defaults to 'volume' server-side). Attach it to a VM afterward with attach_volume.`,
   method: 'POST',
+  safety: {
+    kind: 'spends',
+    reason: "creates a volume billed per GB every month until it is deleted",
+  },
   input: z
     .object({
       sizeGb: z.number().int().min(1).max(2048),
@@ -53,16 +57,17 @@ export const createVolume: ToolDefinition = writeTool({
     if (a.name !== undefined) body.name = a.name;
     return body;
   },
-  confirm: true,
 });
 
 export const deleteVolume: ToolDefinition = writeTool({
   name: 'delete_volume',
   description:
-    'Delete a block storage volume permanently. Requires scope services:write. IRREVERSIBLE: the volume ' +
-    'and its data are gone for good. Pass confirm:true only after the user has explicitly approved. id ' +
-    'comes from list_volumes.',
+    `Delete a block storage volume. Requires scope services:write. id comes from list_volumes.`,
   method: 'DELETE',
+  safety: {
+    kind: 'destructive',
+    reason: "permanently deletes the volume and all data on it",
+  },
   input: z.object({ id: z.string().min(1) }).strict(),
   inputSchema: {
     type: 'object',
@@ -71,23 +76,22 @@ export const deleteVolume: ToolDefinition = writeTool({
     additionalProperties: false,
   },
   buildPath: (a) => `/v1/volumes/${encodeSegment(a.id, 'id')}`,
-  confirm: true,
-  destructiveHint: true,
 });
 
 export const attachVolume: ToolDefinition = writeTool({
   name: 'attach_volume',
   description:
-    'Attach a block storage volume to a cloud VM. Requires scope services:write. Plain write — not ' +
-    'gated. id (the volume) comes from list_volumes; serverId is the Nova server id to attach to (must ' +
-    'be in your project).',
+    `Attach a block storage volume to a cloud VM. Requires scope services:write. id (the volume) comes ` +
+    `from list_volumes; serverId is the cloud VM to attach to (the same value as the cloud VM service_id ` +
+    `from list_services).`,
   method: 'POST',
+  safety: { kind: 'plain' },
   input: z.object({ id: z.string().min(1), serverId: z.string().min(1) }).strict(),
   inputSchema: {
     type: 'object',
     properties: {
       id: { type: 'string', minLength: 1, description: 'Volume id from list_volumes.' },
-      serverId: { type: 'string', minLength: 1, description: 'Nova server id to attach to (must be in your project).' },
+      serverId: { type: 'string', minLength: 1, description: 'Cloud VM to attach to (the same value as the cloud VM service_id from list_services; must be in your project).' },
     },
     required: ['id', 'serverId'],
     additionalProperties: false,
@@ -99,15 +103,20 @@ export const attachVolume: ToolDefinition = writeTool({
 export const detachVolume: ToolDefinition = writeTool({
   name: 'detach_volume',
   description:
-    'Detach a block storage volume from a cloud VM. Requires scope services:write. Plain write — not ' +
-    'gated. id (the volume) comes from list_volumes; serverId is the Nova server id to detach from.',
+    `Detach a block storage volume from a cloud VM. Requires scope services:write. id (the volume) comes ` +
+    `from list_volumes; serverId is the cloud VM to detach from (the same value as the cloud VM ` +
+    `service_id from list_services).`,
   method: 'POST',
+  safety: {
+    kind: 'disruptive',
+    reason: "disconnects the volume from the VM; anything on the VM using it loses access to that data until it is attached again",
+  },
   input: z.object({ id: z.string().min(1), serverId: z.string().min(1) }).strict(),
   inputSchema: {
     type: 'object',
     properties: {
       id: { type: 'string', minLength: 1, description: 'Volume id from list_volumes.' },
-      serverId: { type: 'string', minLength: 1, description: 'Nova server id to detach from.' },
+      serverId: { type: 'string', minLength: 1, description: 'Cloud VM to detach from (the same value as the cloud VM service_id from list_services).' },
     },
     required: ['id', 'serverId'],
     additionalProperties: false,
@@ -121,10 +130,11 @@ export const detachVolume: ToolDefinition = writeTool({
 export const createNetwork: ToolDefinition = writeTool({
   name: 'create_network',
   description:
-    'Create a new private network (VPC). Requires scope services:write. Plain write — not gated (VPCs ' +
-    'carry no separate charge). name is the display name (1-253 chars); a /16 CIDR is auto-allocated. ' +
-    'Move VMs into it afterward with attach_network_vm.',
+    `Create a new private network (VPC); VPCs carry no separate charge. Requires scope services:write. ` +
+    `name is the display name (1-253 chars); a /16 CIDR is auto-allocated. Move VMs into it afterward ` +
+    `with attach_network_vm.`,
   method: 'POST',
+  safety: { kind: 'plain' },
   input: z.object({ name: z.string().min(1).max(253) }).strict(),
   inputSchema: {
     type: 'object',
@@ -139,10 +149,13 @@ export const createNetwork: ToolDefinition = writeTool({
 export const deleteNetwork: ToolDefinition = writeTool({
   name: 'delete_network',
   description:
-    'Delete a private network (VPC). Requires scope services:write. IRREVERSIBLE, and refused server-side ' +
-    'for the default VPC or one that still has VMs attached. Pass confirm:true only after the user has ' +
-    'explicitly approved. id comes from list_networks.',
+    `Delete a private network (VPC). Requires scope services:write. Refused server-side for the default ` +
+    `VPC or one that still has VMs attached. id comes from list_networks.`,
   method: 'DELETE',
+  safety: {
+    kind: 'destructive',
+    reason: "permanently deletes the private network",
+  },
   input: z.object({ id: z.string().min(1) }).strict(),
   inputSchema: {
     type: 'object',
@@ -151,23 +164,23 @@ export const deleteNetwork: ToolDefinition = writeTool({
     additionalProperties: false,
   },
   buildPath: (a) => `/v1/networks/${encodeSegment(a.id, 'id')}`,
-  confirm: true,
-  destructiveHint: true,
 });
 
 export const attachNetworkVm: ToolDefinition = writeTool({
   name: 'attach_network_vm',
   description:
-    'Move a cloud VM into a private network (VPC), detaching it from its current VPC (the VM\'s public ' +
-    'eth0 interface is untouched). Requires scope services:write. Plain write — not gated. id is the ' +
-    'target VPC from list_networks; serverId is the Nova server id to move.',
+    `Move a cloud VM into a private network (VPC), detaching it from its current VPC (the VM's public ` +
+    `eth0 interface is untouched). Requires scope services:write. id is the target VPC from ` +
+    `list_networks; serverId is the cloud VM to move (the same value as the cloud VM service_id from ` +
+    `list_services).`,
   method: 'POST',
+  safety: { kind: 'plain' },
   input: z.object({ id: z.string().min(1), serverId: z.string().min(1) }).strict(),
   inputSchema: {
     type: 'object',
     properties: {
       id: { type: 'string', minLength: 1, description: 'Target VPC (network) id from list_networks.' },
-      serverId: { type: 'string', minLength: 1, description: 'Nova server id to move into this VPC.' },
+      serverId: { type: 'string', minLength: 1, description: 'Cloud VM to move into this VPC (the same value as the cloud VM service_id from list_services).' },
     },
     required: ['id', 'serverId'],
     additionalProperties: false,
@@ -181,11 +194,15 @@ export const attachNetworkVm: ToolDefinition = writeTool({
 export const reserveIp: ToolDefinition = writeTool({
   name: 'reserve_ip',
   description:
-    'Reserve a new static public IP (EUR 2/mo). Requires scope services:write. SPENDS MONEY: billed ' +
-    'monthly until released. Optionally pass serverId to reserve AND attach it to that cloud VM in the ' +
-    'same call. Pass confirm:true only after the user has approved the cost. Manage it afterward with ' +
-    'attach_reserved_ip / detach_reserved_ip / release_reserved_ip.',
+    `Reserve a new static public IP (EUR 2/mo, billed monthly until released). Requires scope ` +
+    `services:write. Optionally pass serverId (the same value as the cloud VM service_id from ` +
+    `list_services) to reserve AND attach it to that cloud VM in the same call. Manage it afterward with ` +
+    `attach_reserved_ip / detach_reserved_ip / release_reserved_ip.`,
   method: 'POST',
+  safety: {
+    kind: 'spends',
+    reason: "reserves a public IP billed EUR 2/month until it is released",
+  },
   input: z.object({ serverId: z.string().min(1).optional() }).strict(),
   inputSchema: {
     type: 'object',
@@ -193,7 +210,7 @@ export const reserveIp: ToolDefinition = writeTool({
       serverId: {
         type: 'string',
         minLength: 1,
-        description: 'Optional cloud VM id to attach the new IP to immediately.',
+        description: 'Optional cloud VM to attach the new IP to immediately (the same value as the cloud VM service_id from list_services).',
       },
     },
     required: [],
@@ -205,16 +222,18 @@ export const reserveIp: ToolDefinition = writeTool({
     if (a.serverId !== undefined) body.serverId = a.serverId;
     return body;
   },
-  confirm: true,
 });
 
 export const releaseReservedIp: ToolDefinition = writeTool({
   name: 'release_reserved_ip',
   description:
-    'Release (permanently delete) a reserved public IP. Requires scope services:write. IRREVERSIBLE: the ' +
-    'floating IP is deleted and billing stops. Pass confirm:true only after the user has explicitly ' +
-    'approved. id comes from list_reserved_ips.',
+    `Release (permanently delete) a reserved public IP; billing for it stops. Requires scope ` +
+    `services:write. id comes from list_reserved_ips.`,
   method: 'DELETE',
+  safety: {
+    kind: 'destructive',
+    reason: "gives the public IP back; the address is gone for good and cannot be recovered",
+  },
   input: z.object({ id: z.string().min(1) }).strict(),
   inputSchema: {
     type: 'object',
@@ -223,23 +242,22 @@ export const releaseReservedIp: ToolDefinition = writeTool({
     additionalProperties: false,
   },
   buildPath: (a) => `/v1/reserved-ips/${encodeSegment(a.id, 'id')}`,
-  confirm: true,
-  destructiveHint: true,
 });
 
 export const attachReservedIp: ToolDefinition = writeTool({
   name: 'attach_reserved_ip',
   description:
-    'Attach a reserved (static) public IP to one of your cloud VMs. Requires scope services:write. Plain ' +
-    'write — not gated. id comes from list_reserved_ips; serverId is the cloud VM id to attach to (must ' +
-    'be owned by you).',
+    `Attach a reserved (static) public IP to one of your cloud VMs. Requires scope services:write. id ` +
+    `comes from list_reserved_ips; serverId is the cloud VM to attach to (the same value as the cloud VM ` +
+    `service_id from list_services).`,
   method: 'POST',
+  safety: { kind: 'plain' },
   input: z.object({ id: z.string().min(1), serverId: z.string().min(1) }).strict(),
   inputSchema: {
     type: 'object',
     properties: {
       id: { type: 'string', minLength: 1, description: 'Reserved IP id from list_reserved_ips.' },
-      serverId: { type: 'string', minLength: 1, description: 'Cloud VM id to attach to (must be owned by you).' },
+      serverId: { type: 'string', minLength: 1, description: 'Cloud VM to attach to (the same value as the cloud VM service_id from list_services; must be owned by you).' },
     },
     required: ['id', 'serverId'],
     additionalProperties: false,
@@ -259,10 +277,13 @@ export const attachReservedIp: ToolDefinition = writeTool({
 export const detachReservedIp: ToolDefinition = writeTool({
   name: 'detach_reserved_ip',
   description:
-    'Detach a reserved public IP from its VM. The IP stays allocated and billed until you release it ' +
-    'with release_reserved_ip. Requires scope services:write. Plain write — not gated. id comes from ' +
-    'list_reserved_ips.',
+    `Detach a reserved public IP from its VM. The IP stays allocated and billed until you release it with ` +
+    `release_reserved_ip. Requires scope services:write. id comes from list_reserved_ips.`,
   method: 'POST',
+  safety: {
+    kind: 'disruptive',
+    reason: "takes the public IP off the VM; traffic to that address stops reaching it until it is attached again",
+  },
   input: z.object({ id: z.string().min(1) }).strict(),
   inputSchema: {
     type: 'object',

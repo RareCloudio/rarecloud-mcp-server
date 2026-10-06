@@ -20,6 +20,7 @@ import {
   revokeClusterKubeconfig,
 } from './k8s-write.js';
 import { APIError, type RareCloudClient } from '../client.js';
+import { secretSentence } from './factories.js';
 import type { ToolCallResult, ToolDefinition } from './types.js';
 
 function fakeWriteClient(
@@ -84,13 +85,13 @@ type NewToolCase = {
 };
 
 const NEW_TOOLS: Record<string, NewToolCase> = {
-  set_cluster_scale: { tool: setClusterScale, gated: false, destructive: false, args: { minimum: 1, maximum: 3 } },
+  set_cluster_scale: { tool: setClusterScale, gated: true, destructive: true, args: { minimum: 1, maximum: 3 } },
   add_cluster_pool: { tool: addClusterPool, gated: true, destructive: false, args: { name: 'workers', minimum: 1, maximum: 3 } },
-  update_cluster_pool: { tool: updateClusterPool, gated: false, destructive: false, secondSeg: 'pool', args: { pool: 'default' } },
+  update_cluster_pool: { tool: updateClusterPool, gated: true, destructive: true, secondSeg: 'pool', args: { pool: 'default' } },
   delete_cluster_pool: { tool: deleteClusterPool, gated: true, destructive: true, secondSeg: 'pool', args: { pool: 'default' } },
   rename_cluster_pool: { tool: renameClusterPool, gated: false, destructive: false, secondSeg: 'pool', args: { pool: 'default', name: 'newname' } },
   enable_cluster_ha: { tool: enableClusterHa, gated: true, destructive: false, args: {} },
-  create_cluster_kubeconfig: { tool: createClusterKubeconfig, gated: false, destructive: false, args: { name: 'ci', role: 'admin' } },
+  create_cluster_kubeconfig: { tool: createClusterKubeconfig, gated: true, destructive: false, args: { name: 'ci', role: 'admin' } },
   revoke_cluster_kubeconfig: { tool: revokeClusterKubeconfig, gated: true, destructive: true, secondSeg: 'credential_id', args: { credential_id: 'cred-1' } },
 };
 
@@ -176,7 +177,7 @@ test('task4 APIError mapping: a representative tool maps [CODE] message', async 
   const { client } = fakeWriteClient(() => {
     throw new APIError({ code: 'FORBIDDEN', message: 'services:write scope required' });
   });
-  const result = await setClusterScale.handler(client, { service_id: 'srv-1', minimum: 1, maximum: 2 });
+  const result = await setClusterScale.handler(client, {confirm: true,  service_id: 'srv-1', minimum: 1, maximum: 2 });
   assert.equal(result.isError, true);
   assert.equal(textOf(result), 'Error: [FORBIDDEN] services:write scope required');
 });
@@ -185,7 +186,7 @@ test('task4 APIError mapping: a representative tool maps [CODE] message', async 
 
 test('set_cluster_scale: POSTs {minimum,maximum} to /scale (no confirm gate)', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await setClusterScale.handler(client, { service_id: 'svc 1/2', minimum: 2, maximum: 5 });
+  const result = await setClusterScale.handler(client, {confirm: true,  service_id: 'svc 1/2', minimum: 2, maximum: 5 });
   assert.equal(result.isError, undefined);
   assert.deepEqual(calls, [
     { method: 'POST', path: '/v1/services/svc%201%2F2/scale', body: { minimum: 2, maximum: 5 } },
@@ -194,7 +195,7 @@ test('set_cluster_scale: POSTs {minimum,maximum} to /scale (no confirm gate)', a
 
 test('set_cluster_scale: rejects a non-integer minimum before any request', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await setClusterScale.handler(client, { service_id: 's1', minimum: 1.5, maximum: 5 });
+  const result = await setClusterScale.handler(client, {confirm: true,  service_id: 's1', minimum: 1.5, maximum: 5 });
   assert.equal(result.isError, true);
   assert.match(textOf(result), /^Error: Invalid input for set_cluster_scale:/);
   assert.deepEqual(calls, []);
@@ -202,7 +203,7 @@ test('set_cluster_scale: rejects a non-integer minimum before any request', asyn
 
 test('set_cluster_scale: rejects a minimum below 1 before any request', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await setClusterScale.handler(client, { service_id: 's1', minimum: 0, maximum: 5 });
+  const result = await setClusterScale.handler(client, {confirm: true,  service_id: 's1', minimum: 0, maximum: 5 });
   assert.equal(result.isError, true);
   assert.match(textOf(result), /^Error: Invalid input for set_cluster_scale:/);
   assert.deepEqual(calls, []);
@@ -290,7 +291,7 @@ test('add_cluster_pool: JSON inputSchema mirrors minLength:1 on name and machine
 
 test('update_cluster_pool: PATCHes only the provided key to /pools/{pool}', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await updateClusterPool.handler(client, { service_id: 's1', pool: 'default', maximum: 5 });
+  const result = await updateClusterPool.handler(client, {confirm: true,  service_id: 's1', pool: 'default', maximum: 5 });
   assert.equal(result.isError, undefined);
   assert.deepEqual(calls, [
     { method: 'PATCH', path: '/v1/services/s1/pools/default', body: { maximum: 5 } },
@@ -299,7 +300,7 @@ test('update_cluster_pool: PATCHes only the provided key to /pools/{pool}', asyn
 
 test('update_cluster_pool: forwards all four optionals when supplied', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await updateClusterPool.handler(client, {
+  const result = await updateClusterPool.handler(client, {confirm: true, 
     service_id: 's1',
     pool: 'default',
     minimum: 2,
@@ -319,7 +320,7 @@ test('update_cluster_pool: forwards all four optionals when supplied', async () 
 
 test('update_cluster_pool: an empty edit sends an empty body (only service_id + pool provided)', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await updateClusterPool.handler(client, { service_id: 's1', pool: 'default' });
+  const result = await updateClusterPool.handler(client, {confirm: true,  service_id: 's1', pool: 'default' });
   assert.equal(result.isError, undefined);
   assert.deepEqual(calls, [{ method: 'PATCH', path: '/v1/services/s1/pools/default', body: {} }]);
 });
@@ -328,7 +329,7 @@ test('update_cluster_pool: an empty edit sends an empty body (only service_id + 
 // (route source); the JSON inputSchema was silent on the minimum.
 test('update_cluster_pool: rejects an empty machineType before any request', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await updateClusterPool.handler(client, { service_id: 's1', pool: 'default', machineType: '' });
+  const result = await updateClusterPool.handler(client, {confirm: true,  service_id: 's1', pool: 'default', machineType: '' });
   assert.equal(result.isError, true);
   assert.match(textOf(result), /^Error: Invalid input for update_cluster_pool:/);
   assert.deepEqual(calls, []);
@@ -395,7 +396,7 @@ test('enable_cluster_ha: POSTs /high-availability with no body when confirmed', 
 
 test('create_cluster_kubeconfig: POSTs {name,role} to /kubeconfigs and returns the raw YAML (not the JSON envelope)', async () => {
   const { client, calls } = fakeWriteClient(() => ({ id: 'cred-1', kubeconfig: FAKE_KUBECONFIG }));
-  const result = await createClusterKubeconfig.handler(client, { service_id: 's1', name: 'ci', role: 'admin' });
+  const result = await createClusterKubeconfig.handler(client, {confirm: true,  service_id: 's1', name: 'ci', role: 'admin' });
   assert.equal(result.isError, undefined);
   assert.deepEqual(calls, [
     { method: 'POST', path: '/v1/services/s1/kubeconfigs', body: { name: 'ci', role: 'admin' } },
@@ -407,7 +408,7 @@ test('create_cluster_kubeconfig: POSTs {name,role} to /kubeconfigs and returns t
 
 test('create_cluster_kubeconfig: forwards the ttl enum when supplied', async () => {
   const { client, calls } = fakeWriteClient(() => ({ kubeconfig: FAKE_KUBECONFIG }));
-  const result = await createClusterKubeconfig.handler(client, {
+  const result = await createClusterKubeconfig.handler(client, {confirm: true, 
     service_id: 's1',
     name: 'gitops',
     role: 'view',
@@ -421,7 +422,7 @@ test('create_cluster_kubeconfig: forwards the ttl enum when supplied', async () 
 
 test('create_cluster_kubeconfig: a missing kubeconfig field is an error, not an empty text block', async () => {
   const { client, calls } = fakeWriteClient(() => ({ id: 'cred-1' })); // envelope with no `kubeconfig`
-  const result = await createClusterKubeconfig.handler(client, { service_id: 's1', name: 'ci', role: 'admin' });
+  const result = await createClusterKubeconfig.handler(client, {confirm: true,  service_id: 's1', name: 'ci', role: 'admin' });
   assert.equal(result.isError, true);
   assert.equal(textOf(result), 'Error: API returned no kubeconfig');
   // The request WAS made (unlike a validation refusal) — the credential just came back empty.
@@ -432,7 +433,7 @@ test('create_cluster_kubeconfig: a missing kubeconfig field is an error, not an 
 
 test('create_cluster_kubeconfig: rejects an out-of-enum role before any request', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await createClusterKubeconfig.handler(client, { service_id: 's1', name: 'ci', role: 'edit' });
+  const result = await createClusterKubeconfig.handler(client, {confirm: true,  service_id: 's1', name: 'ci', role: 'edit' });
   assert.equal(result.isError, true);
   assert.match(textOf(result), /^Error: Invalid input for create_cluster_kubeconfig:/);
   assert.deepEqual(calls, []);
@@ -443,7 +444,7 @@ test('create_cluster_kubeconfig: rejects an out-of-enum role before any request'
 // was silent on the minimum.
 test('create_cluster_kubeconfig: rejects an empty name before any request', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await createClusterKubeconfig.handler(client, { service_id: 's1', name: '', role: 'admin' });
+  const result = await createClusterKubeconfig.handler(client, {confirm: true,  service_id: 's1', name: '', role: 'admin' });
   assert.equal(result.isError, true);
   assert.match(textOf(result), /^Error: Invalid input for create_cluster_kubeconfig:/);
   assert.deepEqual(calls, []);
@@ -460,7 +461,7 @@ test('create_cluster_kubeconfig: JSON inputSchema mirrors minLength:1 on name', 
 // reality wins, so a non-enum ttl must be rejected client-side.
 test('create_cluster_kubeconfig: rejects a non-enum ttl before any request', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await createClusterKubeconfig.handler(client, {
+  const result = await createClusterKubeconfig.handler(client, {confirm: true, 
     service_id: 's1',
     name: 'ci',
     role: 'admin',
@@ -475,8 +476,7 @@ test('create_cluster_kubeconfig: rejects a non-enum ttl before any request', asy
 // treat-as-secret guidance as the other credential-returning tools
 // (get_cluster_kubeconfig, download_cluster_kubeconfig, get_proxy_auth).
 test('create_cluster_kubeconfig: description flags the live secret + long-lived nature', () => {
-  assert.match(createClusterKubeconfig.description, /secret/i);
-  assert.match(createClusterKubeconfig.description, /do not echo/i);
+  assert.ok(createClusterKubeconfig.description.includes(secretSentence('a kubeconfig YAML embedding a bearer token')));
   assert.match(createClusterKubeconfig.description, /long-lived/i);
 });
 

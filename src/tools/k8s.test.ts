@@ -157,8 +157,7 @@ test('k8s: get_cluster_kubeconfig — returns the raw kubeconfig YAML as text, N
 });
 
 test('k8s: get_cluster_kubeconfig — description flags it as a live secret + short-lived', () => {
-  assert.match(getClusterKubeconfig.description, /secret/i);
-  assert.match(getClusterKubeconfig.description, /do not echo/i);
+  assert.match(getClusterKubeconfig.description, /SECURITY: the result contains a kubeconfig YAML .*, a live credential\. Treat it as a secret/);
   assert.match(getClusterKubeconfig.description, /short-lived/i);
 });
 
@@ -207,8 +206,7 @@ test('k8s: download_cluster_kubeconfig — returns the raw kubeconfig YAML as te
 });
 
 test('k8s: download_cluster_kubeconfig — description flags live secret, long-lived, active-only', () => {
-  assert.match(downloadClusterKubeconfig.description, /secret/i);
-  assert.match(downloadClusterKubeconfig.description, /do not echo/i);
+  assert.match(downloadClusterKubeconfig.description, /SECURITY: the result contains a kubeconfig YAML .*, a live credential\. Treat it as a secret/);
   assert.match(downloadClusterKubeconfig.description, /long-lived/i);
   assert.match(downloadClusterKubeconfig.description, /active/i);
 });

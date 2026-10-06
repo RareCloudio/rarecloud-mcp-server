@@ -3,9 +3,9 @@
 
 import { APIError } from '../client.js';
 import { type ToolDefinition, jsonResult, errorResult } from './types.js';
-import { readList, encodeSegment } from './factories.js';
+import { readList, encodeSegment, defineReadTool } from './factories.js';
 
-export const listTickets: ToolDefinition = {
+export const listTickets: ToolDefinition = defineReadTool({
   name: 'list_tickets',
   description: 'List support tickets for the authenticated account: id, subject, status (open / awaiting-staff / awaiting-client / closed), department, last-updated. Use for "do I have any open tickets?".',
   inputSchema: {
@@ -29,9 +29,9 @@ export const listTickets: ToolDefinition = {
       return errorResult(e instanceof APIError ? e.message : (e as Error).message);
     }
   },
-};
+});
 
-export const getTicket: ToolDefinition = {
+export const getTicket: ToolDefinition = defineReadTool({
   name: 'get_ticket',
   description: 'Get a single support ticket with its full message thread. Use after list_tickets to read the conversation or check the latest staff reply.',
   inputSchema: {
@@ -54,10 +54,10 @@ export const getTicket: ToolDefinition = {
       return errorResult(e instanceof APIError ? e.message : (e as Error).message);
     }
   },
-};
+});
 
 export const listTicketDepartments = readList(
   'list_ticket_departments',
   '/v1/tickets/departments',
-  'List the support departments and their numeric ids — the department ids accepted when opening a ticket (POST /tickets). Use before drafting a new ticket to pick the right department.',
+  'List the support departments and their numeric ids: the department ids accepted when opening a ticket (POST /tickets). Use before drafting a new ticket to pick the right department.',
 );

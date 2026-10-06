@@ -44,13 +44,17 @@ function textOf(result: ToolCallResult): string {
   return (block as { type: 'text'; text: string }).text;
 }
 
-test('task8 tickets: each tool names scope tickets:write, closed schema, no confirm, no foreign scope', () => {
+// create_ticket / reply_ticket speak to support staff on the user's behalf, so
+// they are security-sensitive (gated); close_ticket is a plain write. None
+// carries destructiveHint.
+test('task8 tickets: each tool names scope tickets:write, closed schema, gate per kind, no foreign scope', () => {
   for (const tool of [createTicket, replyTicket, closeTicket]) {
+    const gated = tool !== closeTicket;
     assert.match(tool.description, /tickets:write/, `${tool.name} description must name the scope`);
     assert.doesNotMatch(tool.description, /account:write|billing:write/, `${tool.name} must not name a foreign scope`);
     assert.equal(tool.inputSchema.additionalProperties, false, `${tool.name} must have a closed schema`);
-    assert.ok(!('confirm' in tool.inputSchema.properties), `${tool.name} is a plain write — no confirm`);
-    assert.equal(tool.annotations, undefined, `${tool.name} must carry no destructiveHint`);
+    assert.equal('confirm' in tool.inputSchema.properties, gated, `${tool.name}: confirm iff gated`);
+    assert.equal(tool.annotations.destructiveHint, false, `${tool.name} must carry no destructiveHint`);
   }
 });
 
@@ -64,7 +68,7 @@ test('task8 tickets: id-tools require id and reject a ".." segment before any re
   for (const [name, c] of Object.entries(ID_TOOLS)) {
     assert.ok((c.tool.inputSchema.required ?? []).includes('id'), `${name} must require id`);
     const { client, calls } = fakeWriteClient();
-    const result = await c.tool.handler(client, { id: '..', ...c.args });
+    const result = await c.tool.handler(client, { id: '..', ...c.args, confirm: true });
     assert.equal(result.isError, true, `${name} must reject ".."`);
     assert.equal(textOf(result), 'Error: Invalid id value', `${name} traversal message`);
     assert.deepEqual(calls, [], `${name} must issue no request for ".."`);
@@ -75,14 +79,14 @@ test('task8 tickets: id-tools require id and reject a ".." segment before any re
 
 test('create_ticket: name + closed schema, priority is an enum (deviation: brief said string)', () => {
   assert.equal(createTicket.name, 'create_ticket');
-  assert.deepEqual(createTicket.inputSchema.required, ['subject', 'department', 'priority', 'body']);
+  assert.deepEqual(createTicket.inputSchema.required, ['subject', 'department', 'priority', 'body', 'confirm']);
   const props = createTicket.inputSchema.properties as Record<string, { enum?: string[] }>;
   assert.deepEqual(props.priority.enum, ['low', 'medium', 'high']);
 });
 
 test('create_ticket: POSTs the required fields to /v1/tickets (attachments omitted when absent)', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await createTicket.handler(client, {
+  const result = await createTicket.handler(client, {confirm: true, 
     subject: 'VM will not boot',
     department: '1',
     priority: 'high',
@@ -100,7 +104,7 @@ test('create_ticket: POSTs the required fields to /v1/tickets (attachments omitt
 
 test('create_ticket: forwards structured attachments when supplied', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await createTicket.handler(client, {
+  const result = await createTicket.handler(client, {confirm: true, 
     subject: 'Logs',
     department: '2',
     priority: 'low',
@@ -125,7 +129,7 @@ test('create_ticket: forwards structured attachments when supplied', async () =>
 
 test('create_ticket: rejects an invalid priority before any request (deviation from brief string)', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await createTicket.handler(client, {
+  const result = await createTicket.handler(client, {confirm: true, 
     subject: 'x',
     department: '1',
     priority: 'urgent',
@@ -189,14 +193,14 @@ test('create_ticket: schema mirrors subject/department/body bounds + attachments
 
 test('reply_ticket: POSTs {body} to /v1/tickets/{id}/replies (attachments omitted)', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await replyTicket.handler(client, { id: 'tkt-1', body: 'Any update?' });
+  const result = await replyTicket.handler(client, {confirm: true,  id: 'tkt-1', body: 'Any update?' });
   assert.equal(result.isError, undefined);
   assert.deepEqual(calls, [{ method: 'POST', path: '/v1/tickets/tkt-1/replies', body: { body: 'Any update?' } }]);
 });
 
 test('reply_ticket: forwards attachments when supplied', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await replyTicket.handler(client, {
+  const result = await replyTicket.handler(client, {confirm: true, 
     id: 'tkt-1',
     body: 'See log',
     attachments: [{ name: 'x.log', data: 'YmFzZTY0' }],
@@ -213,7 +217,7 @@ test('reply_ticket: forwards attachments when supplied', async () => {
 
 test('reply_ticket: rejects an empty body before any request', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await replyTicket.handler(client, { id: 'tkt-1', body: '' });
+  const result = await replyTicket.handler(client, {confirm: true,  id: 'tkt-1', body: '' });
   assert.equal(result.isError, true);
   assert.match(textOf(result), /^Error: Invalid input for reply_ticket:/);
   assert.deepEqual(calls, []);

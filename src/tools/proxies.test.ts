@@ -177,9 +177,7 @@ for (const [tool, name] of [
   [getProxyAuth, 'get_proxy_auth'],
 ] as Array<[ToolDefinition, string]>) {
   test(`proxies: ${name} — description carries the secret-handling warning`, () => {
-    assert.match(tool.description, /secret/i);
-    assert.match(tool.description, /credential/i);
-    assert.match(tool.description, /do NOT echo/);
+    assert.match(tool.description, /SECURITY: the result contains .*, a live credential\. Treat it as a secret/);
     assert.match(tool.description, /unless the user explicitly asks/i);
   });
 }
@@ -198,6 +196,6 @@ test('proxies: metadata reads do not carry the secret warning', () => {
     listProxyRequests,
     getProxyReplacements,
   ]) {
-    assert.doesNotMatch(tool.description, /do NOT echo/, `unexpected secret warning on ${tool.name}`);
+    assert.doesNotMatch(tool.description, /SECURITY:/, `unexpected secret warning on ${tool.name}`);
   }
 });
