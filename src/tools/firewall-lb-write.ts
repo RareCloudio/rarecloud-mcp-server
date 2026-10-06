@@ -6,10 +6,10 @@
 // services:write.
 //
 // Irreversible teardown tools (delete_firewall, delete_firewall_rule,
-// delete_load_balancer, remove_load_balancer_member) carry `confirm: true` +
-// `destructiveHint`. Plain creates/moves (create_firewall, add_firewall_rule,
-// attach/detach_firewall, add_load_balancer_member) are ungated per the
-// brief's sweep — none of these are separately billed on-demand resources.
+// delete_load_balancer, remove_load_balancer_member) are `destructive`;
+// detach_firewall is `disruptive` (it changes what traffic reaches a VM).
+// Plain creates/moves (create_firewall, add_firewall_rule, attach_firewall,
+// add_load_balancer_member) are `plain`: none is a separately billed resource.
 // `create_load_balancer` is the one exception (post-review fix, orchestrator
 // -verified against the billing pricebook): unlike a firewall or a VPC, it
 // provisions BOTH an Octavia load balancer (`loadbalancer_hour` meter) AND a
@@ -17,8 +17,7 @@
 // api/src/lib/billing/pricebook.ts (`loadBalancerHourlyCents`,
 // `floatingIpHourlyCents`) and usage.ts (`LOADBALANCER_HOUR`,
 // `FLOATINGIP_HOUR`). The original sweep miscategorized it as a plain write;
-// it now carries `confirm: true` like create_volume/reserve_ip in
-// infra-write.ts (money-spend, NOT destructive — no `destructiveHint`).
+// it is `spends` like create_volume/reserve_ip in infra-write.ts.
 // Every dynamic path segment (`id`, and the firewall-rule/LB-member second
 // segment) runs through encodeSegment; `serverId` is always a BODY field,
 // never a path segment.
@@ -64,10 +63,10 @@ import { writeTool, encodeSegment } from './factories.js';
 export const createFirewall: ToolDefinition = writeTool({
   name: 'create_firewall',
   description:
-    'Create a new cloud firewall (security group). Requires scope services:write. Plain write — not ' +
-    'gated. name is the display name (1-63 chars). Add rules with add_firewall_rule, then attach it to a ' +
-    'VM with attach_firewall.',
+    `Create a new cloud firewall (security group). Requires scope services:write. name is the display ` +
+    `name (1-63 chars). Add rules with add_firewall_rule, then attach it to a VM with attach_firewall.`,
   method: 'POST',
+  safety: { kind: 'plain' },
   input: z.object({ name: z.string().min(1).max(63) }).strict(),
   inputSchema: {
     type: 'object',
@@ -82,10 +81,13 @@ export const createFirewall: ToolDefinition = writeTool({
 export const deleteFirewall: ToolDefinition = writeTool({
   name: 'delete_firewall',
   description:
-    'Delete a cloud firewall. Requires scope services:write. IRREVERSIBLE, and refused server-side while ' +
-    'it is still attached to any VM (detach first with detach_firewall). Pass confirm:true only after the ' +
-    'user has explicitly approved. id comes from list_firewalls.',
+    `Delete a cloud firewall. Requires scope services:write. Refused server-side while it is still ` +
+    `attached to any VM (detach first with detach_firewall). id comes from list_firewalls.`,
   method: 'DELETE',
+  safety: {
+    kind: 'destructive',
+    reason: "permanently deletes the firewall and its rules",
+  },
   input: z.object({ id: z.string().min(1) }).strict(),
   inputSchema: {
     type: 'object',
@@ -94,20 +96,19 @@ export const deleteFirewall: ToolDefinition = writeTool({
     additionalProperties: false,
   },
   buildPath: (a) => `/v1/firewalls/${encodeSegment(a.id, 'id')}`,
-  confirm: true,
-  destructiveHint: true,
 });
 
 export const addFirewallRule: ToolDefinition = writeTool({
   name: 'add_firewall_rule',
   description:
-    'Add an inbound/outbound rule to a cloud firewall. Requires scope services:write. Plain write — not ' +
-    'gated. id is the firewall id from list_firewalls / get_firewall. direction and protocol are required; ' +
-    'portRangeMin/portRangeMax (1-65535) narrow the rule to specific ports (omit both to match all ports); ' +
-    "remoteCidr restricts the rule to a CIDR block (e.g. '0.0.0.0/0'); description is an optional label " +
-    '(max 255 chars). The server enforces portRangeMin <= portRangeMax; a rule violating that ordering is ' +
-    'rejected with a 400.',
+    `Add an inbound/outbound rule to a cloud firewall. Requires scope services:write. id is the firewall ` +
+    `id from list_firewalls / get_firewall. direction and protocol are required; ` +
+    `portRangeMin/portRangeMax (1-65535) narrow the rule to specific ports (omit both to match all ` +
+    `ports); remoteCidr restricts the rule to a CIDR block (e.g. '0.0.0.0/0'); description is an optional ` +
+    `label (max 255 chars). The server enforces portRangeMin <= portRangeMax; a rule violating that ` +
+    `ordering is rejected with a 400.`,
   method: 'POST',
+  safety: { kind: 'plain' },
   input: z
     .object({
       id: z.string().min(1),
@@ -154,10 +155,13 @@ export const addFirewallRule: ToolDefinition = writeTool({
 export const deleteFirewallRule: ToolDefinition = writeTool({
   name: 'delete_firewall_rule',
   description:
-    'Remove a rule from a cloud firewall. Requires scope services:write. IRREVERSIBLE: the rule stops ' +
-    'applying immediately, changing what traffic is allowed. Pass confirm:true only after the user has ' +
-    'explicitly approved. id and ruleId both come from get_firewall.',
+    `Remove a rule from a cloud firewall. Requires scope services:write. id comes from list_firewalls; ` +
+    `ruleId comes from get_firewall.`,
   method: 'DELETE',
+  safety: {
+    kind: 'destructive',
+    reason: "permanently removes the rule, changing right away which traffic reaches the VMs the firewall is attached to",
+  },
   input: z.object({ id: z.string().min(1), ruleId: z.string().min(1) }).strict(),
   inputSchema: {
     type: 'object',
@@ -169,22 +173,22 @@ export const deleteFirewallRule: ToolDefinition = writeTool({
     additionalProperties: false,
   },
   buildPath: (a) => `/v1/firewalls/${encodeSegment(a.id, 'id')}/rules/${encodeSegment(a.ruleId, 'ruleId')}`,
-  confirm: true,
-  destructiveHint: true,
 });
 
 export const attachFirewall: ToolDefinition = writeTool({
   name: 'attach_firewall',
   description:
-    'Attach a cloud firewall to a cloud VM. Requires scope services:write. Plain write — not gated. id ' +
-    'comes from list_firewalls; serverId is the Nova server id to attach to (must be in your project).',
+    `Attach a cloud firewall to a cloud VM. Requires scope services:write. id comes from list_firewalls; ` +
+    `serverId is the cloud VM to attach to (the same value as the cloud VM service_id from ` +
+    `list_services).`,
   method: 'POST',
+  safety: { kind: 'plain' },
   input: z.object({ id: z.string().min(1), serverId: z.string().min(1) }).strict(),
   inputSchema: {
     type: 'object',
     properties: {
       id: { type: 'string', minLength: 1, description: 'Firewall id from list_firewalls.' },
-      serverId: { type: 'string', minLength: 1, description: 'Nova server id to attach to (must be in your project).' },
+      serverId: { type: 'string', minLength: 1, description: 'Cloud VM to attach to (the same value as the cloud VM service_id from list_services; must be in your project).' },
     },
     required: ['id', 'serverId'],
     additionalProperties: false,
@@ -196,15 +200,20 @@ export const attachFirewall: ToolDefinition = writeTool({
 export const detachFirewall: ToolDefinition = writeTool({
   name: 'detach_firewall',
   description:
-    'Detach a cloud firewall from a cloud VM. Requires scope services:write. Plain write — not gated. id ' +
-    'comes from list_firewalls; serverId is the Nova server id to detach from.',
+    `Detach a cloud firewall from a cloud VM. Requires scope services:write. id comes from ` +
+    `list_firewalls; serverId is the cloud VM to detach from (the same value as the cloud VM service_id ` +
+    `from list_services).`,
   method: 'POST',
+  safety: {
+    kind: 'disruptive',
+    reason: "removes the firewall's rules from the VM, changing right away which traffic can reach it",
+  },
   input: z.object({ id: z.string().min(1), serverId: z.string().min(1) }).strict(),
   inputSchema: {
     type: 'object',
     properties: {
       id: { type: 'string', minLength: 1, description: 'Firewall id from list_firewalls.' },
-      serverId: { type: 'string', minLength: 1, description: 'Nova server id to detach from.' },
+      serverId: { type: 'string', minLength: 1, description: 'Cloud VM to detach from (the same value as the cloud VM service_id from list_services).' },
     },
     required: ['id', 'serverId'],
     additionalProperties: false,
@@ -218,15 +227,17 @@ export const detachFirewall: ToolDefinition = writeTool({
 export const createLoadBalancer: ToolDefinition = writeTool({
   name: 'create_load_balancer',
   description:
-    'Create a new L4 (TCP) load balancer: a VIP on your subnet, a listener + pool on port, the given VMs ' +
-    'as members, and a public floating IP. Requires scope services:write and per-customer tenancy. SPENDS ' +
-    'MONEY: the load balancer is billed hourly, AND the public floating IP it allocates is billed hourly ' +
-    'as well — two separate hourly meters for one call. Pass confirm:true only after the user has ' +
-    'approved the cost. name is the display name (1-253 chars); port is the listener + member port ' +
-    '(1-65535); memberServerIds are the Nova server ids to balance across (at least one); healthCheck ' +
-    'enables a TCP health monitor (defaults to true server-side if omitted). Manage it afterward with ' +
-    'add_load_balancer_member / remove_load_balancer_member.',
+    `Create a new L4 (TCP) load balancer: a VIP on your subnet, a listener + pool on port, the given VMs ` +
+    `as members, and a public floating IP. Requires scope services:write and per-customer tenancy. name ` +
+    `is the display name (1-253 chars); port is the listener + member port (1-65535); memberServerIds are ` +
+    `the cloud VMs to balance across, at least one (each the same value as the cloud VM service_id from ` +
+    `list_services); healthCheck enables a TCP health monitor (defaults to true server-side if omitted). ` +
+    `Manage it afterward with add_load_balancer_member / remove_load_balancer_member.`,
   method: 'POST',
+  safety: {
+    kind: 'spends',
+    reason: "creates a load balancer and a public IP, each billed hourly until the load balancer is deleted",
+  },
   input: z
     .object({
       name: z.string().min(1).max(253),
@@ -244,7 +255,7 @@ export const createLoadBalancer: ToolDefinition = writeTool({
         type: 'array',
         items: { type: 'string' },
         minItems: 1,
-        description: 'Nova server ids to balance across.',
+        description: 'Cloud VMs to balance across (each the same value as the cloud VM service_id from list_services).',
       },
       healthCheck: { type: 'boolean', description: 'TCP health monitor (default true).' },
     },
@@ -257,17 +268,18 @@ export const createLoadBalancer: ToolDefinition = writeTool({
     if (a.healthCheck !== undefined) body.healthCheck = a.healthCheck;
     return body;
   },
-  confirm: true,
 });
 
 export const deleteLoadBalancer: ToolDefinition = writeTool({
   name: 'delete_load_balancer',
   description:
-    'Delete a load balancer. Requires scope services:write. IRREVERSIBLE: cascade-deletes the ' +
-    'listener/pool/members/health-monitor and releases the VIP floating IP. Refused server-side for ' +
-    'k8s-managed load balancers (manage those via the Kubernetes Service instead). Pass confirm:true only ' +
-    'after the user has explicitly approved. id comes from list_load_balancers.',
+    `Delete a load balancer. Requires scope services:write. Refused server-side for k8s-managed load ` +
+    `balancers (manage those via the Kubernetes Service instead). id comes from list_load_balancers.`,
   method: 'DELETE',
+  safety: {
+    kind: 'destructive',
+    reason: "permanently deletes the load balancer with its listener, pool and members, and releases its public IP",
+  },
   input: z.object({ id: z.string().min(1) }).strict(),
   inputSchema: {
     type: 'object',
@@ -276,23 +288,22 @@ export const deleteLoadBalancer: ToolDefinition = writeTool({
     additionalProperties: false,
   },
   buildPath: (a) => `/v1/load-balancers/${encodeSegment(a.id, 'id')}`,
-  confirm: true,
-  destructiveHint: true,
 });
 
 export const addLoadBalancerMember: ToolDefinition = writeTool({
   name: 'add_load_balancer_member',
   description:
-    'Add a VM as a member of a load balancer pool. Requires scope services:write. Plain write — not ' +
-    'gated. id comes from list_load_balancers; serverId is the Nova server id to add (must be in your ' +
-    'project); port is the member port (1-65535).',
+    `Add a VM as a member of a load balancer pool. Requires scope services:write. id comes from ` +
+    `list_load_balancers; serverId is the cloud VM to add (the same value as the cloud VM service_id from ` +
+    `list_services); port is the member port (1-65535).`,
   method: 'POST',
+  safety: { kind: 'plain' },
   input: z.object({ id: z.string().min(1), serverId: z.string().min(1), port: z.number().int().min(1).max(65535) }).strict(),
   inputSchema: {
     type: 'object',
     properties: {
       id: { type: 'string', minLength: 1, description: 'Load balancer id from list_load_balancers.' },
-      serverId: { type: 'string', minLength: 1, description: 'Nova server id to add (must be in your project).' },
+      serverId: { type: 'string', minLength: 1, description: 'Cloud VM to add (the same value as the cloud VM service_id from list_services; must be in your project).' },
       port: { type: 'integer', minimum: 1, maximum: 65535, description: 'Member port (1-65535).' },
     },
     required: ['id', 'serverId', 'port'],
@@ -305,10 +316,13 @@ export const addLoadBalancerMember: ToolDefinition = writeTool({
 export const removeLoadBalancerMember: ToolDefinition = writeTool({
   name: 'remove_load_balancer_member',
   description:
-    'Remove a member from a load balancer pool. Requires scope services:write. IRREVERSIBLE: the member ' +
-    'stops receiving traffic immediately. Pass confirm:true only after the user has explicitly approved. ' +
-    'id comes from list_load_balancers; memberId comes from list_load_balancer_members.',
+    `Remove a member from a load balancer pool. Requires scope services:write. id comes from ` +
+    `list_load_balancers; memberId comes from list_load_balancer_members.`,
   method: 'DELETE',
+  safety: {
+    kind: 'destructive',
+    reason: "removes the VM from the pool; it stops receiving traffic right away",
+  },
   input: z.object({ id: z.string().min(1), memberId: z.string().min(1) }).strict(),
   inputSchema: {
     type: 'object',
@@ -320,6 +334,4 @@ export const removeLoadBalancerMember: ToolDefinition = writeTool({
     additionalProperties: false,
   },
   buildPath: (a) => `/v1/load-balancers/${encodeSegment(a.id, 'id')}/members/${encodeSegment(a.memberId, 'memberId')}`,
-  confirm: true,
-  destructiveHint: true,
 });

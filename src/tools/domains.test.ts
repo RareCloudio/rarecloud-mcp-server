@@ -148,14 +148,17 @@ for (const [tool, name, suffix] of idScoped) {
   });
 }
 
-// The nameservers / contacts / dns reads pair with write-side setters that are
-// not part of this read-only server yet — the descriptions must flag that so an
-// agent doesn't try to mutate through them.
-test('domains: nameservers / contacts / dns descriptions flag read-only (setter not exposed yet)', () => {
+// The nameservers / contacts / dns reads pair with write-side setters; each
+// read must say it is read-only and point at its setter tool (the old "not
+// exposed yet" wording went stale when the writes shipped).
+test('domains: nameservers / contacts / dns descriptions flag read-only and name the setter', () => {
   assert.match(getDomainNameservers.description, /read-only/i);
-  assert.match(getDomainNameservers.description, /not exposed/i);
+  assert.match(getDomainNameservers.description, /set_domain_nameservers/);
   assert.match(getDomainContacts.description, /read-only/i);
-  assert.match(getDomainContacts.description, /not exposed/i);
+  assert.match(getDomainContacts.description, /set_domain_contacts/);
   assert.match(getDomainDns.description, /read-only/i);
-  assert.match(getDomainDns.description, /not exposed/i);
+  assert.match(getDomainDns.description, /set_domain_dns/);
+  for (const t of [getDomainNameservers, getDomainContacts, getDomainDns]) {
+    assert.doesNotMatch(t.description, /not exposed/i);
+  }
 });

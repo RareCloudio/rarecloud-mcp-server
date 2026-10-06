@@ -4,9 +4,9 @@
 
 import { APIError } from '../client.js';
 import { type ToolDefinition, jsonResult, errorResult } from './types.js';
-import { readList, readTool, encodeSegment } from './factories.js';
+import { readList, readTool, encodeSegment, defineReadTool } from './factories.js';
 
-export const listInvoices: ToolDefinition = {
+export const listInvoices: ToolDefinition = defineReadTool({
   name: 'list_invoices',
   description: 'List invoices for the authenticated account: number, status (paid / unpaid / cancelled), issued date, total. Use for "summarize my last 6 months of spend" or "which invoices are unpaid".',
   inputSchema: {
@@ -35,9 +35,9 @@ export const listInvoices: ToolDefinition = {
       return errorResult(e instanceof APIError ? e.message : (e as Error).message);
     }
   },
-};
+});
 
-export const getInvoice: ToolDefinition = {
+export const getInvoice: ToolDefinition = defineReadTool({
   name: 'get_invoice',
   description: 'Get full details for a single invoice: every line item, taxes, payment method used, payment timestamp. Use after list_invoices when more detail is needed.',
   inputSchema: {
@@ -60,9 +60,9 @@ export const getInvoice: ToolDefinition = {
       return errorResult(e instanceof APIError ? e.message : (e as Error).message);
     }
   },
-};
+});
 
-export const getCreditBalance: ToolDefinition = {
+export const getCreditBalance: ToolDefinition = defineReadTool({
   name: 'get_credit_balance',
   description: 'Get the current account credit balance (Pattern A v2 prepaid credit). Use for "how much do I have left?", or to check before suggesting actions that would consume credit (cloud-compute hourly billing).',
   inputSchema: {
@@ -78,9 +78,9 @@ export const getCreditBalance: ToolDefinition = {
       return errorResult(e instanceof APIError ? e.message : (e as Error).message);
     }
   },
-};
+});
 
-export const getCreditLedger: ToolDefinition = {
+export const getCreditLedger: ToolDefinition = defineReadTool({
   name: 'get_credit_ledger',
   description: 'List credit ledger entries (top-ups, voucher redemptions, hourly metering debits, refunds) for the authenticated account. Use to explain "where did my credit go?" or to reconcile a balance.',
   inputSchema: {
@@ -96,11 +96,11 @@ export const getCreditLedger: ToolDefinition = {
       return errorResult(e instanceof APIError ? e.message : (e as Error).message);
     }
   },
-};
+});
 
 export const getInvoicePayPreview = readTool({
   name: 'get_invoice_pay_preview',
-  description: 'Preview what paying an invoice from the account balance would consume — promo bonus first, then real credit, then any remaining shortfall. Read-only; consumes nothing. Pass an invoice id from list_invoices. Use before discussing a "pay from balance" action.',
+  description: 'Preview what paying an invoice from the account balance would consume: promo bonus first, then real credit, then any remaining shortfall. Read-only; consumes nothing. Pass an invoice id from list_invoices. Use before discussing a "pay from balance" action.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -115,13 +115,13 @@ export const getInvoicePayPreview = readTool({
 export const listPaymentMethods = readList(
   'list_payment_methods',
   '/v1/billing/payment-methods',
-  'List the account\'s available payment options (WHMCS gateways). There is no stored-card vault — these are the gateways offered at checkout. Use for "how can I pay?".',
+  'List the account\'s available payment options (WHMCS gateways). There is no stored-card vault: these are the gateways offered at checkout. Use for "how can I pay?".',
 );
 
 export const getBillingCampaign = readList(
   'get_billing_campaign',
   '/v1/billing/campaign',
-  'Get the currently-active credit (deposit-match) campaign in public shape — the "double your credits" promo — or {campaign:null} when none is running. Check before suggesting a top-up so the user can catch a bonus match.',
+  'Get the currently-active credit (deposit-match) campaign in public shape: the "double your credits" promo, or {campaign:null} when none is running. Check before suggesting a top-up so the user can catch a bonus match.',
 );
 
 export const getBonusBalance = readList(
@@ -133,7 +133,7 @@ export const getBonusBalance = readList(
 export const getBonusLedger = readList(
   'get_bonus_ledger',
   '/v1/billing/bonus/ledger',
-  'List all bonus-credit ledger entries (newest first): campaign grants (positive) and promo consumption (negative). Use to explain "where did my bonus go?" — distinct from get_credit_ledger, which tracks real (WHMCS) credit.',
+  'List all bonus-credit ledger entries (newest first): campaign grants (positive) and promo consumption (negative). Use to explain "where did my bonus go?": distinct from get_credit_ledger, which tracks real (WHMCS) credit.',
 );
 
 export const getBillingAlert = readList(
@@ -145,5 +145,5 @@ export const getBillingAlert = readList(
 export const getBillingState = readList(
   'get_billing_state',
   '/v1/billing/state',
-  'Get the cloud auto-suspend state for the account — normal / grace-period / suspended — that drives the dashboard billing banner. Use to check whether a low balance is putting services at risk of suspension.',
+  'Get the cloud auto-suspend state for the account (normal / grace-period / suspended), which drives the dashboard billing banner. Use to check whether a low balance is putting services at risk of suspension.',
 );

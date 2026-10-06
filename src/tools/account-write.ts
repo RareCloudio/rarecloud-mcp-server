@@ -9,8 +9,9 @@
 // confirm gate, `encodeSegment` path encoding, and the APIError -> errorResult
 // mapping stay uniform with the other *-write.ts modules.
 //
-// Only delete_account_ssh_key is gated (confirm + destructiveHint — it removes
-// an access credential from the account). The rest are plain writes.
+// Gated: delete_account_ssh_key (`destructive`), update_account and
+// manage_account_contact (`sensitive`: legal invoice profile, and who receives
+// account emails). The rest are plain writes.
 //
 // Bodies + bounds re-confirmed against console openapi.json AND the route
 // source (api/src/routes/v1-account.ts). DEVIATIONS / enrichments over the
@@ -47,17 +48,22 @@ import { writeTool, encodeSegment } from './factories.js';
 const LANGUAGES = ['en', 'ro'] as const;
 const CONTACT_ACTIONS = ['add', 'update', 'delete'] as const;
 
-// --- update_account (PATCH /v1/account, no gate) ---------------------------
+// --- update_account (PATCH /v1/account, sensitive) -------------------------
 
 export const updateAccount: ToolDefinition = writeTool({
   name: 'update_account',
   description:
-    "Update the account's billing / contact profile. Requires scope account:write. Plain write — not " +
-    'gated. Every field is optional; only the fields you pass are changed. firstName/lastName (max 64), ' +
-    'companyName (max 128), address (max 128), city (max 64), postcode (max 16), country (2-letter ISO ' +
-    'code), phone (max 32), taxId/VAT (max 32), language (en|ro), and email (the billing/contact email — ' +
-    'the login email is NOT changed here). Note: the account currency is NOT settable via this endpoint.',
+    `Update the account's billing / contact profile. Requires scope account:write. Every field is ` +
+    `optional; only the fields you pass are changed. firstName/lastName (max 64), companyName (max 128), ` +
+    `address (max 128), city (max 64), postcode (max 16), country (2-letter ISO code), phone (max 32), ` +
+    `taxId/VAT (max 32), language (en|ro), and email (the billing/contact email; the login email is NOT ` +
+    `changed here). The account currency is NOT settable via this endpoint. Read the current profile with ` +
+    `get_account.`,
   method: 'PATCH',
+  safety: {
+    kind: 'sensitive',
+    reason: "changes the billing profile printed on legal invoices and the email that receives invoices and suspension warnings",
+  },
   input: z
     .object({
       firstName: z.string().max(64).optional(),
@@ -109,16 +115,17 @@ export const updateAccount: ToolDefinition = writeTool({
   },
 });
 
-// --- add_account_ssh_key (POST /v1/account/ssh-keys, no gate) --------------
+// --- add_account_ssh_key (POST /v1/account/ssh-keys, plain) ----------------
 
 export const addAccountSshKey: ToolDefinition = writeTool({
   name: 'add_account_ssh_key',
   description:
-    'Add an account-wide SSH public key (usable when deploying new cloud VMs). Requires scope ' +
-    'account:write. Plain write — not gated. name is a display label (1-200, unique per account); ' +
-    'publicKey is the OpenSSH public-key string (ssh-ed25519 / ssh-rsa / ecdsa, max 4096). This is a ' +
-    'PUBLIC key — never paste a private key. Distinct from the per-service add_service_ssh_key.',
+    `Add an account-wide SSH public key (offered when deploying new cloud VMs). Requires scope ` +
+    `account:write. name is a display label (1-200, unique per account); publicKey is the OpenSSH ` +
+    `public-key string (ssh-ed25519 / ssh-rsa / ecdsa, max 4096). This is a PUBLIC key: never paste a ` +
+    `private key. It is not installed on any existing server (add_service_ssh_key does that).`,
   method: 'POST',
+  safety: { kind: 'plain' },
   input: z
     .object({
       name: z.string().min(1).max(200),
@@ -143,15 +150,17 @@ export const addAccountSshKey: ToolDefinition = writeTool({
   buildBody: (a) => ({ name: a.name, publicKey: a.publicKey }),
 });
 
-// --- delete_account_ssh_key (DELETE /v1/account/ssh-keys/{id}, confirm+destr) --
+// --- delete_account_ssh_key (DELETE /v1/account/ssh-keys/{id}, destructive) ---
 
 export const deleteAccountSshKey: ToolDefinition = writeTool({
   name: 'delete_account_ssh_key',
   description:
-    'Delete an account-wide SSH key. Requires scope account:write. IRREVERSIBLE: removes an access ' +
-    'credential from the account (the key must be re-added to use it again). Pass confirm:true only after ' +
-    'the user has explicitly approved. id comes from list_account_ssh_keys.',
+    `Delete an account-wide SSH key. Requires scope account:write. id comes from list_account_ssh_keys.`,
   method: 'DELETE',
+  safety: {
+    kind: 'destructive',
+    reason: "permanently removes the key from the account; it has to be added again to be used",
+  },
   input: z.object({ id: z.string().min(1) }).strict(),
   inputSchema: {
     type: 'object',
@@ -160,8 +169,6 @@ export const deleteAccountSshKey: ToolDefinition = writeTool({
     additionalProperties: false,
   },
   buildPath: (a) => `/v1/account/ssh-keys/${encodeSegment(a.id, 'id')}`,
-  confirm: true,
-  destructiveHint: true,
 });
 
 // --- resend_email_verification (POST /v1/account/verify-email/resend) ------
@@ -169,26 +176,30 @@ export const deleteAccountSshKey: ToolDefinition = writeTool({
 export const resendEmailVerification: ToolDefinition = writeTool({
   name: 'resend_email_verification',
   description:
-    "Resend the account's email-address verification email. Requires scope account:write. Plain write — " +
-    'not gated. Takes no input (the target is the authenticated account); a no-op if the email is already ' +
-    'verified. Returns { sent, reason? }.',
+    `Resend the account's email-address verification email. Requires scope account:write. Takes no input ` +
+    `(the target is the authenticated account); a no-op if the email is already verified. Returns { sent, ` +
+    `reason? }.`,
   method: 'POST',
+  safety: { kind: 'plain' },
   input: z.object({}).strict(),
   inputSchema: { type: 'object', properties: {}, required: [], additionalProperties: false },
   buildPath: () => '/v1/account/verify-email/resend',
 });
 
-// --- manage_account_contact (POST /v1/account/contacts, no gate) -----------
+// --- manage_account_contact (POST /v1/account/contacts, sensitive) ---------
 
 export const manageAccountContact: ToolDefinition = writeTool({
   name: 'manage_account_contact',
   description:
-    'Add, update, or delete a billing/technical contact on the account. Requires scope account:write. ' +
-    'Plain write — not gated. action selects the operation: add (needs firstname, lastname, email), ' +
-    'update (needs id + the fields to change), delete (needs id). id comes from list_account_contacts. ' +
-    'generalemails / invoiceemails / supportemails toggle which notification streams this contact ' +
-    'receives.',
+    `Add, update, or delete a billing/technical contact on the account. Requires scope account:write. ` +
+    `action selects the operation: add (needs firstname, lastname, email), update (needs id + the fields ` +
+    `to change), delete (needs id). id comes from list_account_contacts. generalemails / invoiceemails / ` +
+    `supportemails toggle which notification streams this contact receives.`,
   method: 'POST',
+  safety: {
+    kind: 'sensitive',
+    reason: "adds, changes or removes a contact who receives copies of account emails",
+  },
   input: z
     .object({
       action: z.enum(CONTACT_ACTIONS),
@@ -207,7 +218,7 @@ export const manageAccountContact: ToolDefinition = writeTool({
     type: 'object',
     properties: {
       action: { type: 'string', enum: [...CONTACT_ACTIONS], description: 'add | update | delete.' },
-      id: { type: 'integer', minimum: 1, description: 'Contact id (required for update/delete).' },
+      id: { type: 'integer', minimum: 1, description: 'Contact id from list_account_contacts (required for update/delete).' },
       firstname: { type: 'string', maxLength: 64, description: 'Given name (required for add).' },
       lastname: { type: 'string', maxLength: 64, description: 'Family name (required for add).' },
       email: { type: 'string', format: 'email', maxLength: 254, description: 'Contact email (required for add).' },
@@ -236,16 +247,17 @@ export const manageAccountContact: ToolDefinition = writeTool({
   },
 });
 
-// --- create_affiliate_link (POST /v1/account/affiliate/link, no gate) ------
+// --- create_affiliate_link (POST /v1/account/affiliate/link, plain) --------
 
 export const createAffiliateLink: ToolDefinition = writeTool({
   name: 'create_affiliate_link',
   description:
-    'Mint a signed affiliate referral link that redirects to a destination of your choice after placing ' +
-    'the affiliate cookie. Requires scope account:write. Plain write — NO money movement (affiliate ' +
-    'activate and withdraw are intentionally NOT exposed to agents). The affiliate account must already ' +
-    'be active. destination is the absolute http(s) URL to redirect to (1-2048 chars).',
+    `Mint a signed affiliate referral link that redirects to a destination of your choice after placing ` +
+    `the affiliate cookie. Requires scope account:write. No money moves (affiliate activate and withdraw ` +
+    `intentionally have no tool here). The affiliate account must already be active (see ` +
+    `get_affiliate). destination is the absolute http(s) URL to redirect to (1-2048 chars).`,
   method: 'POST',
+  safety: { kind: 'plain' },
   input: z.object({ destination: z.string().min(1).max(2048) }).strict(),
   inputSchema: {
     type: 'object',

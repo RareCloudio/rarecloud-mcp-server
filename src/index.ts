@@ -4,16 +4,19 @@
 // a RareCloud account, reason about it, and operate its infrastructure.
 //
 // Design notes:
-//   - Reads are ungated. Writes are gated in depth, because the model — not
-//     a human — is the caller:
+//   - Reads are ungated and carry annotations.readOnlyHint so the MCP host
+//     can auto-approve them. Writes are gated in depth, because the model
+//     (not a human) is the caller:
 //       * Identity, credentials, and raw money movement have NO tool at all
-//         (password, 2FA, account profile, credit top-up, invoice payment,
-//         payment methods, token mint/revoke, affiliate withdrawal, panel
-//         SSO). An agent PAT manages infrastructure, nothing else.
-//       * Spend and lifecycle actions take a mandatory `confirm: true` arg;
-//         without it the tool refuses locally, issuing zero HTTP.
-//       * Destructive actions additionally carry annotations.destructiveHint
-//         so the MCP host can prompt its human before dispatch.
+//         (password, 2FA, credit top-up, invoice payment, payment methods,
+//         token mint/revoke, affiliate withdrawal, panel SSO).
+//       * Every write tool has one safety kind (plain / spends / destructive
+//         / disruptive / sensitive). Every kind except plain takes a
+//         mandatory `confirm: true` arg; without it the tool refuses locally,
+//         issuing zero HTTP, and says why.
+//       * Destructive and disruptive tools also carry
+//         annotations.destructiveHint so the MCP host can prompt its human
+//         before dispatch.
 //     Scope is the outer gate and the only human decision: the API enforces
 //     it server-side per route and answers 403 PERMISSION_DENIED. Note the
 //     tool list is NOT scope-filtered — an under-scoped token still sees a
@@ -58,7 +61,7 @@ async function main(): Promise<void> {
       name: t.name,
       description: t.description,
       inputSchema: t.inputSchema,
-      ...(t.annotations ? { annotations: t.annotations } : {}),
+      annotations: t.annotations,
     })),
   }));
 

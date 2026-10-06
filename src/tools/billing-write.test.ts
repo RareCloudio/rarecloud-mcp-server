@@ -56,7 +56,7 @@ test('set_billing_alert: name + closed schema (no confirm — plain write)', () 
   assert.equal(setBillingAlert.name, 'set_billing_alert');
   assert.deepEqual(setBillingAlert.inputSchema.required, ['thresholdCents']);
   assert.ok(!('confirm' in setBillingAlert.inputSchema.properties));
-  assert.equal(setBillingAlert.annotations, undefined);
+  assert.equal(setBillingAlert.annotations.destructiveHint, false);
 });
 
 test('set_billing_alert: PUTs {thresholdCents} to /v1/billing/alert (enabled omitted)', async () => {

@@ -6,7 +6,7 @@
 // guard in index.test.ts). All scope billing:write.
 //
 // Everything builds on the shared `writeTool` factory. delete_billing_alert is
-// the only gated tool here (confirm + destructiveHint — see its note). Bodies +
+// the only gated tool here (`destructive`, see its note). Bodies +
 // bounds re-confirmed against console openapi.json AND the route source
 // (api/src/routes/v1-billing.ts):
 //   - set_billing_alert: PUT /billing/alert, body { thresholdCents, enabled? }.
@@ -25,16 +25,17 @@ import { z } from 'zod';
 import { type ToolDefinition } from './types.js';
 import { writeTool } from './factories.js';
 
-// --- set_billing_alert (PUT /v1/billing/alert, no gate) --------------------
+// --- set_billing_alert (PUT /v1/billing/alert, plain) ----------------------
 
 export const setBillingAlert: ToolDefinition = writeTool({
   name: 'set_billing_alert',
   description:
-    'Set (or update) the month-to-date spend alert. Requires scope billing:write. Plain write — not ' +
-    'gated (no money moves; it only configures a notification). thresholdCents is the alert threshold in ' +
-    'cents (minimum 100 = €1); enabled optionally turns the alert on/off (defaults on). See ' +
-    'get_billing_alert for the current state.',
+    `Set (or update) the month-to-date spend alert. Requires scope billing:write. No money moves; it only ` +
+    `configures a notification. thresholdCents is the alert threshold in cents (minimum 100 = EUR 1); ` +
+    `enabled optionally turns the alert on/off (defaults on). See get_billing_alert for the current ` +
+    `state.`,
   method: 'PUT',
+  safety: { kind: 'plain' },
   input: z
     .object({
       thresholdCents: z.number().int().min(100, 'thresholdCents must be at least 100 (€1).'),
@@ -58,34 +59,34 @@ export const setBillingAlert: ToolDefinition = writeTool({
   },
 });
 
-// --- delete_billing_alert (DELETE /v1/billing/alert, confirm+destr) --------
-// Low blast radius and re-creatable via set_billing_alert, so the confirm gate
-// is arguably optional here — kept as confirm+destr for rule uniformity across
-// the delete family (the description says so).
+// --- delete_billing_alert (DELETE /v1/billing/alert, destructive) ----------
+// Low blast radius and re-creatable via set_billing_alert, but classified
+// `destructive` (gated) for uniformity across the delete family.
 
 export const deleteBillingAlert: ToolDefinition = writeTool({
   name: 'delete_billing_alert',
   description:
-    'Remove the month-to-date spend alert. Requires scope billing:write. Low blast radius and easily ' +
-    're-created via set_billing_alert, but kept confirm-gated for uniformity with the other delete tools. ' +
-    'Pass confirm:true only after the user has approved. Takes no other input (the alert is a singleton).',
+    `Remove the month-to-date spend alert. Requires scope billing:write. Takes no input (the alert is a ` +
+    `singleton); see get_billing_alert for the current state.`,
   method: 'DELETE',
+  safety: {
+    kind: 'destructive',
+    reason: "removes the spend alert, so no warning is sent when month-to-date spend passes the threshold (until it is set again with set_billing_alert)",
+  },
   input: z.object({}).strict(),
   inputSchema: { type: 'object', properties: {}, required: [], additionalProperties: false },
   buildPath: () => '/v1/billing/alert',
-  confirm: true,
-  destructiveHint: true,
 });
 
-// --- redeem_voucher (POST /v1/billing/vouchers/redeem, no gate) ------------
+// --- redeem_voucher (POST /v1/billing/vouchers/redeem, plain) --------------
 
 export const redeemVoucher: ToolDefinition = writeTool({
   name: 'redeem_voucher',
   description:
-    'Redeem a credit voucher / promo code, adding credit to the account balance. Requires scope ' +
-    'billing:write. Plain write — not gated (it grants credit; no money leaves the account). code is the ' +
-    'voucher code (1-64 chars).',
+    `Redeem a credit voucher / promo code, adding credit to the account balance. Requires scope ` +
+    `billing:write. It grants credit; no money leaves the account. code is the voucher code (1-64 chars).`,
   method: 'POST',
+  safety: { kind: 'plain' },
   input: z.object({ code: z.string().min(1).max(64) }).strict(),
   inputSchema: {
     type: 'object',

@@ -16,6 +16,8 @@ export const getVolume = readOne(
   'get_volume',
   '/v1/volumes',
   'Get one block storage volume: id, name, size, status, region, and which VM it is attached to. Use after list_volumes to inspect a single volume.',
+  'id',
+  { idSource: 'list_volumes' },
 );
 
 export const listNetworks = readList(
@@ -28,6 +30,8 @@ export const getNetwork = readOne(
   'get_network',
   '/v1/networks',
   'Get one private network (VPC): id, name, CIDR, status, whether it is the default, and its attached VMs. Use after list_networks to inspect a single network.',
+  'id',
+  { idSource: 'list_networks' },
 );
 
 export const listLoadBalancers = readList(
@@ -40,12 +44,14 @@ export const getLoadBalancer = readOne(
   'get_load_balancer',
   '/v1/load-balancers',
   'Get one load balancer with its members (backend VMs and ports). Use after list_load_balancers to inspect membership.',
+  'id',
+  { idSource: 'list_load_balancers' },
 );
 
 export const listLoadBalancerMembers = readTool({
   name: 'list_load_balancer_members',
   description:
-    'List the backend members of a load balancer — each member VM\'s private fixed IP and its port in the pool. Use after list_load_balancers to inspect exactly which VMs sit behind a load balancer. The id comes from list_load_balancers.',
+    'List the backend members of a load balancer: each member VM\'s private fixed IP and its port in the pool. Use after list_load_balancers to inspect exactly which VMs sit behind a load balancer. The id comes from list_load_balancers.',
   inputSchema: {
     type: 'object',
     properties: { id: { type: 'string', description: 'Load balancer id from list_load_balancers.' } },
@@ -71,4 +77,6 @@ export const getFirewall = readOne(
   'get_firewall',
   '/v1/firewalls',
   'Get one firewall (security group) including its full inbound/outbound rule set and which VMs it is attached to. Use after list_firewalls to inspect a firewall\'s rules.',
+  'id',
+  { idSource: 'list_firewalls' },
 );

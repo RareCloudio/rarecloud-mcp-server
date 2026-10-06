@@ -1,20 +1,22 @@
 // Domains WRITE tools (Parity Phase B, Task 7): register / transfer-in /
-// renew a domain (all order-driven → money-spend, `confirm`-gated), plus
-// set-nameservers / set-contacts / set-dns / manage (plain writes — no
-// separate charge). Everything here builds on the shared `writeTool` factory
+// renew a domain (all order-driven, so `spends`), plus set-nameservers /
+// set-dns (`disruptive`: a wrong value takes the site or mail offline) and
+// set-contacts / manage (`sensitive`: registrant ownership, transfer lock, EPP
+// code). Everything here builds on the shared `writeTool` factory
 // so input validation, the confirm gate, `encodeSegment` path encoding, and
 // the APIError -> errorResult mapping stay uniform with infra-write.ts /
 // firewall-lb-write.ts / services-write.ts / k8s-write.ts. All scope
 // domains:write (a distinct sellable category from services:write — see
 // api/src/routes/v1-domains.ts header comment).
 //
-// None of these 7 tools carries `destructiveHint`: register/transfer/renew
-// only spend money (reversible in the sense that nothing is torn down), and
-// nameservers/contacts/dns/manage changes can always be set back. Only
-// register_domain, transfer_domain, renew_domain carry `confirm` (they place
-// a CHARGED order — see each endpoint's openapi description). No DELETE
-// method appears in this brief, so the `callMethod`-discards-DELETE-body
-// trap does not apply.
+// Safety: each tool's `safety` option (plain / spends / destructive /
+// disruptive / sensitive, with a reason) is the single source for its
+// confirm gate, refusal text, trailing Safety sentence and MCP annotations;
+// see writeTool in factories.ts. The pinned classification lives in
+// index.test.ts.
+//
+// No DELETE method appears in this brief, so the
+// `callMethod`-discards-DELETE-body trap does not apply.
 //
 // Bodies + bounds re-confirmed against console openapi.json AND the route
 // source (api/src/routes/v1-domains.ts):
@@ -101,19 +103,23 @@ const HOSTNAME_PATTERN = HOSTNAME_RE.source;
 const DNS_RECORD_TYPES = ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'NS', 'SRV', 'CAA'] as const;
 const MANAGE_ACTIONS = ['nameservers', 'lock', 'autorenew', 'idprotect', 'epp'] as const;
 
-// --- register_domain (POST /v1/domains, confirm — order → money-spend) -----
+// --- register_domain (POST /v1/domains, spends) ----------------------------
 
 export const registerDomain: ToolDefinition = writeTool({
   name: 'register_domain',
   description:
-    'Register a new domain name. Requires scope domains:write. SPENDS MONEY: places a register ORDER + ' +
-    'invoice (WHMCS has no "register now" API) that the registrar fulfils once accepted/paid — the ' +
-    'returned status starts Pending. Pass confirm:true only after the user has approved the cost. domain ' +
-    "is the full name, e.g. example.com; years is the registration term (1-10, default 1); nameservers " +
-    'is an optional list of up to 5 custom nameserver hostnames (omit to use the registrar default); ' +
-    'idProtection/dnsManagement are optional WHOIS-privacy / DNS-hosting add-ons (registrar-dependent). ' +
-    'Check availability first with check_domain_availability and price with get_tld_pricing.',
+    `Register a new domain name. Requires scope domains:write. Places a register ORDER + invoice (WHMCS ` +
+    `has no "register now" API) that the registrar fulfils once accepted/paid; the returned status starts ` +
+    `Pending. domain is the full name, e.g. example.com; years is the registration term (1-10, default ` +
+    `1); nameservers is an optional list of up to 5 custom nameserver hostnames (omit to use the ` +
+    `registrar default); idProtection/dnsManagement are optional WHOIS-privacy / DNS-hosting add-ons ` +
+    `(registrar-dependent). Check availability first with check_domain_availability and price with ` +
+    `get_tld_pricing.`,
   method: 'POST',
+  safety: {
+    kind: 'spends',
+    reason: "places a charged registration order and invoice for the domain",
+  },
   input: z
     .object({
       domain: z.string().regex(HOSTNAME_RE, 'Enter a valid domain (e.g. example.com).'),
@@ -152,22 +158,24 @@ export const registerDomain: ToolDefinition = writeTool({
     if (a.dnsManagement !== undefined) body.dnsManagement = a.dnsManagement;
     return body;
   },
-  confirm: true,
 });
 
-// --- transfer_domain (POST /v1/domains/transfers, confirm — money-spend) ---
+// --- transfer_domain (POST /v1/domains/transfers, spends) ------------------
 
 export const transferDomain: ToolDefinition = writeTool({
   name: 'transfer_domain',
   description:
-    'Transfer a domain in from another registrar. Requires scope domains:write. SPENDS MONEY: places a ' +
-    'transfer-in ORDER + invoice using the EPP/auth code from the losing registrar; the registrar fulfils ' +
-    'once accepted/paid — the returned status starts Pending. Pass confirm:true only after the user has ' +
-    'approved the cost. domain is the full name, e.g. example.com; epp is the EPP/auth code from the ' +
-    'losing registrar; years is the term to add on transfer (1-10, default 1); nameservers is an optional ' +
-    'list of up to 5 custom nameserver hostnames; idProtection is an optional WHOIS-privacy add-on ' +
-    '(registrar-dependent).',
+    `Transfer a domain in from another registrar. Requires scope domains:write. Places a transfer-in ` +
+    `ORDER + invoice using the EPP/auth code from the losing registrar; the registrar fulfils once ` +
+    `accepted/paid and the returned status starts Pending. domain is the full name, e.g. example.com; epp ` +
+    `is the EPP/auth code from the losing registrar; years is the term to add on transfer (1-10, default ` +
+    `1); nameservers is an optional list of up to 5 custom nameserver hostnames; idProtection is an ` +
+    `optional WHOIS-privacy add-on (registrar-dependent). Check the price with get_tld_pricing.`,
   method: 'POST',
+  safety: {
+    kind: 'spends',
+    reason: "places a charged transfer-in order and invoice for the domain",
+  },
   input: z
     .object({
       domain: z.string().regex(HOSTNAME_RE, 'Enter a valid domain (e.g. example.com).'),
@@ -205,21 +213,23 @@ export const transferDomain: ToolDefinition = writeTool({
     if (a.idProtection !== undefined) body.idProtection = a.idProtection;
     return body;
   },
-  confirm: true,
 });
 
-// --- renew_domain (POST /v1/domains/{id}/renew, confirm — money-spend) -----
+// --- renew_domain (POST /v1/domains/{id}/renew, spends) --------------------
 
 export const renewDomain: ToolDefinition = writeTool({
   name: 'renew_domain',
   description:
-    'Renew an owned domain. Requires scope domains:write. SPENDS MONEY: creates a CHARGED renewal order + ' +
-    'invoice (paid from credit or via the invoice flow, same as register/transfer) and optionally flips ' +
-    'auto-renew in the same call; the registrar fulfils once the order is paid — the returned status ' +
-    'starts Pending. Pass confirm:true only after the user has approved the cost. id comes from ' +
-    'list_domains; years is the renewal term (1-10, default 1); autoRenew optionally sets the domain\'s ' +
-    'auto-renew flag.',
+    `Renew an owned domain. Requires scope domains:write. Creates a renewal order + invoice (paid from ` +
+    `credit or via the invoice flow, same as register/transfer) and optionally flips auto-renew in the ` +
+    `same call; the registrar fulfils once the order is paid and the returned status starts Pending. id ` +
+    `comes from list_domains; years is the renewal term (1-10, default 1); autoRenew optionally sets the ` +
+    `domain's auto-renew flag. Check the price with get_tld_pricing.`,
   method: 'POST',
+  safety: {
+    kind: 'spends',
+    reason: "places a charged renewal order and invoice for the domain",
+  },
   input: z
     .object({
       id: z.string().min(1),
@@ -244,18 +254,21 @@ export const renewDomain: ToolDefinition = writeTool({
     if (a.autoRenew !== undefined) body.autoRenew = a.autoRenew;
     return body;
   },
-  confirm: true,
 });
 
-// --- set_domain_nameservers (PUT /v1/domains/{id}/nameservers, no gate) ----
+// --- set_domain_nameservers (PUT /v1/domains/{id}/nameservers, disruptive) ---
 
 export const setDomainNameservers: ToolDefinition = writeTool({
   name: 'set_domain_nameservers',
   description:
-    "Replace an owned domain's nameservers (2-5). Requires scope domains:write. Plain write — not gated. " +
-    'id comes from list_domains. For a single-action alternative see manage_domain with ' +
-    "action:'nameservers'.",
+    `Replace an owned domain's nameservers (2-5). Requires scope domains:write. id comes from ` +
+    `list_domains; see the current set with get_domain_nameservers. manage_domain with ` +
+    `action:'nameservers' does the same.`,
   method: 'PUT',
+  safety: {
+    kind: 'disruptive',
+    reason: "points the domain at different nameservers; its website and email stop resolving if the new nameservers are not set up for it",
+  },
   input: z
     .object({
       id: z.string().min(1),
@@ -284,7 +297,7 @@ export const setDomainNameservers: ToolDefinition = writeTool({
   buildBody: (a) => ({ nameservers: a.nameservers }),
 });
 
-// --- set_domain_contacts (PUT /v1/domains/{id}/contacts, no gate) ----------
+// --- set_domain_contacts (PUT /v1/domains/{id}/contacts, sensitive) --------
 
 const DomainContactSchema = z
   .object({
@@ -323,11 +336,15 @@ const DOMAIN_CONTACT_JSON_SCHEMA = {
 export const setDomainContacts: ToolDefinition = writeTool({
   name: 'set_domain_contacts',
   description:
-    "Update an owned domain's registrant WHOIS contact (registrar-dependent). Requires scope " +
-    'domains:write. Plain write — not gated. id comes from list_domains; contact carries only the fields ' +
-    'to change (all optional) — firstName, lastName, organisation, email, phone, address1, address2, ' +
-    'city, state, postcode, country (2-letter ISO code).',
+    `Update an owned domain's registrant WHOIS contact (registrar-dependent). Requires scope ` +
+    `domains:write. id comes from list_domains; see the current contact with get_domain_contacts. contact ` +
+    `carries only the fields to change (all optional): firstName, lastName, organisation, email, phone, ` +
+    `address1, address2, city, state, postcode, country (2-letter ISO code).`,
   method: 'PUT',
+  safety: {
+    kind: 'sensitive',
+    reason: "changes the domain's legal registrant (owner) contact",
+  },
   input: z.object({ id: z.string().min(1), contact: DomainContactSchema }).strict(),
   inputSchema: {
     type: 'object',
@@ -357,7 +374,7 @@ export const setDomainContacts: ToolDefinition = writeTool({
   },
 });
 
-// --- set_domain_dns (PUT /v1/domains/{id}/dns, no gate) ---------------------
+// --- set_domain_dns (PUT /v1/domains/{id}/dns, disruptive) -----------------
 
 const DnsRecordSchema = z
   .object({
@@ -371,12 +388,16 @@ const DnsRecordSchema = z
 export const setDomainDns: ToolDefinition = writeTool({
   name: 'set_domain_dns',
   description:
-    "Replace an owned domain's DNS host records (registrar-dependent — returns a not-implemented error " +
-    'when the registrar exposes no DNS API). Requires scope domains:write. Plain write — not gated. id ' +
-    'comes from list_domains. records is the full replacement set (up to 100); each record needs ' +
-    "hostname (e.g. '@', 'www', 'mail'), type (A/AAAA/CNAME/MX/TXT/NS/SRV/CAA), and address (the record " +
-    'value/target); priority is used for MX/SRV records.',
+    `Replace an owned domain's DNS host records (registrar-dependent: returns a not-implemented error ` +
+    `when the registrar exposes no DNS API). Requires scope domains:write. id comes from list_domains; ` +
+    `read the current records with get_domain_dns first. records is the full replacement set (up to 100); ` +
+    `each record needs hostname (e.g. '@', 'www', 'mail'), type (A/AAAA/CNAME/MX/TXT/NS/SRV/CAA), and ` +
+    `address (the record value/target); priority is used for MX/SRV records.`,
   method: 'PUT',
+  safety: {
+    kind: 'disruptive',
+    reason: "replaces all of the domain's DNS records with the given set; records left out are deleted, which can take its website or email offline",
+  },
   input: z
     .object({
       id: z.string().min(1),
@@ -417,19 +438,23 @@ export const setDomainDns: ToolDefinition = writeTool({
   }),
 });
 
-// --- manage_domain (POST /v1/domains/{id}/manage, no gate) -----------------
+// --- manage_domain (POST /v1/domains/{id}/manage, sensitive) ---------------
 
 export const manageDomain: ToolDefinition = writeTool({
   name: 'manage_domain',
   description:
-    'Dispatch a single domain management action. Requires scope domains:write. Plain write — not gated. ' +
-    'id comes from list_domains. action selects the operation: nameservers (replace 2-5, pass ' +
-    'nameservers), lock (transfer lock, pass enabled), autorenew (pass enabled), idprotect (WHOIS ' +
-    'privacy, pass enabled), epp (emails the transfer/EPP code to the registrant — no extra fields). See ' +
-    'get_domain_management for the current state before choosing an action. When enabled is omitted the ' +
-    'server defaults are ASYMMETRIC: lock and autorenew default to true, idprotect defaults to false — ' +
-    'always pass enabled explicitly rather than relying on the omitted-value default.',
+    `Dispatch a single domain management action. Requires scope domains:write. id comes from ` +
+    `list_domains. action selects the operation: nameservers (replace 2-5, pass nameservers), lock ` +
+    `(transfer lock, pass enabled), autorenew (pass enabled), idprotect (WHOIS privacy, pass enabled), ` +
+    `epp (emails the transfer/EPP code to the registrant; no extra fields). See get_domain_management for ` +
+    `the current state before choosing an action. When enabled is omitted the server defaults are ` +
+    `ASYMMETRIC: lock and autorenew default to true, idprotect defaults to false; always pass enabled ` +
+    `explicitly rather than relying on the omitted-value default.`,
   method: 'POST',
+  safety: {
+    kind: 'sensitive',
+    reason: "can change the nameservers, remove the transfer lock or email the EPP transfer code, which together allow the domain to be moved away",
+  },
   input: z
     .object({
       id: z.string().min(1),

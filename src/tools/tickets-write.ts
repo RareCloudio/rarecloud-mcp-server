@@ -1,7 +1,9 @@
 // Support-ticket WRITE tools (Parity Phase B, Task 8): open a ticket, reply to
-// one, close one. Requires scope tickets:write. None is gated — a ticket is
-// cheap and owner-scoped server-side (the adapter opens/replies under the
-// authenticated user's WHMCS id, so there is no cross-user write surface).
+// one, close one. Requires scope tickets:write. Tickets are owner-scoped
+// server-side (the adapter opens/replies under the authenticated user's WHMCS
+// id, so there is no cross-user write surface). Opening and replying are
+// `sensitive` (they speak to support staff on the user's behalf, and staff act
+// on tickets); closing is `plain`.
 //
 // Everything builds on the shared `writeTool` factory. Bodies + bounds
 // re-confirmed against console openapi.json AND the route source
@@ -59,16 +61,20 @@ const ATTACHMENTS_JSON_SCHEMA = {
   },
 };
 
-// --- create_ticket (POST /v1/tickets, no gate) -----------------------------
+// --- create_ticket (POST /v1/tickets, sensitive) ---------------------------
 
 export const createTicket: ToolDefinition = writeTool({
   name: 'create_ticket',
   description:
-    'Open a support ticket. Requires scope tickets:write. Plain write — not gated. subject (1-150); ' +
-    'department is a department id from list_ticket_departments (1-64); priority is one of low | medium | ' +
-    'high; body is the message (1-50000). attachments is an optional list (max 5) of {name, data} where ' +
-    'data is base64-encoded file content.',
+    `Open a support ticket. Requires scope tickets:write. subject (1-150); department is a department id ` +
+    `from list_ticket_departments (1-64); priority is one of low | medium | high; body is the message ` +
+    `(1-50000). attachments is an optional list (max 5) of {name, data} where data is base64-encoded file ` +
+    `content.`,
   method: 'POST',
+  safety: {
+    kind: 'sensitive',
+    reason: "sends a message to RareCloud support staff on the user's behalf; staff act on what tickets ask for",
+  },
   input: z
     .object({
       subject: z.string().min(1).max(150),
@@ -103,15 +109,19 @@ export const createTicket: ToolDefinition = writeTool({
   },
 });
 
-// --- reply_ticket (POST /v1/tickets/{id}/replies, no gate) -----------------
+// --- reply_ticket (POST /v1/tickets/{id}/replies, sensitive) ---------------
 
 export const replyTicket: ToolDefinition = writeTool({
   name: 'reply_ticket',
   description:
-    'Post a reply to an existing support ticket. Requires scope tickets:write. Plain write — not gated. ' +
-    'id comes from list_tickets; body is the reply text (1-50000). attachments is an optional list (max ' +
-    '5) of {name, data} where data is base64-encoded file content.',
+    `Post a reply to an existing support ticket. Requires scope tickets:write. id comes from ` +
+    `list_tickets; body is the reply text (1-50000). attachments is an optional list (max 5) of {name, ` +
+    `data} where data is base64-encoded file content.`,
   method: 'POST',
+  safety: {
+    kind: 'sensitive',
+    reason: "sends a message to RareCloud support staff on the user's behalf; staff act on what tickets ask for",
+  },
   input: z
     .object({
       id: z.string().min(1),
@@ -137,14 +147,15 @@ export const replyTicket: ToolDefinition = writeTool({
   },
 });
 
-// --- close_ticket (POST /v1/tickets/{id}/close, no gate, no body) ----------
+// --- close_ticket (POST /v1/tickets/{id}/close, plain, no body) ------------
 
 export const closeTicket: ToolDefinition = writeTool({
   name: 'close_ticket',
   description:
-    'Close a support ticket. Requires scope tickets:write. Plain write — not gated. id comes from ' +
-    'list_tickets. Returns the updated ticket.',
+    `Close a support ticket. Requires scope tickets:write. id comes from list_tickets. Returns the ` +
+    `updated ticket.`,
   method: 'POST',
+  safety: { kind: 'plain' },
   input: z.object({ id: z.string().min(1) }).strict(),
   inputSchema: {
     type: 'object',

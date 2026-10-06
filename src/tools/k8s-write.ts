@@ -5,10 +5,12 @@
 // input validation, the confirm gate, per-segment path encoding, and the
 // APIError -> errorResult mapping stay uniform. All scope services:write.
 //
-// Money-spend / irreversible-teardown tools carry `confirm: true`; the ones
-// that tear something down (delete pool, revoke credential) also set
-// destructiveHint. `service_id` (and any `pool` / `credential_id`) is always
-// run through encodeSegment. Bodies + the `role`/`ttl` enums are re-confirmed
+// Safety kinds: add pool + HA are `spends`; delete pool + revoke credential are
+// `destructive`; scale + pool edits are `disruptive` (they can add billable
+// nodes or remove running ones), and so is rename (it rolls every node in the
+// pool); minting a kubeconfig is `sensitive`. `service_id` (and any `pool` /
+// `credential_id`) is always run through encodeSegment. Bodies + the
+// `role`/`ttl` enums are re-confirmed
 // against console openapi.json AND the route source (api/src/routes/
 // v1-services.ts) — see the DEVIATION note on create_cluster_kubeconfig.
 //
@@ -36,11 +38,16 @@ function kubeconfigResult(data: unknown): ToolCallResult {
 export const setClusterScale: ToolDefinition = writeTool({
   name: 'set_cluster_scale',
   description:
-    'Set the autoscaling bounds (minimum/maximum worker count) of the FIRST node pool of a managed ' +
-    'Kubernetes cluster. Requires scope services:write. minimum >= 1 and maximum >= minimum (enforced ' +
-    'server-side). Adjusts an existing pool — it does not add one (use add_cluster_pool for that). ' +
-    'service_id comes from list_services (a cloud-k8s service); read current sizing with get_cluster_scale.',
+    `Set the autoscaling bounds (minimum/maximum worker count) of the FIRST node pool of a managed ` +
+    `Kubernetes cluster. Requires scope services:write. minimum >= 1 and maximum >= minimum (enforced ` +
+    `server-side). Adjusts an existing pool; it does not add one (use add_cluster_pool for that). ` +
+    `service_id comes from list_services (a cloud-k8s service); read current sizing with ` +
+    `get_cluster_scale.`,
   method: 'POST',
+  safety: {
+    kind: 'disruptive',
+    reason: "changes the worker-count bounds of the cluster's first pool; raising the maximum allows more billable nodes, and lowering the bounds can remove nodes that are running workloads",
+  },
   input: z
     .object({
       service_id: z.string().min(1),
@@ -65,14 +72,16 @@ export const setClusterScale: ToolDefinition = writeTool({
 export const addClusterPool: ToolDefinition = writeTool({
   name: 'add_cluster_pool',
   description:
-    'Add a named worker node pool to a managed Kubernetes cluster. Requires scope services:write. ' +
-    'SPENDS MONEY: a new pool provisions billable worker nodes. Pass confirm:true only after the user ' +
-    'has approved the pool and its cost. name is the pool name (lowercase letters/digits/hyphens, start ' +
-    'with a letter, max 15, unique in the cluster); minimum/maximum are the autoscaling bounds; ' +
-    'machineType (worker flavor, resolved server-side) and volumeSizeGb (per-node root volume, 10-1000 ' +
-    'GiB, default 30) are optional. service_id comes from list_services; inspect existing pools with ' +
-    'list_cluster_pools.',
+    `Add a named worker node pool to a managed Kubernetes cluster. Requires scope services:write. name is ` +
+    `the pool name (lowercase letters/digits/hyphens, start with a letter, max 15, unique in the ` +
+    `cluster); minimum/maximum are the autoscaling bounds; machineType (worker flavor, resolved ` +
+    `server-side) and volumeSizeGb (per-node root volume, 10-1000 GiB, default 30) are optional. ` +
+    `service_id comes from list_services; inspect existing pools with list_cluster_pools.`,
   method: 'POST',
+  safety: {
+    kind: 'spends',
+    reason: "provisions new billable worker nodes in the cluster",
+  },
   input: z
     .object({
       service_id: z.string().min(1),
@@ -103,17 +112,20 @@ export const addClusterPool: ToolDefinition = writeTool({
     if (a.volumeSizeGb !== undefined) body.volumeSizeGb = a.volumeSizeGb;
     return body;
   },
-  confirm: true,
 });
 
 export const updateClusterPool: ToolDefinition = writeTool({
   name: 'update_cluster_pool',
   description:
-    'Edit an existing worker node pool of a managed Kubernetes cluster — any of its autoscaling bounds ' +
-    '(minimum/maximum), machineType, or per-node volumeSizeGb (10-1000 GiB). Requires scope ' +
-    'services:write. Send only the fields you want to change; omitted fields are left as-is. Plain write ' +
-    '— not gated. service_id from list_services; pool is the pool name from list_cluster_pools.',
+    `Edit an existing worker node pool of a managed Kubernetes cluster: any of its autoscaling bounds ` +
+    `(minimum/maximum), machineType, or per-node volumeSizeGb (10-1000 GiB). Requires scope ` +
+    `services:write. Send only the fields you want to change; omitted fields are left as-is. service_id ` +
+    `comes from list_services; pool is the pool name from list_cluster_pools.`,
   method: 'PATCH',
+  safety: {
+    kind: 'disruptive',
+    reason: "changes a node pool; raising the maximum allows more billable nodes, and lowering the bounds or changing the machine type or volume size can remove or replace nodes that are running workloads",
+  },
   input: z
     .object({
       service_id: z.string().min(1),
@@ -151,11 +163,14 @@ export const updateClusterPool: ToolDefinition = writeTool({
 export const deleteClusterPool: ToolDefinition = writeTool({
   name: 'delete_cluster_pool',
   description:
-    'Remove a worker node pool from a managed Kubernetes cluster. Requires scope services:write. ' +
-    'DESTRUCTIVE: the pool and its worker nodes are drained and destroyed (the cluster must keep at ' +
-    'least one pool — removing the last one is rejected). Pass confirm:true only after the user has ' +
-    'explicitly approved. service_id from list_services; pool is the pool name from list_cluster_pools.',
+    `Remove a worker node pool from a managed Kubernetes cluster. Requires scope services:write. The ` +
+    `cluster must keep at least one pool (removing the last one is rejected). service_id comes from ` +
+    `list_services; pool is the pool name from list_cluster_pools.`,
   method: 'DELETE',
+  safety: {
+    kind: 'destructive',
+    reason: "drains and destroys the pool's worker nodes, along with whatever is running on them",
+  },
   input: z.object({ service_id: z.string().min(1), pool: z.string().min(1) }).strict(),
   inputSchema: {
     type: 'object',
@@ -167,18 +182,21 @@ export const deleteClusterPool: ToolDefinition = writeTool({
     additionalProperties: false,
   },
   buildPath: (a) => `/v1/services/${encodeSegment(a.service_id, 'service_id')}/pools/${encodeSegment(a.pool, 'pool')}`,
-  confirm: true,
-  destructiveHint: true,
 });
 
 export const renameClusterPool: ToolDefinition = writeTool({
   name: 'rename_cluster_pool',
   description:
-    'Rename a worker node pool of a managed Kubernetes cluster. Requires scope services:write. The ' +
-    'rename adds a new pool and removes the old one, which rolls (replaces) the pool\'s worker nodes. ' +
-    'name is the new pool name (lowercase letters/digits/hyphens, start with a letter, max 15). Plain ' +
-    'write — not gated. service_id from list_services; pool is the current pool name from list_cluster_pools.',
+    `Rename a worker node pool of a managed Kubernetes cluster. Requires scope services:write. The rename ` +
+    `adds a new pool and removes the old one, which rolls (replaces) the pool's worker nodes. name is the ` +
+    `new pool name (lowercase letters/digits/hyphens, start with a letter, max 15). service_id comes from ` +
+    `list_services; pool is the current pool name from list_cluster_pools.`,
   method: 'POST',
+  safety: {
+    kind: 'disruptive',
+    reason:
+      'adds a new pool and removes the old one, replacing every worker node in it; workloads are rescheduled while the nodes roll',
+  },
   input: z.object({ service_id: z.string().min(1), pool: z.string().min(1), name: z.string().min(1).max(64) }).strict(),
   inputSchema: {
     type: 'object',
@@ -197,11 +215,14 @@ export const renameClusterPool: ToolDefinition = writeTool({
 export const enableClusterHa: ToolDefinition = writeTool({
   name: 'enable_cluster_ha',
   description:
-    'Enable the HIGH-AVAILABILITY control plane on a managed Kubernetes cluster (multi-zone API server / ' +
-    'etcd). Requires scope services:write. SPENDS MONEY: HA adds ~+EUR 30/mo to the cluster. ADD-ONLY and ' +
-    'irreversible — Gardener does not allow turning HA back off; idempotent if the cluster is already HA. ' +
-    'Pass confirm:true only after the user has approved the added cost. service_id from list_services.',
+    `Enable the HIGH-AVAILABILITY control plane on a managed Kubernetes cluster (multi-zone API server / ` +
+    `etcd). Requires scope services:write. Add-only: Gardener does not allow turning HA back off; ` +
+    `idempotent if the cluster is already HA. service_id comes from list_services.`,
   method: 'POST',
+  safety: {
+    kind: 'spends',
+    reason: "adds about EUR 30/month to the cluster's price, and HA cannot be turned off again once enabled",
+  },
   input: z.object({ service_id: z.string().min(1) }).strict(),
   inputSchema: {
     type: 'object',
@@ -212,7 +233,6 @@ export const enableClusterHa: ToolDefinition = writeTool({
     additionalProperties: false,
   },
   buildPath: (a) => `/v1/services/${encodeSegment(a.service_id, 'service_id')}/high-availability`,
-  confirm: true,
 });
 
 // DEVIATION FROM BRIEF (verified against console openapi.json AND the route
@@ -227,15 +247,17 @@ export const enableClusterHa: ToolDefinition = writeTool({
 export const createClusterKubeconfig: ToolDefinition = writeTool({
   name: 'create_cluster_kubeconfig',
   description:
-    'Create a LONG-LIVED, revocable kubeconfig credential (a per-credential ServiceAccount) for a ' +
-    'managed Kubernetes cluster, for standing automation (CI, GitOps). Requires scope services:write. ' +
-    'role=admin (cluster-admin) or view (read-only); optional ttl is one of 30d, 90d, 1y, never (default ' +
-    '90d; "never" mints a 10-year token). SECURITY: the result is a LIVE CREDENTIAL — a kubeconfig YAML ' +
-    'embedding a bearer token. Treat it as a secret: do NOT echo it back or repeat its contents unless ' +
-    'the user explicitly asks; pass it straight to the consuming tool. Returns the raw kubeconfig YAML as ' +
-    'a text block. service_id comes from list_services (a cloud-k8s service). Revoke later with ' +
-    'revoke_cluster_kubeconfig.',
+    `Create a LONG-LIVED, revocable kubeconfig credential (a per-credential ServiceAccount) for a managed ` +
+    `Kubernetes cluster, for standing automation (CI, GitOps). Requires scope services:write. role=admin ` +
+    `(cluster-admin) or view (read-only); optional ttl is one of 30d, 90d, 1y, never (default 90d; ` +
+    `"never" mints a 10-year token). Returns the raw kubeconfig YAML as a text block. service_id comes ` +
+    `from list_services (a cloud-k8s service). Revoke later with revoke_cluster_kubeconfig.`,
   method: 'POST',
+  safety: {
+    kind: 'sensitive',
+    reason: "mints a long-lived credential (cluster-admin when role is admin) that stays valid until it is revoked or expires; ttl \"never\" means 10 years",
+  },
+  returnsSecret: "a kubeconfig YAML embedding a bearer token",
   input: z
     .object({
       service_id: z.string().min(1),
@@ -263,12 +285,15 @@ export const createClusterKubeconfig: ToolDefinition = writeTool({
 export const revokeClusterKubeconfig: ToolDefinition = writeTool({
   name: 'revoke_cluster_kubeconfig',
   description:
-    'Revoke a LONG-LIVED kubeconfig credential of a managed Kubernetes cluster by its credential id — ' +
-    'deletes the underlying ServiceAccount so the token stops working immediately. Requires scope ' +
-    'services:write. DESTRUCTIVE and irreversible: any automation still using that credential breaks at ' +
-    'once. Pass confirm:true only after the user has explicitly approved. service_id and credential_id ' +
-    'both come from list_cluster_kubeconfigs.',
+    `Revoke a LONG-LIVED kubeconfig credential of a managed Kubernetes cluster by its credential id; ` +
+    `deletes the underlying ServiceAccount so the token stops working immediately. Requires scope ` +
+    `services:write. service_id comes from list_services (a cloud-k8s service); credential_id comes from ` +
+    `list_cluster_kubeconfigs.`,
   method: 'DELETE',
+  safety: {
+    kind: 'destructive',
+    reason: "permanently invalidates the credential; any automation still using it loses access at once",
+  },
   input: z.object({ service_id: z.string().min(1), credential_id: z.string().min(1) }).strict(),
   inputSchema: {
     type: 'object',
@@ -281,6 +306,4 @@ export const revokeClusterKubeconfig: ToolDefinition = writeTool({
   },
   buildPath: (a) =>
     `/v1/services/${encodeSegment(a.service_id, 'service_id')}/kubeconfigs/${encodeSegment(a.credential_id, 'credential_id')}`,
-  confirm: true,
-  destructiveHint: true,
 });

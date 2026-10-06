@@ -4,9 +4,9 @@
 
 import { APIError } from '../client.js';
 import { type ToolDefinition, jsonResult, errorResult } from './types.js';
-import { readList, readTool, encodeSegment } from './factories.js';
+import { readList, readTool, encodeSegment, defineReadTool } from './factories.js';
 
-export const listCatalogProducts: ToolDefinition = {
+export const listCatalogProducts: ToolDefinition = defineReadTool({
   name: 'list_catalog_products',
   description: 'List orderable products from the RareCloud catalog. Use to answer "what plans can I deploy?" Returns SKU, kind (legacy_vps / cloud_compute / proxy / ...), category, display name. Filter by kind or backend to narrow results.',
   inputSchema: {
@@ -20,7 +20,7 @@ export const listCatalogProducts: ToolDefinition = {
       backend: {
         type: 'string',
         enum: ['whmcs', 'virtualizor', 'openstack', 'gardener'],
-        description: 'Filter by underlying backend. Usually you do NOT need this — pick by kind instead.',
+        description: 'Filter by underlying backend. Usually you do NOT need this: pick by kind instead.',
       },
       category: {
         type: 'string',
@@ -41,9 +41,9 @@ export const listCatalogProducts: ToolDefinition = {
       return errorResult(e instanceof APIError ? e.message : (e as Error).message);
     }
   },
-};
+});
 
-export const getCatalogPlan: ToolDefinition = {
+export const getCatalogPlan: ToolDefinition = defineReadTool({
   name: 'get_catalog_plan',
   description: 'Get full details for a single catalog product including all plans (sizes), their specs (vCPU, RAM, disk, bandwidth), pricing for every supported billing cycle, and supported billing tracks. Use before generating a Terraform plan or before recommending a specific SKU.',
   inputSchema: {
@@ -66,9 +66,9 @@ export const getCatalogPlan: ToolDefinition = {
       return errorResult(e instanceof APIError ? e.message : (e as Error).message);
     }
   },
-};
+});
 
-export const listRegions: ToolDefinition = {
+export const listRegions: ToolDefinition = defineReadTool({
   name: 'list_regions',
   description: 'List available RareCloud datacenter regions. Each region has a slug (e.g. "frankfurt-de"), display name, country code, and which backends can provision there.',
   inputSchema: {
@@ -84,9 +84,9 @@ export const listRegions: ToolDefinition = {
       return errorResult(e instanceof APIError ? e.message : (e as Error).message);
     }
   },
-};
+});
 
-export const listImages: ToolDefinition = {
+export const listImages: ToolDefinition = defineReadTool({
   name: 'list_images',
   description: 'List available OS images (Ubuntu / Debian / Rocky / Windows Server / etc) that can be installed on new servers. Use to validate an image slug before recommending it.',
   inputSchema: {
@@ -102,11 +102,11 @@ export const listImages: ToolDefinition = {
       return errorResult(e instanceof APIError ? e.message : (e as Error).message);
     }
   },
-};
+});
 
 export const getProductDetails = readTool({
   name: 'get_product_details',
-  description: 'Get the live, order-ready detail for one product SKU: every billing cycle with its price, the plans (sizes) on offer, and the config options (e.g. the OS-template field) a purchase must fill in. Richer than get_catalog_plan — use this right before building an order or quoting a price. The sku comes from list_catalog_products or a list_catalog_listings card.',
+  description: 'Get the live, order-ready detail for one product SKU: every billing cycle with its price, the plans (sizes) on offer, and the config options (e.g. the OS-template field) a purchase must fill in. Richer than get_catalog_plan: use this right before building an order or quoting a price. The sku comes from list_catalog_products or a list_catalog_listings card.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -120,7 +120,7 @@ export const getProductDetails = readTool({
 
 export const listPrepurchaseOsTemplates = readTool({
   name: 'list_prepurchase_os_templates',
-  description: 'List the OS templates selectable at purchase time for a legacy VPS / dedicated-server SKU — each with slug, display name, and version. Use to pick a valid OS before ordering one of these products. (For the OS list of an already-running server use list_os_templates with a service_id instead.) The sku comes from list_catalog_products.',
+  description: 'List the OS templates selectable at purchase time for a legacy VPS / dedicated-server SKU: each with slug, display name, and version. Use to pick a valid OS before ordering one of these products. (For the OS list of an already-running server use list_os_templates with a service_id instead.) The sku comes from list_catalog_products.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -134,7 +134,7 @@ export const listPrepurchaseOsTemplates = readTool({
 
 export const listCatalogListings = readTool({
   name: 'list_catalog_listings',
-  description: 'List the deploy-wizard product cards for one category — the same tiles the console shows on the "create" screen, each with sku, display name, tier, pricing, specs, and available regions. Use to browse "what can I deploy in this category?" and to grab a sku to pass on to get_product_details.',
+  description: 'List the deploy-wizard product cards for one category: the same tiles the console shows on the "create" screen, each with sku, display name, tier, pricing, specs, and available regions. Use to browse "what can I deploy in this category?" and to grab a sku to pass on to get_product_details.',
   inputSchema: {
     type: 'object',
     properties: {
