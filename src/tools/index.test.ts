@@ -250,6 +250,7 @@ const GATED_TOOLS: Record<string, Exclude<Kind, 'plain'>> = {
   add_cluster_pool: 'spends',
   add_service_ssh_key: 'sensitive',
   apply_service_ssh_key_library: 'disruptive',
+  attach_network_vm: 'disruptive',
   cancel_proxy: 'destructive',
   cancel_service: 'destructive',
   create_cluster_kubeconfig: 'sensitive',
@@ -275,6 +276,7 @@ const GATED_TOOLS: Record<string, Exclude<Kind, 'plain'>> = {
   manage_domain: 'sensitive',
   order_proxy: 'spends',
   reboot_service: 'disruptive',
+  rename_cluster_pool: 'disruptive',
   register_domain: 'spends',
   reinstall_service: 'destructive',
   release_reserved_ip: 'destructive',
@@ -310,7 +312,6 @@ const PLAIN_TOOLS = [
   'add_proxy_whitelisted_ip',
   'add_service_ssh_key_to_library',
   'attach_firewall',
-  'attach_network_vm',
   'attach_reserved_ip',
   'attach_volume',
   'close_ticket',
@@ -321,7 +322,6 @@ const PLAIN_TOOLS = [
   'create_service_backup',
   'mount_service_iso',
   'redeem_voucher',
-  'rename_cluster_pool',
   'resend_email_verification',
   'set_billing_alert',
   'set_proxy_auto_renew',
@@ -363,13 +363,13 @@ test('safety: every tool (all 156) carries annotations; reads are readOnly, writ
   }
 });
 
-test('safety: the gated set (54) and the plain set (25) are exactly the pinned ones', () => {
+test('safety: the gated set (56) and the plain set (23) are exactly the pinned ones', () => {
   const gated = writeTools().filter((t) => 'confirm' in t.inputSchema.properties).map((t) => t.name).sort();
   const plain = writeTools().filter((t) => !('confirm' in t.inputSchema.properties)).map((t) => t.name).sort();
   assert.deepEqual(gated, Object.keys(GATED_TOOLS).sort());
   assert.deepEqual(plain, [...PLAIN_TOOLS].sort());
-  assert.equal(gated.length, 54);
-  assert.equal(plain.length, 25);
+  assert.equal(gated.length, 56);
+  assert.equal(plain.length, 23);
 });
 
 test('safety: each write tool carries its kind (Safety tag + destructiveHint + openWorldHint)', () => {
@@ -426,6 +426,7 @@ const GATED_ARGS: Record<string, Record<string, unknown>> = {
   add_cluster_pool: { ...SVC, name: 'workers', minimum: 1, maximum: 2 },
   add_service_ssh_key: { ...SVC, public_key: 'ssh-ed25519 AAAA' },
   apply_service_ssh_key_library: { ...SVC },
+  attach_network_vm: { ...ID, serverId: 'vm-1' },
   cancel_proxy: { ...ID },
   cancel_service: { ...SVC },
   create_cluster_kubeconfig: { ...SVC, name: 'ci', role: 'view' },
@@ -451,6 +452,7 @@ const GATED_ARGS: Record<string, Record<string, unknown>> = {
   manage_domain: { ...ID, action: 'epp' },
   order_proxy: { kind: 'residential-gb', gb: 1 },
   reboot_service: { ...SVC },
+  rename_cluster_pool: { ...SVC, pool: 'workers', name: 'pool2' },
   register_domain: { domain: 'example.com' },
   reinstall_service: { ...SVC, imageId: 'ubuntu-24.04' },
   release_reserved_ip: { ...ID },

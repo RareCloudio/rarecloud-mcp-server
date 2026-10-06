@@ -6,9 +6,9 @@
 //
 // create_volume and reserve_ip (per-unit billed on-demand resources) are
 // `spends`; delete_volume, delete_network, release_reserved_ip are
-// `destructive`; the detach tools are `disruptive` (they cut a running VM off
-// its storage or public address); create_network and the attach tools are
-// `plain`. Every dynamic
+// `destructive`; the detach tools and attach_network_vm are `disruptive` (they
+// cut a running VM off its storage, public address or private network);
+// create_network, attach_volume and attach_reserved_ip are `plain`. Every dynamic
 // path segment is the single param `id` (matching the read-tool convention in
 // infra.ts) run through encodeSegment; `serverId` is a BODY field, never a
 // path segment. Bodies + bounds re-confirmed against console openapi.json AND
@@ -174,7 +174,11 @@ export const attachNetworkVm: ToolDefinition = writeTool({
     `list_networks; serverId is the cloud VM to move (the same value as the cloud VM service_id from ` +
     `list_services).`,
   method: 'POST',
-  safety: { kind: 'plain' },
+  safety: {
+    kind: 'disruptive',
+    reason:
+      'moves the VM out of its current private network, cutting its existing private connections (the public interface is untouched)',
+  },
   input: z.object({ id: z.string().min(1), serverId: z.string().min(1) }).strict(),
   inputSchema: {
     type: 'object',

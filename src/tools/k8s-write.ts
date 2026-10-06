@@ -7,9 +7,10 @@
 //
 // Safety kinds: add pool + HA are `spends`; delete pool + revoke credential are
 // `destructive`; scale + pool edits are `disruptive` (they can add billable
-// nodes or remove running ones); minting a kubeconfig is `sensitive`; rename is
-// `plain`. `service_id` (and any `pool` / `credential_id`) is always
-// run through encodeSegment. Bodies + the `role`/`ttl` enums are re-confirmed
+// nodes or remove running ones), and so is rename (it rolls every node in the
+// pool); minting a kubeconfig is `sensitive`. `service_id` (and any `pool` /
+// `credential_id`) is always run through encodeSegment. Bodies + the
+// `role`/`ttl` enums are re-confirmed
 // against console openapi.json AND the route source (api/src/routes/
 // v1-services.ts) — see the DEVIATION note on create_cluster_kubeconfig.
 //
@@ -191,7 +192,11 @@ export const renameClusterPool: ToolDefinition = writeTool({
     `new pool name (lowercase letters/digits/hyphens, start with a letter, max 15). service_id comes from ` +
     `list_services; pool is the current pool name from list_cluster_pools.`,
   method: 'POST',
-  safety: { kind: 'plain' },
+  safety: {
+    kind: 'disruptive',
+    reason:
+      'adds a new pool and removes the old one, replacing every worker node in it; workloads are rescheduled while the nodes roll',
+  },
   input: z.object({ service_id: z.string().min(1), pool: z.string().min(1), name: z.string().min(1).max(64) }).strict(),
   inputSchema: {
     type: 'object',

@@ -6,7 +6,7 @@ Drop into [Claude Code](https://claude.com/claude-code), Claude Desktop, [Cursor
 
 ## What it does
 
-Exposes **156 tools** wrapping the RareCloud REST API: **77 read tools** (inspect / list / get, always safe) plus **79 write/action tools** (deploy, resize, destroy, order, renew, and similar mutations). 54 of the writes are gated behind an explicit `confirm:true`; the other 25 are plain. See [Safety model](#safety-model) below for how it works.
+Exposes **156 tools** wrapping the RareCloud REST API: **77 read tools** (inspect / list / get, always safe) plus **79 write/action tools** (deploy, resize, destroy, order, renew, and similar mutations). 56 of the writes are gated behind an explicit `confirm:true`; the other 23 are plain. See [Safety model](#safety-model) below for how it works.
 
 ### Read tools (77)
 
@@ -94,7 +94,7 @@ Tools marked **live secret** return a real credential (a kubeconfig bearer token
 
 ### Write / action tools (79)
 
-The **Safety** column is each tool's kind (see [Safety model](#safety-model)). **spends**, **destructive**, **disruptive** and **sensitive** tools are gated (54 tools): they refuse to run, making **no** API call, unless the call passes `confirm:true`, so an agent must surface the action and its cost or consequence to the user first. **plain** tools (25) cost nothing, tear nothing down, and run without confirmation.
+The **Safety** column is each tool's kind (see [Safety model](#safety-model)). **spends**, **destructive**, **disruptive** and **sensitive** tools are gated (56 tools): they refuse to run, making **no** API call, unless the call passes `confirm:true`, so an agent must surface the action and its cost or consequence to the user first. **plain** tools (23) cost nothing, tear nothing down, and run without confirmation.
 
 | Category | Tool | Safety | Purpose |
 |---|---|---|---|
@@ -122,7 +122,7 @@ The **Safety** column is each tool's kind (see [Safety model](#safety-model)). *
 | | `add_cluster_pool` | **spends** | Add a named worker node pool |
 | | `update_cluster_pool` | **disruptive** | Edit an existing node pool's bounds / machineType / volume size |
 | | `delete_cluster_pool` | **destructive** | Remove a worker node pool |
-| | `rename_cluster_pool` | plain | Rename a worker node pool (rolls its nodes) |
+| | `rename_cluster_pool` | **disruptive** | Rename a worker node pool (rolls its nodes) |
 | | `enable_cluster_ha` | **spends** | Enable the HA control plane: add-only, irreversible |
 | | `create_cluster_kubeconfig` | **sensitive** | Mint a long-lived, revocable kubeconfig credential (returns a **live secret**) |
 | | `revoke_cluster_kubeconfig` | **destructive** | Revoke a long-lived kubeconfig credential |
@@ -132,7 +132,7 @@ The **Safety** column is each tool's kind (see [Safety model](#safety-model)). *
 | | `detach_volume` | **disruptive** | Detach a volume from a cloud VM |
 | | `create_network` | plain | Create a new private network (VPC) |
 | | `delete_network` | **destructive** | Delete a private network (VPC) |
-| | `attach_network_vm` | plain | Move a cloud VM into a private network |
+| | `attach_network_vm` | **disruptive** | Move a cloud VM into a private network |
 | | `reserve_ip` | **spends** | Reserve a new static public IP |
 | | `release_reserved_ip` | **destructive** | Release (permanently delete) a reserved public IP |
 | | `attach_reserved_ip` | plain | Attach a reserved public IP to a cloud VM |
@@ -189,7 +189,7 @@ Every read tool only inspects account state and is always safe to call. Every wr
 | **plain** | No charge, nothing torn down, nothing running is interrupted | no | false |
 | **spends** | Places an order or otherwise charges the account | yes | false |
 | **destructive** | Irreversible: deletes data or a resource, revokes access, cancels a service | yes | true |
-| **disruptive** | Reversible, but interrupts something running or locks someone out (power off, reboot, detach, replace DNS, replace credentials or keys) | yes | true |
+| **disruptive** | Reversible, but interrupts something running or locks someone out (power off, reboot, detach, move a VM between networks, roll a node pool, replace DNS, replace credentials or keys) | yes | true |
 | **sensitive** | Grants access, changes ownership or legal data, or speaks for you (SSH key install, long-lived kubeconfig, domain contacts, account profile, support tickets) | yes | false |
 
 - **Gated tools refuse with zero API calls unless the call passes `confirm: true`.** No side effect, no partial charge, nothing to undo. The refusal says what the tool would have done, for example `stop_service was NOT executed because it is disruptive: it powers the server off; everything running on it stops until it is started again.`, so the agent can go back to you for an explicit go-ahead. The confirm is per call; there is no "confirm once, run twice" shortcut.
@@ -323,14 +323,14 @@ Then point Claude Desktop at your local checkout:
 npm test
 ```
 
-Tests run on the built-in Node test runner (`node:test`) via `tsx`: no build step, no network. Each tool is exercised against an injected mock client that records the request path and returns a canned payload, so the suite asserts path construction, input-schema shape, JSON-vs-raw output, secret-handling guidance, and error mapping without ever calling the live API. For write tools, the same fake-client harness also proves every gated tool (54, pinned by name and kind) refuses with its reason and makes zero requests when `confirm` is omitted, that every tool carries the right MCP annotations, that both the zod input and the JSON `inputSchema` enforce the same bounds (mirrored both layers), and that every dynamic path segment is guarded against path traversal. A registry invariant test pins the exposed tool count (156) and enforces unique names, well-formed schemas, and, for the write-scope surfaces, an exact pinned set of tool names per scope, so a future change can't silently add a tool under the wrong scope.
+Tests run on the built-in Node test runner (`node:test`) via `tsx`: no build step, no network. Each tool is exercised against an injected mock client that records the request path and returns a canned payload, so the suite asserts path construction, input-schema shape, JSON-vs-raw output, secret-handling guidance, and error mapping without ever calling the live API. For write tools, the same fake-client harness also proves every gated tool (56, pinned by name and kind) refuses with its reason and makes zero requests when `confirm` is omitted, that every tool carries the right MCP annotations, that both the zod input and the JSON `inputSchema` enforce the same bounds (mirrored both layers), and that every dynamic path segment is guarded against path traversal. A registry invariant test pins the exposed tool count (156) and enforces unique names, well-formed schemas, and, for the write-scope surfaces, an exact pinned set of tool names per scope, so a future change can't silently add a tool under the wrong scope.
 
 ## Security
 
 - Tokens never touch shell history (we use env vars, not CLI flags).
 - Each tool maps 1:1 to a RareCloud API endpoint; the MCP server doesn't aggregate or transform data beyond what the API returns.
 - **Scope is exact-match per token, enforced server-side.** A token only unlocks the tools whose scope it carries; there is no wildcard scope matching (`*:read` does not imply `services:read`) and no client-side scope bypass: an unscoped or under-scoped token gets the API's own `[FORBIDDEN]` response back.
-- **Writes exist and are gated.** 79 of the 156 tools mutate state. The 54 that spend money, destroy something, disrupt something running, or are security-sensitive require `confirm:true` and make no API call at all without it (see [Safety model](#safety-model)). The remaining 25 are plain (no charge, nothing torn down) and run without confirmation once the token's scope allows them.
+- **Writes exist and are gated.** 79 of the 156 tools mutate state. The 56 that spend money, destroy something, disrupt something running, or are security-sensitive require `confirm:true` and make no API call at all without it (see [Safety model](#safety-model)). The remaining 23 are plain (no charge, nothing torn down) and run without confirmation once the token's scope allows them.
 - **No identity/credential/money-movement surface, by design, not by gate.** Password/2FA changes, sub-user invites, payment-method management, API-token management, credit top-up, invoice payment, and affiliate activate/withdraw have no tool here at all: an agent holding even a maximally-scoped token cannot reach them. A registry test pins this exclusion list so a future change can't quietly add one back.
 - The tools that return live credentials (kubeconfigs, proxy endpoint/auth lists, one-time console passwords) carry the standard SECURITY sentence so the agent doesn't echo them back unprompted.
 - Revoke a token at any time: **Dashboard → Account → API tokens**. Revocation is instant, no propagation delay.

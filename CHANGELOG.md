@@ -4,7 +4,7 @@ All notable changes to `@rarecloudio/mcp-server` are recorded here.
 
 ## Unreleased
 
-### BREAKING: 21 more write tools now require `confirm: true`
+### BREAKING: 23 more write tools now require `confirm: true`
 
 These tools ran without confirmation in 0.2.0. They now refuse, making no API
 call, unless the call passes `confirm: true`. A caller that invokes them without
@@ -15,7 +15,9 @@ it gets an error that says what the tool would have done; re-call with
   `stop_service`, `reboot_service`, `detach_volume`, `detach_firewall`,
   `detach_reserved_ip`, `set_domain_nameservers`, `set_domain_dns`,
   `set_proxy_credentials`, `set_proxy_auth_method`, `request_proxy_replacement`,
-  `apply_service_ssh_key_library`, `set_cluster_scale`, `update_cluster_pool`
+  `apply_service_ssh_key_library`, `set_cluster_scale`, `update_cluster_pool`,
+  `rename_cluster_pool` (it replaces every worker node in the pool),
+  `attach_network_vm` (it cuts the VM's existing private connections)
 - **sensitive** (grants access, changes ownership or legal data, or speaks for
   the user): `set_domain_contacts`, `manage_domain`, `create_cluster_kubeconfig`,
   `add_service_ssh_key`, `create_ticket`, `reply_ticket`, `update_account`,
@@ -27,7 +29,7 @@ it gets an error that says what the tool would have done; re-call with
   disruptive or sensitive. The confirm gate, the refusal message, the `confirm`
   parameter description, a standard trailing `Safety:` sentence in the
   description, and the MCP annotations are all derived from it in the
-  `writeTool` factory. 54 write tools are gated, 25 are plain.
+  `writeTool` factory. 56 write tools are gated, 23 are plain.
 - The refusal message and the `confirm` description now name the tool-specific
   consequence instead of the generic "spends from your account balance and/or is
   irreversible" text.

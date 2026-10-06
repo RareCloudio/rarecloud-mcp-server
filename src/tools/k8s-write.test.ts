@@ -89,7 +89,7 @@ const NEW_TOOLS: Record<string, NewToolCase> = {
   add_cluster_pool: { tool: addClusterPool, gated: true, destructive: false, args: { name: 'workers', minimum: 1, maximum: 3 } },
   update_cluster_pool: { tool: updateClusterPool, gated: true, destructive: true, secondSeg: 'pool', args: { pool: 'default' } },
   delete_cluster_pool: { tool: deleteClusterPool, gated: true, destructive: true, secondSeg: 'pool', args: { pool: 'default' } },
-  rename_cluster_pool: { tool: renameClusterPool, gated: false, destructive: false, secondSeg: 'pool', args: { pool: 'default', name: 'newname' } },
+  rename_cluster_pool: { tool: renameClusterPool, gated: true, destructive: true, secondSeg: 'pool', args: { pool: 'default', name: 'newname' } },
   enable_cluster_ha: { tool: enableClusterHa, gated: true, destructive: false, args: {} },
   create_cluster_kubeconfig: { tool: createClusterKubeconfig, gated: true, destructive: false, args: { name: 'ci', role: 'admin' } },
   revoke_cluster_kubeconfig: { tool: revokeClusterKubeconfig, gated: true, destructive: true, secondSeg: 'credential_id', args: { credential_id: 'cred-1' } },
@@ -349,11 +349,11 @@ test('delete_cluster_pool: DELETEs /pools/{pool} with no body when confirmed', a
   assert.deepEqual(calls, [{ method: 'DELETE', path: '/v1/services/s1/pools/gpu%2F1' }]);
 });
 
-// --- rename_cluster_pool (POST {name}, no gate) ----------------------------
+// --- rename_cluster_pool (POST {name}, disruptive) -------------------------
 
 test('rename_cluster_pool: POSTs {name} to /pools/{pool}/rename', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await renameClusterPool.handler(client, { service_id: 's1', pool: 'default', name: 'primary' });
+  const result = await renameClusterPool.handler(client, { confirm: true, service_id: 's1', pool: 'default', name: 'primary' });
   assert.equal(result.isError, undefined);
   assert.deepEqual(calls, [
     { method: 'POST', path: '/v1/services/s1/pools/default/rename', body: { name: 'primary' } },
@@ -362,7 +362,7 @@ test('rename_cluster_pool: POSTs {name} to /pools/{pool}/rename', async () => {
 
 test('rename_cluster_pool: rejects a name over 64 chars before any request', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await renameClusterPool.handler(client, { service_id: 's1', pool: 'default', name: 'x'.repeat(65) });
+  const result = await renameClusterPool.handler(client, { confirm: true, service_id: 's1', pool: 'default', name: 'x'.repeat(65) });
   assert.equal(result.isError, true);
   assert.match(textOf(result), /^Error: Invalid input for rename_cluster_pool:/);
   assert.deepEqual(calls, []);
@@ -372,7 +372,7 @@ test('rename_cluster_pool: rejects a name over 64 chars before any request', asy
 // (route source); the JSON inputSchema was silent on the minimum.
 test('rename_cluster_pool: rejects an empty name before any request', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await renameClusterPool.handler(client, { service_id: 's1', pool: 'default', name: '' });
+  const result = await renameClusterPool.handler(client, { confirm: true, service_id: 's1', pool: 'default', name: '' });
   assert.equal(result.isError, true);
   assert.match(textOf(result), /^Error: Invalid input for rename_cluster_pool:/);
   assert.deepEqual(calls, []);

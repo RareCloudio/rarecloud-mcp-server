@@ -68,7 +68,7 @@ const ID_TOOLS: Record<string, IdToolCase> = {
   attach_volume: { tool: attachVolume, gated: false, destructive: false, args: { serverId: 'srv-1' } },
   detach_volume: { tool: detachVolume, gated: true, destructive: true, args: { serverId: 'srv-1' } },
   delete_network: { tool: deleteNetwork, gated: true, destructive: true, args: {} },
-  attach_network_vm: { tool: attachNetworkVm, gated: false, destructive: false, args: { serverId: 'srv-1' } },
+  attach_network_vm: { tool: attachNetworkVm, gated: true, destructive: true, args: { serverId: 'srv-1' } },
   release_reserved_ip: { tool: releaseReservedIp, gated: true, destructive: true, args: {} },
   attach_reserved_ip: { tool: attachReservedIp, gated: false, destructive: false, args: { serverId: 'srv-1' } },
   detach_reserved_ip: { tool: detachReservedIp, gated: true, destructive: true, args: {} },
@@ -276,18 +276,18 @@ test('delete_network: DELETEs /v1/networks/{id} with no body when confirmed', as
   assert.deepEqual(calls, [{ method: 'DELETE', path: '/v1/networks/net-1' }]);
 });
 
-// --- attach_network_vm (POST {serverId}, no gate) -------------------------
+// --- attach_network_vm (POST {serverId}, disruptive) ----------------------
 
 test('attach_network_vm: POSTs {serverId} to /v1/networks/{id}/vms', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await attachNetworkVm.handler(client, { id: 'net-1', serverId: 'srv-1' });
+  const result = await attachNetworkVm.handler(client, { confirm: true, id: 'net-1', serverId: 'srv-1' });
   assert.equal(result.isError, undefined);
   assert.deepEqual(calls, [{ method: 'POST', path: '/v1/networks/net-1/vms', body: { serverId: 'srv-1' } }]);
 });
 
 test('attach_network_vm: missing serverId is rejected by zod before any request', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await attachNetworkVm.handler(client, { id: 'net-1' });
+  const result = await attachNetworkVm.handler(client, { confirm: true, id: 'net-1' });
   assert.equal(result.isError, true);
   assert.match(textOf(result), /^Error: Invalid input for attach_network_vm:/);
   assert.deepEqual(calls, []);
