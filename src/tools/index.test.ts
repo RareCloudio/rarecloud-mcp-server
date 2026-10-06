@@ -9,7 +9,7 @@ import type { RareCloudClient } from '../client.js';
 
 // Bump this in the same commit that adds/removes tools. A mismatch means the
 // registry changed without the test acknowledging it.
-const EXPECTED_TOOL_COUNT = 156;
+const EXPECTED_TOOL_COUNT = 170;
 
 test('registry: tool count matches the expected total', () => {
   assert.equal(TOOLS.length, EXPECTED_TOOL_COUNT);
@@ -123,16 +123,16 @@ test('exclusion guard: the account/billing/tickets write surface is EXACTLY the 
 });
 
 // ---------------------------------------------------------------------------
-// Task 10 EXTENSION: now that the registry is final (156), pin the two
+// Task 10 EXTENSION: now that the registry is final (156; 170 with Object Storage), pin the two
 // remaining write-scope surfaces (services:write, domains:write) as exact
 // sorted sets too — same rationale as the account/billing/tickets pin above.
 // services:write is the big one: it covers services-write.ts + k8s-write.ts +
-// infra-write.ts + firewall-lb-write.ts + proxies-write.ts (60 tools) — the
+// infra-write.ts + firewall-lb-write.ts + object-storage-write.ts + proxies-write.ts (67 tools) — the
 // README's "services:write covers IaaS AND proxies" note names this exact
 // sharing. domains:write is domains-write.ts (7 tools).
 // ---------------------------------------------------------------------------
 
-test('exclusion guard: the services:write surface is EXACTLY the safe set (IaaS + k8s + proxies)', () => {
+test('exclusion guard: the services:write surface is EXACTLY the safe set (IaaS + k8s + object storage + proxies)', () => {
   assert.deepEqual(withScope('services:write'), [
     'add_cluster_pool',
     'add_firewall_rule',
@@ -147,18 +147,22 @@ test('exclusion guard: the services:write surface is EXACTLY the safe set (IaaS 
     'attach_volume',
     'cancel_proxy',
     'cancel_service',
+    'create_bucket',
     'create_cluster_kubeconfig',
     'create_firewall',
     'create_load_balancer',
     'create_network',
+    'create_object_storage_key',
     'create_proxy_request',
     'create_service_backup',
     'create_volume',
+    'delete_bucket',
     'delete_cluster_pool',
     'delete_firewall',
     'delete_firewall_rule',
     'delete_load_balancer',
     'delete_network',
+    'delete_object_storage_key',
     'delete_proxy_request',
     'delete_volume',
     'deploy_service',
@@ -166,7 +170,9 @@ test('exclusion guard: the services:write surface is EXACTLY the safe set (IaaS 
     'detach_firewall',
     'detach_reserved_ip',
     'detach_volume',
+    'disable_object_storage',
     'enable_cluster_ha',
+    'enable_object_storage',
     'mount_service_iso',
     'order_proxy',
     'reboot_service',
@@ -192,6 +198,7 @@ test('exclusion guard: the services:write surface is EXACTLY the safe set (IaaS 
     'start_service',
     'stop_service',
     'unmount_service_iso',
+    'update_bucket',
     'update_cluster_pool',
     'upgrade_service',
   ]);
@@ -253,17 +260,21 @@ const GATED_TOOLS: Record<string, Exclude<Kind, 'plain'>> = {
   attach_network_vm: 'disruptive',
   cancel_proxy: 'destructive',
   cancel_service: 'destructive',
+  create_bucket: 'spends',
   create_cluster_kubeconfig: 'sensitive',
   create_load_balancer: 'spends',
+  create_object_storage_key: 'sensitive',
   create_ticket: 'sensitive',
   create_volume: 'spends',
   delete_account_ssh_key: 'destructive',
   delete_billing_alert: 'destructive',
+  delete_bucket: 'destructive',
   delete_cluster_pool: 'destructive',
   delete_firewall: 'destructive',
   delete_firewall_rule: 'destructive',
   delete_load_balancer: 'destructive',
   delete_network: 'destructive',
+  delete_object_storage_key: 'destructive',
   delete_proxy_request: 'destructive',
   delete_volume: 'destructive',
   deploy_service: 'spends',
@@ -271,17 +282,19 @@ const GATED_TOOLS: Record<string, Exclude<Kind, 'plain'>> = {
   detach_firewall: 'disruptive',
   detach_reserved_ip: 'disruptive',
   detach_volume: 'disruptive',
+  disable_object_storage: 'destructive',
   enable_cluster_ha: 'spends',
+  enable_object_storage: 'spends',
   manage_account_contact: 'sensitive',
   manage_domain: 'sensitive',
   order_proxy: 'spends',
   reboot_service: 'disruptive',
-  rename_cluster_pool: 'disruptive',
   register_domain: 'spends',
   reinstall_service: 'destructive',
   release_reserved_ip: 'destructive',
   remove_load_balancer_member: 'destructive',
   remove_proxy_whitelisted_ip: 'destructive',
+  rename_cluster_pool: 'disruptive',
   renew_domain: 'spends',
   renew_proxy: 'spends',
   renew_service: 'spends',
@@ -301,6 +314,7 @@ const GATED_TOOLS: Record<string, Exclude<Kind, 'plain'>> = {
   stop_service: 'disruptive',
   transfer_domain: 'spends',
   update_account: 'sensitive',
+  update_bucket: 'sensitive',
   update_cluster_pool: 'disruptive',
   upgrade_service: 'spends',
 };
@@ -350,10 +364,10 @@ function reasonOf(description: string): string {
   return m[1];
 }
 
-test('safety: every tool (all 156) carries annotations; reads are readOnly, writes are not', () => {
+test('safety: every tool (all 170) carries annotations; reads are readOnly, writes are not', () => {
   assert.equal(readTools().length + writeTools().length, TOOLS.length, 'every tool sets readOnlyHint');
-  assert.equal(readTools().length, 77);
-  assert.equal(writeTools().length, 79);
+  assert.equal(readTools().length, 84);
+  assert.equal(writeTools().length, 86);
   for (const t of readTools()) {
     assert.deepEqual(
       t.annotations,
@@ -363,12 +377,12 @@ test('safety: every tool (all 156) carries annotations; reads are readOnly, writ
   }
 });
 
-test('safety: the gated set (56) and the plain set (23) are exactly the pinned ones', () => {
+test('safety: the gated set (63) and the plain set (23) are exactly the pinned ones', () => {
   const gated = writeTools().filter((t) => 'confirm' in t.inputSchema.properties).map((t) => t.name).sort();
   const plain = writeTools().filter((t) => !('confirm' in t.inputSchema.properties)).map((t) => t.name).sort();
   assert.deepEqual(gated, Object.keys(GATED_TOOLS).sort());
   assert.deepEqual(plain, [...PLAIN_TOOLS].sort());
-  assert.equal(gated.length, 56);
+  assert.equal(gated.length, 63);
   assert.equal(plain.length, 23);
 });
 
@@ -429,17 +443,21 @@ const GATED_ARGS: Record<string, Record<string, unknown>> = {
   attach_network_vm: { ...ID, serverId: 'vm-1' },
   cancel_proxy: { ...ID },
   cancel_service: { ...SVC },
+  create_bucket: { name: 'assets', region: 'eu-central-1' },
   create_cluster_kubeconfig: { ...SVC, name: 'ci', role: 'view' },
   create_load_balancer: { name: 'lb', port: 80, memberServerIds: ['vm-1'] },
+  create_object_storage_key: { name: 'ci', buckets: '*', access: 'read' },
   create_ticket: { subject: 's', department: '1', priority: 'low', body: 'b' },
   create_volume: { sizeGb: 10 },
   delete_account_ssh_key: { ...ID },
   delete_billing_alert: {},
+  delete_bucket: { ...ID, bucket_name: 'acme-assets' },
   delete_cluster_pool: { ...SVC, pool: 'workers' },
   delete_firewall: { ...ID },
   delete_firewall_rule: { ...ID, ruleId: 'r-1' },
   delete_load_balancer: { ...ID },
   delete_network: { ...ID },
+  delete_object_storage_key: { ...ID },
   delete_proxy_request: { ...ID, reqId: 'q-1' },
   delete_volume: { ...ID },
   deploy_service: { productId: 'sku-1' },
@@ -447,17 +465,19 @@ const GATED_ARGS: Record<string, Record<string, unknown>> = {
   detach_firewall: { ...ID, serverId: 'vm-1' },
   detach_reserved_ip: { ...ID },
   detach_volume: { ...ID, serverId: 'vm-1' },
+  disable_object_storage: {},
   enable_cluster_ha: { ...SVC },
+  enable_object_storage: {},
   manage_account_contact: { action: 'delete', id: 1 },
   manage_domain: { ...ID, action: 'epp' },
   order_proxy: { kind: 'residential-gb', gb: 1 },
   reboot_service: { ...SVC },
-  rename_cluster_pool: { ...SVC, pool: 'workers', name: 'pool2' },
   register_domain: { domain: 'example.com' },
   reinstall_service: { ...SVC, imageId: 'ubuntu-24.04' },
   release_reserved_ip: { ...ID },
   remove_load_balancer_member: { ...ID, memberId: 'm-1' },
   remove_proxy_whitelisted_ip: { ...ID, ip: '203.0.113.5' },
+  rename_cluster_pool: { ...SVC, pool: 'workers', name: 'pool2' },
   renew_domain: { ...ID },
   renew_proxy: { ...ID },
   renew_service: { ...SVC },
@@ -477,6 +497,7 @@ const GATED_ARGS: Record<string, Record<string, unknown>> = {
   stop_service: { ...SVC },
   transfer_domain: { domain: 'example.com', epp: 'code' },
   update_account: { city: 'X' },
+  update_bucket: { ...ID, public: true },
   update_cluster_pool: { ...SVC, pool: 'workers', maximum: 3 },
   upgrade_service: { ...SVC, newProductId: 'p2', cycle: 'monthly' },
 };
@@ -515,6 +536,7 @@ test('safety: every gated tool refuses without confirm, names its reason, and ma
 // sentence exactly once; no other tool carries it.
 const RETURNS_SECRET = [
   'create_cluster_kubeconfig',
+  'create_object_storage_key',
   'deploy_service',
   'download_cluster_kubeconfig',
   'get_cluster_kubeconfig',
