@@ -4,6 +4,36 @@ All notable changes to `@rarecloudio/mcp-server` are recorded here.
 
 ## Unreleased
 
+### Added: `check_order`
+
+- `check_order` (read, `POST /v1/services/preflight`, scope `services:write`):
+  would `deploy_service` be accepted for this account right now? It takes the
+  same body as `deploy_service` (without `confirm` and `idempotency_key`),
+  validated by the same per-category rules, and creates or reserves nothing.
+  The answer is `{ allowed, reason, neededCents?, availableCents?,
+  missingCents?, currency?, addFundsUrl?, invoiceId?, payInvoiceUrl?, message?
+  }`; when `allowed` is false the agent shows the human the message and the
+  Add funds or Pay invoice link, since an agent cannot pay. `checked_at_order`
+  means a VPS, hosting, proxy or domain order is checked by billing only when
+  it is placed. It is a POST that changes nothing, so it carries the read
+  annotations, no confirm gate and no idempotency key. `deploy_service`'s
+  description now says to call it first. 173 tools, 86 of them reads.
+
+### Fixed: `deploy_service` refused load balancers, volumes and networks
+
+`deploy_service` required `productId` (or `plan`) for every body, so
+`category: cloud-loadbalancer`, `cloud-volume` and `cloud-network`, which the
+API creates without a catalog SKU, were refused before any request ("productId
+(or its alias plan) is required"). The requirement is now per category, as the
+API has it: `cloud-loadbalancer` needs `memberServerIds` (at least one VM;
+`port` defaults to 80, `name` to "load-balancer"), `cloud-volume` needs
+`sizeGb` (1 to 2048), `cloud-network` needs `name` (or `hostname`) with at least
+one letter or digit, and every other category, or a body with no category,
+needs `productId` (or `plan`). `port` (1 to 65535) and `sizeGb` (1 to 2048) are
+bounded in both the zod input and the advertised schema, and `port`,
+`memberServerIds`, `healthCheck`, `sizeGb` and `name` now describe what each
+family needs.
+
 ### Added: safe retries with idempotency keys
 
 The 40 write tools that map to a POST route where the API honours an
