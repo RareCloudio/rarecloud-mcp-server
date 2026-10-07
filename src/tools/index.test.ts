@@ -10,7 +10,7 @@ import { isIdempotentPostPath } from '../idempotency.js';
 
 // Bump this in the same commit that adds/removes tools. A mismatch means the
 // registry changed without the test acknowledging it.
-const EXPECTED_TOOL_COUNT = 172;
+const EXPECTED_TOOL_COUNT = 173;
 
 test('registry: tool count matches the expected total', () => {
   assert.equal(TOOLS.length, EXPECTED_TOOL_COUNT);
@@ -153,6 +153,7 @@ test('exclusion guard: the services:write surface is EXACTLY the safe set (IaaS 
     'attach_volume',
     'cancel_proxy',
     'cancel_service',
+    'check_order',
     'create_bucket',
     'create_cluster_kubeconfig',
     'create_firewall',
@@ -209,6 +210,18 @@ test('exclusion guard: the services:write surface is EXACTLY the safe set (IaaS 
     'update_cluster_pool',
     'upgrade_service',
   ]);
+});
+
+// check_order is the one READ tool in the services:write set above: it needs the
+// scope (the API answers "can THIS token order this"), but it creates nothing.
+test('check_order: classified as a read (not gated, not plain, no idempotency_key) and pinned in services:write', () => {
+  const t = findTool('check_order')!;
+  assert.ok(readTools().some((r) => r.name === 'check_order'));
+  assert.ok(!(t.name in GATED_TOOLS));
+  assert.ok(!PLAIN_TOOLS.includes(t.name));
+  assert.ok(!IDEMPOTENT_TOOLS.includes(t.name));
+  assert.ok(!('confirm' in t.inputSchema.properties));
+  assert.ok(!('idempotency_key' in t.inputSchema.properties));
 });
 
 test('exclusion guard: the domains:write surface is EXACTLY the safe set', () => {
@@ -372,9 +385,9 @@ function reasonOf(description: string): string {
   return m[1];
 }
 
-test('safety: every tool (all 172) carries annotations; reads are readOnly, writes are not', () => {
+test('safety: every tool (all 173) carries annotations; reads are readOnly, writes are not', () => {
   assert.equal(readTools().length + writeTools().length, TOOLS.length, 'every tool sets readOnlyHint');
-  assert.equal(readTools().length, 85);
+  assert.equal(readTools().length, 86);
   assert.equal(writeTools().length, 87);
   for (const t of readTools()) {
     assert.deepEqual(

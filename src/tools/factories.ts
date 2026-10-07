@@ -422,6 +422,6 @@ function callMethod(client: RareCloudClient, method: WriteMethod, path: string, 
   }
 }
 
-function formatZodError(err: z.ZodError): string {
+export function formatZodError(err: z.ZodError): string {
   return err.issues.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`).join('; ');
 }

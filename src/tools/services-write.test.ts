@@ -27,6 +27,7 @@ import {
   addServiceSshKeyToLibrary,
   applyServiceSshKeyLibrary,
   setServiceTags,
+  checkOrder,
 } from './services-write.js';
 import { APIError, type RareCloudClient } from '../client.js';
 import type { ToolCallResult, ToolDefinition } from './types.js';
@@ -776,4 +777,159 @@ test('deploy_service: cloud-vm tags follow the same limits (schema + validation)
   assert.equal(calls.length, 0);
   await deployService.handler(client, { productId: 'sku', tags: ['web'], confirm: true });
   assert.deepEqual((calls[0].body as { tags: string[] }).tags, ['web']);
+});
+
+// --- deploy_service: per-category requirements (mirrors POST /v1/services) ---
+//
+// The API creates a load balancer, a volume and a private network WITHOUT a
+// catalog SKU; everything else (and a body with no category) names one.
+
+const DEPLOY_MINIMAL: Array<[string, Record<string, unknown>]> = [
+  ['no category (inferred from the SKU)', { productId: 'sku-1' }],
+  ['cloud-vm', { category: 'cloud-vm', productId: 'c-2vcpu-4gb' }],
+  ['cloud-k8s', { category: 'cloud-k8s', plan: 'k8s-standard' }],
+  ['server', { category: 'server', productId: '12' }],
+  ['hosting', { category: 'hosting', productId: '30' }],
+  ['proxy', { category: 'proxy', productId: '40' }],
+  ['domain', { category: 'domain', productId: '50' }],
+  ['cloud-loadbalancer', { category: 'cloud-loadbalancer', memberServerIds: ['vm-1'] }],
+  ['cloud-loadbalancer (full)', { category: 'cloud-loadbalancer', name: 'web', region: 'ro-buc', port: 80, memberServerIds: ['vm-1'], healthCheck: true }],
+  ['cloud-volume', { category: 'cloud-volume', sizeGb: 20 }],
+  ['cloud-network (name)', { category: 'cloud-network', name: 'backend' }],
+  ['cloud-network (hostname alias)', { category: 'cloud-network', hostname: 'backend' }],
+];
+
+for (const [label, body] of DEPLOY_MINIMAL) {
+  test(`deploy_service: the minimal valid ${label} body is sent as is`, async () => {
+    const { client, calls } = fakeWriteClient();
+    const result = await deployService.handler(client, { ...body, confirm: true });
+    assert.equal(result.isError, undefined, textOf(result));
+    assert.deepEqual(calls, [{ method: 'POST', path: '/v1/services', body }]);
+  });
+}
+
+const DEPLOY_INVALID: Array<[string, Record<string, unknown>, RegExp]> = [
+  ['cloud-vm without productId/plan', { category: 'cloud-vm', region: 'ro-buc' }, /productId \(or its alias plan\) is required for category cloud-vm/],
+  ['cloud-k8s without productId/plan', { category: 'cloud-k8s' }, /productId \(or its alias plan\) is required for category cloud-k8s/],
+  ['server without productId/plan', { category: 'server' }, /productId \(or its alias plan\) is required for category server/],
+  ['hosting without productId/plan', { category: 'hosting' }, /productId \(or its alias plan\) is required for category hosting/],
+  ['proxy without productId/plan', { category: 'proxy' }, /productId \(or its alias plan\) is required for category proxy/],
+  ['domain without productId/plan', { category: 'domain' }, /productId \(or its alias plan\) is required for category domain/],
+  ['cloud-loadbalancer without memberServerIds', { category: 'cloud-loadbalancer', name: 'web', port: 80 }, /memberServerIds: .*at least one cloud VM.*cloud-loadbalancer/],
+  ['cloud-loadbalancer with empty memberServerIds', { category: 'cloud-loadbalancer', memberServerIds: [] }, /memberServerIds: .*at least one cloud VM/],
+  ['cloud-loadbalancer with port 0', { category: 'cloud-loadbalancer', memberServerIds: ['vm-1'], port: 0 }, /port:/],
+  ['cloud-loadbalancer with port 70000', { category: 'cloud-loadbalancer', memberServerIds: ['vm-1'], port: 70000 }, /port:/],
+  ['cloud-volume without sizeGb', { category: 'cloud-volume', name: 'data' }, /sizeGb: sizeGb is required for category cloud-volume/],
+  ['cloud-volume with sizeGb 0', { category: 'cloud-volume', sizeGb: 0 }, /sizeGb:/],
+  ['cloud-volume with sizeGb 4096', { category: 'cloud-volume', sizeGb: 4096 }, /sizeGb:/],
+  ['cloud-network without a name', { category: 'cloud-network' }, /name: a name \(or its alias hostname\) is required for category cloud-network/],
+  ['cloud-network with a name of only symbols', { category: 'cloud-network', name: '---' }, /name: .*letter or digit/],
+];
+
+for (const [label, body, message] of DEPLOY_INVALID) {
+  test(`deploy_service: ${label} is refused before any request`, async () => {
+    const { client, calls } = fakeWriteClient();
+    const result = await deployService.handler(client, { ...body, confirm: true });
+    assert.equal(result.isError, true);
+    assert.match(textOf(result), /^Error: Invalid input for deploy_service: /);
+    assert.match(textOf(result), message);
+    assert.deepEqual(calls, []);
+  });
+}
+
+test('deploy_service: the advertised schema describes the load balancer, volume and network fields', () => {
+  const p = deployService.inputSchema.properties as Record<string, { description?: string; minimum?: number; maximum?: number; minItems?: number }>;
+  assert.match(p.port.description ?? '', /cloud-loadbalancer/);
+  assert.equal(p.port.minimum, 1);
+  assert.equal(p.port.maximum, 65535);
+  assert.match(p.memberServerIds.description ?? '', /required for cloud-loadbalancer/);
+  assert.equal(p.memberServerIds.minItems, 1);
+  assert.match(p.healthCheck.description ?? '', /cloud-loadbalancer/);
+  assert.match(p.sizeGb.description ?? '', /required for cloud-volume/);
+  assert.equal(p.sizeGb.minimum, 1);
+  assert.equal(p.sizeGb.maximum, 2048);
+  assert.match(p.name.description ?? '', /required for cloud-network/);
+  assert.match(p.productId.description ?? '', /not used for cloud-loadbalancer, cloud-volume or cloud-network/);
+});
+
+test('deploy_service: the description points at check_order', () => {
+  assert.match(deployService.description, /Call check_order first to see whether the order will be accepted\./);
+});
+
+// --- check_order (read-only POST /v1/services/preflight) ---
+
+test('check_order: a read (read annotations), no confirm, no idempotency_key, scope services:write', () => {
+  assert.equal(checkOrder.name, 'check_order');
+  assert.deepEqual(checkOrder.annotations, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true });
+  assert.ok(!('confirm' in checkOrder.inputSchema.properties));
+  assert.ok(!('idempotency_key' in checkOrder.inputSchema.properties));
+  assert.deepEqual(checkOrder.inputSchema.required ?? [], []);
+  assert.equal(checkOrder.inputSchema.additionalProperties, false);
+  assert.match(checkOrder.description, /Requires scope services:write\./);
+  assert.match(checkOrder.description, /without creating or reserving anything/);
+  assert.match(checkOrder.description, /an agent cannot pay/);
+  assert.match(checkOrder.description, /checked_at_order/);
+  assert.match(checkOrder.description, /advice, not a reservation/);
+  assert.ok(!checkOrder.description.includes('Safety:'));
+  assert.ok(!checkOrder.description.includes('—'));
+});
+
+test('check_order: advertises the same fields as deploy_service, minus confirm and idempotency_key', () => {
+  const deployKeys = Object.keys(deployService.inputSchema.properties).filter((k) => k !== 'confirm' && k !== 'idempotency_key').sort();
+  assert.deepEqual(Object.keys(checkOrder.inputSchema.properties).sort(), deployKeys);
+});
+
+test('check_order: POSTs the validated body to /v1/services/preflight and returns the answer', async () => {
+  const answer = { allowed: false, reason: 'insufficient_balance', neededCents: 1200, availableCents: 200, missingCents: 1000, currency: 'EUR', addFundsUrl: 'https://console.rarecloud.io/billing/add-funds?amount=10', message: 'Add funds.' };
+  const calls: Array<{ path: string; body: unknown; opts: unknown }> = [];
+  const client = {
+    async post(path: string, body: unknown, opts?: unknown) {
+      calls.push({ path, body, opts });
+      return answer;
+    },
+  } as unknown as RareCloudClient;
+  const body = { category: 'cloud-vm', productId: 'c-2vcpu-4gb', region: 'ro-buc' };
+  const result = await checkOrder.handler(client, body);
+  assert.equal(result.isError, undefined);
+  assert.deepEqual(JSON.parse(textOf(result)), answer);
+  assert.deepEqual(calls, [{ path: '/v1/services/preflight', body, opts: undefined }]);
+});
+
+for (const [label, body] of DEPLOY_MINIMAL) {
+  test(`check_order: the minimal valid ${label} body is checked`, async () => {
+    const { client, calls } = fakeWriteClient(() => ({ allowed: true, reason: 'ok' }));
+    const result = await checkOrder.handler(client, { ...body });
+    assert.equal(result.isError, undefined, textOf(result));
+    assert.deepEqual(calls, [{ method: 'POST', path: '/v1/services/preflight', body }]);
+  });
+}
+
+for (const [label, body, message] of DEPLOY_INVALID) {
+  test(`check_order: ${label} is refused before any request`, async () => {
+    const { client, calls } = fakeWriteClient();
+    const result = await checkOrder.handler(client, { ...body });
+    assert.equal(result.isError, true);
+    assert.match(textOf(result), /^Error: Invalid input for check_order: /);
+    assert.match(textOf(result), message);
+    assert.deepEqual(calls, []);
+  });
+}
+
+test('check_order: confirm and idempotency_key are unknown inputs, refused with no request', async () => {
+  for (const extra of [{ confirm: true }, { idempotency_key: 'k-1' }]) {
+    const { client, calls } = fakeWriteClient();
+    const result = await checkOrder.handler(client, { productId: 'sku-1', ...extra });
+    assert.equal(result.isError, true);
+    assert.match(textOf(result), /^Error: Invalid input for check_order: /);
+    assert.deepEqual(calls, []);
+  }
+});
+
+test('check_order: an API error becomes an error result', async () => {
+  const { client } = fakeWriteClient(() => {
+    throw new APIError({ code: 'FORBIDDEN', message: 'services:write scope required' });
+  });
+  const result = await checkOrder.handler(client, { productId: 'sku-1' });
+  assert.equal(result.isError, true);
+  assert.equal(textOf(result), 'Error: [FORBIDDEN] services:write scope required');
 });

@@ -6,9 +6,9 @@ Drop into [Claude Code](https://claude.com/claude-code), Claude Desktop, [Cursor
 
 ## What it does
 
-Exposes **172 tools** wrapping the RareCloud REST API: **85 read tools** (inspect / list / get, always safe) plus **87 write/action tools** (deploy, resize, destroy, order, renew, and similar mutations). 63 of the writes are gated behind an explicit `confirm:true`; the other 24 are plain. See [Safety model](#safety-model) below for how it works.
+Exposes **173 tools** wrapping the RareCloud REST API: **86 read tools** (inspect / list / get / check, always safe) plus **87 write/action tools** (deploy, resize, destroy, order, renew, and similar mutations). 63 of the writes are gated behind an explicit `confirm:true`; the other 24 are plain. See [Safety model](#safety-model) below for how it works.
 
-### Read tools (85)
+### Read tools (86)
 
 | Category | Tool | Purpose |
 |---|---|---|
@@ -97,6 +97,7 @@ Exposes **172 tools** wrapping the RareCloud REST API: **85 read tools** (inspec
 | | `list_proxy_requests` | Proxy-requests on a GB Residential bucket (country + rotation + count groups) |
 | | `get_proxy_request_list` | Live endpoints + credentials for one GB Residential proxy-request, **live secret** |
 | | `get_proxy_replacements` | IP-replacement allowance + history for a proxy service |
+| | `check_order` | Would `deploy_service` be accepted right now? Same body, creates and reserves nothing; on a refusal returns the message plus the Add funds or Pay invoice link for the human (needs `services:write`) |
 
 Tools marked **live secret** return a real credential (a kubeconfig bearer token, proxy `ip:port:user:pass`, or an S3 secret access key). Their descriptions carry the standard SECURITY sentence (see [Safety model](#safety-model)).
 
@@ -107,7 +108,7 @@ The **Safety** column is each tool's kind (see [Safety model](#safety-model)). *
 | Category | Tool | Safety | Purpose |
 |---|---|---|---|
 | Services | `set_service_hostname` | plain | Rename a service (legacy VPS hostname, or the cloud VM's server name) |
-| | `deploy_service` | **spends** | Deploy (order + provision) a new service: polymorphic across VM / k8s / volume / load-balancer / network / proxy / domain (returns a **live secret**) |
+| | `deploy_service` | **spends** | Deploy (order + provision) a new service: polymorphic across VM / k8s / volume / load-balancer / network / proxy / domain; load balancers, volumes and networks take no SKU (call `check_order` first; returns a **live secret**) |
 | | `destroy_service` | **destructive** | Permanently destroy a service and release its resources |
 | | `resize_service` | **spends** | Resize a cloud VM to a new flavor/plan |
 | | `upgrade_service` | **spends** | Create an upgrade order moving a service to a new product/plan |
@@ -255,7 +256,7 @@ npx @rarecloudio/mcp-server
 Get an API token: **Dashboard → Account → API tokens → New token**. Pick scopes for what you want the agent to do:
 
 - Read-only agent: the explicit read scopes `account:read`, `services:read`, `billing:read`, `domains:read`, `tickets:read`.
-- An agent that can also act: add the matching `{domain}:write` scope(s): `services:write` (covers cloud VMs, managed Kubernetes, volumes, networks, reserved IPs, firewalls, load balancers, Object Storage, **and residential proxies**: there is no separate proxy scope), `domains:write`, `account:write`, `billing:write`, `tickets:write`.
+- An agent that can also act: add the matching `{domain}:write` scope(s): `services:write` (covers cloud VMs, managed Kubernetes, volumes, networks, reserved IPs, firewalls, load balancers, Object Storage, **and residential proxies**: there is no separate proxy scope; the read-only `check_order` also needs it, because it answers whether this token can order), `domains:write`, `account:write`, `billing:write`, `tickets:write`.
 - Full access: bare `*`.
 
 Scope matching is **exact per token**: wildcard patterns like `*:read` are not supported; a token must carry the precise scope string a tool's description names. `account:write` / `billing:write` / `tickets:write` are deliberately narrow: they cover only the safe write tools listed above (profile fields, SSH keys, contacts, spend alerts, voucher redemption, tickets) and exclude every identity/credential/money-movement operation (password/2FA changes, sub-user invites, payment methods, API tokens, credit top-up, invoice payment, affiliate activate/withdraw): those simply have no tool here, gated or otherwise.
@@ -326,7 +327,7 @@ Once configured, try:
 - *"Show my block volumes and which VM each is attached to"* → `list_volumes`
 - *"Any unpaid invoices, and what would paying the latest one from my balance cost?"* → `list_invoices` + `get_invoice_pay_preview`
 - *"Give me a Terraform config for a 2 vCPU / 4 GB VPS in The Hague"* → `get_catalog_plan` + composition
-- *"Deploy a 2 vCPU / 4 GB VM in The Hague named web-01"* → `get_product_details` to confirm the plan and cost, then `deploy_service` with `confirm:true` once you approve
+- *"Deploy a 2 vCPU / 4 GB VM in The Hague named web-01"* → `get_product_details` to confirm the plan and cost, `check_order` to see the order will be accepted, then `deploy_service` with `confirm:true` once you approve
 - *"Resize db-02 to the next size up"* → `list_upgrade_options` + `resize_service` (confirm required)
 - *"Mint a 90-day view-only kubeconfig for my cluster for CI"* → `create_cluster_kubeconfig` (confirm required: it mints a long-lived credential)
 
@@ -360,14 +361,14 @@ Then point Claude Desktop at your local checkout:
 npm test
 ```
 
-Tests run on the built-in Node test runner (`node:test`) via `tsx`: no build step, no network. Each tool is exercised against an injected mock client that records the request path and returns a canned payload, so the suite asserts path construction, input-schema shape, JSON-vs-raw output, secret-handling guidance, and error mapping without ever calling the live API. For write tools, the same fake-client harness also proves every gated tool (63, pinned by name and kind) refuses with its reason and makes zero requests when `confirm` is omitted, that every tool carries the right MCP annotations, that both the zod input and the JSON `inputSchema` enforce the same bounds (mirrored both layers), and that every dynamic path segment is guarded against path traversal. Further tests drop the first answer of an idempotent request and prove the retry reuses the same key, pin which tools take `idempotency_key` against the API's covered routes, and pin the `RESOURCE_PROTECTED` error text. A registry invariant test pins the exposed tool count (172) and enforces unique names, well-formed schemas, and, for the write-scope surfaces, an exact pinned set of tool names per scope, so a future change can't silently add a tool under the wrong scope.
+Tests run on the built-in Node test runner (`node:test`) via `tsx`: no build step, no network. Each tool is exercised against an injected mock client that records the request path and returns a canned payload, so the suite asserts path construction, input-schema shape, JSON-vs-raw output, secret-handling guidance, and error mapping without ever calling the live API. For write tools, the same fake-client harness also proves every gated tool (63, pinned by name and kind) refuses with its reason and makes zero requests when `confirm` is omitted, that every tool carries the right MCP annotations, that both the zod input and the JSON `inputSchema` enforce the same bounds (mirrored both layers), and that every dynamic path segment is guarded against path traversal. Further tests drop the first answer of an idempotent request and prove the retry reuses the same key, pin which tools take `idempotency_key` against the API's covered routes, and pin the `RESOURCE_PROTECTED` error text. A registry invariant test pins the exposed tool count (173) and enforces unique names, well-formed schemas, and, for the write-scope surfaces, an exact pinned set of tool names per scope, so a future change can't silently add a tool under the wrong scope.
 
 ## Security
 
 - Tokens never touch shell history (we use env vars, not CLI flags).
 - Each tool maps 1:1 to a RareCloud API endpoint; the MCP server doesn't aggregate or transform data beyond what the API returns.
 - **Scope is exact-match per token, enforced server-side.** A token only unlocks the tools whose scope it carries; there is no wildcard scope matching (`*:read` does not imply `services:read`) and no client-side scope bypass: an unscoped or under-scoped token gets the API's own `[FORBIDDEN]` response back.
-- **Writes exist and are gated.** 87 of the 172 tools mutate state. The 63 that spend money, destroy something, disrupt something running, or are security-sensitive require `confirm:true` and make no API call at all without it (see [Safety model](#safety-model)). The remaining 24 are plain (no charge, nothing torn down) and run without confirmation once the token's scope allows them.
+- **Writes exist and are gated.** 87 of the 173 tools mutate state. The 63 that spend money, destroy something, disrupt something running, or are security-sensitive require `confirm:true` and make no API call at all without it (see [Safety model](#safety-model)). The remaining 24 are plain (no charge, nothing torn down) and run without confirmation once the token's scope allows them.
 - **No identity/credential/money-movement surface, by design, not by gate.** Password/2FA changes, sub-user invites, payment-method management, API-token management, credit top-up, invoice payment, and affiliate activate/withdraw, and the per-resource API access switch, have no tool here at all: an agent holding even a maximally-scoped token cannot reach them. A registry test pins this exclusion list so a future change can't quietly add one back.
 - The tools that return live credentials (kubeconfigs, proxy endpoint/auth lists, one-time console passwords) carry the standard SECURITY sentence so the agent doesn't echo them back unprompted.
 - Revoke a token at any time: **Dashboard → Account → API tokens**. Revocation is instant, no propagation delay.
