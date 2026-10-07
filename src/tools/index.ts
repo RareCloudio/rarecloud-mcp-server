@@ -114,6 +114,7 @@ import {
   addServiceSshKeyToLibrary,
   applyServiceSshKeyLibrary,
   setServiceTags,
+  checkOrder,
 } from './services-write.js';
 import { listApiAccess } from './api-access.js';
 import {
@@ -223,6 +224,7 @@ export const TOOLS: ToolDefinition[] = [
   getServiceIso,
   listServiceSshKeyLibrary,
   getServiceAutorenew,
+  checkOrder, // read-only POST /v1/services/preflight: would deploy_service be accepted?
   // Orders ("what have I purchased?")
   listOrders,
   getOrder,

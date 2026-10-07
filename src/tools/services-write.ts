@@ -4,8 +4,9 @@
 // uniform. More service-write tools land here in Tasks 2 & 3.
 
 import { z } from 'zod';
-import { type ToolDefinition } from './types.js';
-import { writeTool, encodeSegment } from './factories.js';
+import { type ToolDefinition, jsonResult, errorResult } from './types.js';
+import { writeTool, encodeSegment, defineReadTool, formatZodError } from './factories.js';
+import { APIError } from '../client.js';
 
 // --- cloud VM tags (the API's api/src/lib/services/vmTags.ts rules) ---------
 // At most 50 tags, each 1 to 60 characters, no `,` `/` or control characters,
@@ -83,12 +84,140 @@ const BILLING_CYCLE = [
 ] as const;
 
 // deploy_service is polymorphic: `category` selects the product family and the
-// relevant fields vary per family. The API infers `category` from the SKU and
-// validates per-family, so we forward the whole validated body. The
-// productId||plan requirement is enforced via a zod .refine on the input
-// schema below — writeTool's factory generic is `S extends z.ZodTypeAny`, so
-// the resulting ZodEffects (which .refine produces, not a plain ZodObject)
-// still flows through `opts.input.safeParse` unchanged.
+// relevant fields vary per family. The fields and the per-category requirements
+// below mirror POST /v1/services (DeployInput + its category branches in the
+// API's v1-services.ts):
+//   cloud-loadbalancer  memberServerIds (at least one VM); port defaults to 80,
+//                       name to "load-balancer"; no catalog SKU
+//   cloud-volume        sizeGb (1 to 2048); no catalog SKU
+//   cloud-network       name (or its alias hostname) with a letter or digit; no SKU
+//   anything else, and a body with no category: productId (or its alias plan)
+// The body is forwarded whole; check_order validates the same body the same way.
+// writeTool's generic is `S extends z.ZodTypeAny`, so the ZodEffects that
+// .superRefine produces flows through `opts.input.safeParse` unchanged.
+
+const SKU_LESS_CATEGORIES = ['cloud-loadbalancer', 'cloud-volume', 'cloud-network'] as const;
+const VOLUME_MAX_GB = 2048;
+
+const deployFields = z
+  .object({
+    category: z.enum(DEPLOY_CATEGORY).optional(),
+    productId: z.string().min(1).optional(),
+    plan: z.string().min(1).optional(),
+    region: z.string().optional(),
+    billingCycle: z.enum(BILLING_CYCLE).optional(),
+    hostname: z.string().optional(),
+    name: z.string().optional(),
+    imageId: z.string().optional(),
+    image: z.string().optional(),
+    sshKeyId: z.string().optional(),
+    sshKey: z.string().optional(),
+    sshPublicKey: z.string().optional(),
+    rootPassword: z.string().optional(),
+    k8sVersion: z.string().optional(),
+    machineType: z.string().optional(),
+    workerMin: z.number().int().optional(),
+    workerMax: z.number().int().optional(),
+    pools: z.array(z.record(z.unknown())).optional(),
+    port: z.number().int().min(1).max(65535).optional(),
+    memberServerIds: z.array(z.string().min(1)).optional(),
+    healthCheck: z.boolean().optional(),
+    sizeGb: z.number().int().min(1).max(VOLUME_MAX_GB).optional(),
+    addons: z.array(z.string()).optional(),
+    tags: vmTagsInput.optional(),
+    vpcId: z.string().optional(),
+    configOptions: z.record(z.unknown()).optional(),
+    customFields: z.record(z.unknown()).optional(),
+    payWith: z.string().optional(),
+  })
+  .strict();
+
+/** The deploy body, validated per category exactly as POST /v1/services requires it. */
+export const deployInput = deployFields.superRefine((v, ctx) => {
+  switch (v.category) {
+    case 'cloud-loadbalancer':
+      if (!v.memberServerIds?.length) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['memberServerIds'],
+          message: 'add at least one cloud VM (its service_id from list_services) for category cloud-loadbalancer',
+        });
+      }
+      return;
+    case 'cloud-volume':
+      if (v.sizeGb == null) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['sizeGb'],
+          message: `sizeGb is required for category cloud-volume (1 to ${VOLUME_MAX_GB})`,
+        });
+      }
+      return;
+    case 'cloud-network': {
+      const name = v.name ?? v.hostname;
+      if (name == null || name.trim() === '') {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['name'],
+          message: 'a name (or its alias hostname) is required for category cloud-network',
+        });
+      } else if (!/[a-zA-Z0-9]/.test(name)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['name'],
+          message: 'the network name must contain at least one letter or digit',
+        });
+      }
+      return;
+    }
+    default:
+      if (!v.productId && !v.plan) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [],
+          message: v.category
+            ? `productId (or its alias plan) is required for category ${v.category}`
+            : `productId (or its alias plan) is required; only ${SKU_LESS_CATEGORIES.join(', ')} are created without one, and they need category set`,
+        });
+      }
+  }
+});
+
+/** Advertised JSON Schema properties of the deploy body (shared by deploy_service and check_order). */
+export const DEPLOY_PROPERTIES: Record<string, unknown> = {
+  category: { type: 'string', enum: [...DEPLOY_CATEGORY], description: 'Product family; inferred from the SKU if omitted. Required for cloud-loadbalancer, cloud-volume and cloud-network, which have no SKU.' },
+  productId: { type: 'string', description: 'Catalog SKU / backend product id from list_catalog_products or list_catalog_listings. Required for every category except cloud-loadbalancer, cloud-volume and cloud-network (not used for cloud-loadbalancer, cloud-volume or cloud-network).' },
+  plan: { type: 'string', description: 'Alias for productId.' },
+  region: { type: 'string', description: 'Region code (see list_regions).' },
+  billingCycle: { type: 'string', enum: [...BILLING_CYCLE] },
+  hostname: { type: 'string', description: 'Hostname of the new server; for cloud-loadbalancer, cloud-volume and cloud-network an alias for name.' },
+  name: { type: 'string', description: 'Alias for hostname. The resource name for cloud-loadbalancer (default "load-balancer"), cloud-volume (default "volume") and cloud-network; required for cloud-network (needs at least one letter or digit).' },
+  imageId: { type: 'string', description: 'OS image id or slug from list_images (or list_prepurchase_os_templates for a VPS SKU).' },
+  image: { type: 'string', description: 'Alias for imageId.' },
+  sshKeyId: { type: 'string', description: 'Account SSH key id or name from list_account_ssh_keys.' },
+  sshKey: { type: 'string', description: 'Alias for sshKeyId.' },
+  sshPublicKey: { type: 'string', description: 'cloud-vm: raw public key injected via cloud-init.' },
+  rootPassword: { type: 'string', description: 'Root password for the new server; a secret, never echoed or logged.' },
+  k8sVersion: { type: 'string', description: 'cloud-k8s: version from list_kubernetes_versions.' },
+  machineType: { type: 'string' },
+  workerMin: { type: 'integer' }, workerMax: { type: 'integer' },
+  pools: { type: 'array', items: { type: 'object' } },
+  port: { type: 'integer', minimum: 1, maximum: 65535, description: 'cloud-loadbalancer: the TCP port the load balancer listens on and forwards to on each member (1 to 65535, default 80).' },
+  memberServerIds: {
+    type: 'array',
+    minItems: 1,
+    items: { type: 'string', minLength: 1 },
+    description: 'cloud-loadbalancer: cloud VMs to balance across (each the same value as the cloud VM service_id from list_services); at least one, required for cloud-loadbalancer.',
+  },
+  healthCheck: { type: 'boolean', description: 'cloud-loadbalancer: check each member and send traffic only to healthy ones (default on).' },
+  sizeGb: { type: 'integer', minimum: 1, maximum: VOLUME_MAX_GB, description: `cloud-volume: size of the block volume in GB (1 to ${VOLUME_MAX_GB}); required for cloud-volume.` },
+  addons: { type: 'array', items: { type: 'string' } },
+  tags: vmTagsJsonSchema,
+  vpcId: { type: 'string', description: 'cloud-vm: private network id from list_networks.' },
+  configOptions: { type: 'object' }, customFields: { type: 'object' },
+  payWith: { type: 'string' },
+};
+
 export const deployService: ToolDefinition = writeTool({
   name: 'deploy_service',
   description:
@@ -96,10 +225,13 @@ export const deployService: ToolDefinition = writeTool({
     `selects the product family (cloud-vm | cloud-k8s | cloud-volume | cloud-loadbalancer | cloud-network ` +
     `| server | hosting | proxy | domain); category may be omitted and is then inferred from the catalog ` +
     `product. \`productId\` (alias \`plan\`) is the catalog SKU from list_catalog_products / ` +
-    `list_catalog_listings; the other fields depend on the family: discover them with ` +
-    `get_product_details, list_catalog_listings, list_kubernetes_versions, list_regions, list_images. ` +
-    `Preview the plan and its cost with get_product_details before asking the user to approve. For a ` +
-    `cloud VM deployed without rootPassword, the result includes a one-time consolePassword.`,
+    `list_catalog_listings, required for every family except three that have no SKU: cloud-loadbalancer ` +
+    `needs memberServerIds (port defaults to 80), cloud-volume needs sizeGb, cloud-network needs name. The ` +
+    `other fields depend on the family: discover them with get_product_details, list_catalog_listings, ` +
+    `list_kubernetes_versions, list_regions, list_images. Preview the plan and its cost with ` +
+    `get_product_details before asking the user to approve. Call check_order first to see whether the ` +
+    `order will be accepted. For a cloud VM deployed without rootPassword, the result includes a one-time ` +
+    `consolePassword.`,
   method: 'POST',
   idempotent: true,
   safety: {
@@ -107,78 +239,50 @@ export const deployService: ToolDefinition = writeTool({
     reason: "places a real order and provisions billable infrastructure, charged to the account",
   },
   returnsSecret: "the new server's console/root password",
-  input: z
-    .object({
-      category: z.enum(DEPLOY_CATEGORY).optional(),
-      productId: z.string().min(1).optional(),
-      plan: z.string().min(1).optional(),
-      region: z.string().optional(),
-      billingCycle: z.enum(BILLING_CYCLE).optional(),
-      hostname: z.string().optional(),
-      name: z.string().optional(),
-      imageId: z.string().optional(),
-      image: z.string().optional(),
-      sshKeyId: z.string().optional(),
-      sshKey: z.string().optional(),
-      sshPublicKey: z.string().optional(),
-      rootPassword: z.string().optional(),
-      k8sVersion: z.string().optional(),
-      machineType: z.string().optional(),
-      workerMin: z.number().int().optional(),
-      workerMax: z.number().int().optional(),
-      pools: z.array(z.record(z.unknown())).optional(),
-      port: z.number().int().optional(),
-      memberServerIds: z.array(z.string()).optional(),
-      healthCheck: z.boolean().optional(),
-      sizeGb: z.number().int().optional(),
-      addons: z.array(z.string()).optional(),
-      tags: vmTagsInput.optional(),
-      vpcId: z.string().optional(),
-      configOptions: z.record(z.unknown()).optional(),
-      customFields: z.record(z.unknown()).optional(),
-      payWith: z.string().optional(),
-    })
-    .strict()
-    .refine((v) => Boolean(v.productId || v.plan), {
-      message: 'productId (or its alias plan) is required',
-    }),
+  input: deployInput,
   inputSchema: {
     type: 'object',
-    properties: {
-      category: { type: 'string', enum: [...DEPLOY_CATEGORY], description: 'Product family; inferred from the SKU if omitted.' },
-      productId: { type: 'string', description: 'Catalog SKU / backend product id from list_catalog_products or list_catalog_listings.' },
-      plan: { type: 'string', description: 'Alias for productId.' },
-      region: { type: 'string', description: 'Region code (see list_regions).' },
-      billingCycle: { type: 'string', enum: [...BILLING_CYCLE] },
-      hostname: { type: 'string' }, name: { type: 'string', description: 'Alias for hostname.' },
-      imageId: { type: 'string', description: 'OS image id or slug from list_images (or list_prepurchase_os_templates for a VPS SKU).' },
-      image: { type: 'string', description: 'Alias for imageId.' },
-      sshKeyId: { type: 'string', description: 'Account SSH key id or name from list_account_ssh_keys.' },
-      sshKey: { type: 'string', description: 'Alias for sshKeyId.' },
-      sshPublicKey: { type: 'string', description: 'cloud-vm: raw public key injected via cloud-init.' },
-      rootPassword: { type: 'string', description: 'Root password for the new server; a secret, never echoed or logged.' },
-      k8sVersion: { type: 'string', description: 'cloud-k8s: version from list_kubernetes_versions.' },
-      machineType: { type: 'string' },
-      workerMin: { type: 'integer' }, workerMax: { type: 'integer' },
-      pools: { type: 'array', items: { type: 'object' } },
-      port: { type: 'integer' },
-      memberServerIds: {
-        type: 'array',
-        items: { type: 'string' },
-        description: 'cloud-loadbalancer: cloud VMs to balance across (each the same value as the cloud VM service_id from list_services).',
-      },
-      healthCheck: { type: 'boolean' }, sizeGb: { type: 'integer' },
-      addons: { type: 'array', items: { type: 'string' } },
-      tags: vmTagsJsonSchema,
-      vpcId: { type: 'string', description: 'cloud-vm: private network id from list_networks.' },
-      configOptions: { type: 'object' }, customFields: { type: 'object' },
-      payWith: { type: 'string' },
-    },
+    properties: DEPLOY_PROPERTIES,
     required: [],
     additionalProperties: false,
   },
   buildPath: () => '/v1/services',
-  buildBody: (a) => a, // whole validated body; the API infers category + validates per-family
+  buildBody: (a) => a, // whole validated body; the API validates per family again
+});
+
+// check_order: POST /v1/services/preflight. A POST that changes nothing (the API
+// runs its order guard as a dry run: no hold, no reservation, nothing created),
+// so it is a READ tool: read annotations, no confirm gate, no idempotency_key
+// (the route is not in idempotency.ts). It takes the deploy body minus confirm
+// and idempotency_key, validated by the same per-category rules as deploy_service.
+export const checkOrder: ToolDefinition = defineReadTool({
+  name: 'check_order',
+  description:
+    `Check whether deploy_service would be accepted for this account right now, without creating or ` +
+    `reserving anything. Takes the same body as deploy_service. Requires scope services:write. Answers ` +
+    `{ allowed, reason, neededCents?, availableCents?, missingCents?, currency?, addFundsUrl?, invoiceId?, ` +
+    `payInvoiceUrl?, message? }; reason is one of ok, guard_off, admin, established, free, checked_at_order, ` +
+    `no_billing_account, overdue_invoice, insufficient_balance. If allowed is false, show the human the ` +
+    `message and the addFundsUrl or payInvoiceUrl: an agent cannot pay. checked_at_order means the order ` +
+    `is checked by billing only when it is placed (VPS, hosting, proxy, domain). The answer is advice, not ` +
+    `a reservation.`,
+  inputSchema: {
+    type: 'object',
+    properties: DEPLOY_PROPERTIES,
+    required: [],
+    additionalProperties: false,
+  },
+  async handler(client, args) {
+    const parsed = deployInput.safeParse(args);
+    if (!parsed.success) {
+      return errorResult(`Invalid input for check_order: ${formatZodError(parsed.error)}`);
+    }
+    try {
+      return jsonResult(await client.post('/v1/services/preflight', parsed.data));
+    } catch (e) {
+      return errorResult(e instanceof APIError ? e.message : (e as Error).message);
+    }
+  },
 });
 
 export const destroyService: ToolDefinition = writeTool({
