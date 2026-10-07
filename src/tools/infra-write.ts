@@ -32,6 +32,7 @@ export const createVolume: ToolDefinition = writeTool({
     `scope services:write. sizeGb is the size in GB (1-2048); name is an optional display name (max 253 ` +
     `chars, defaults to 'volume' server-side). Attach it to a VM afterward with attach_volume.`,
   method: 'POST',
+  idempotent: true,
   safety: {
     kind: 'spends',
     reason: "creates a volume billed per GB every month until it is deleted",
@@ -134,6 +135,7 @@ export const createNetwork: ToolDefinition = writeTool({
     `name is the display name (1-253 chars); a /16 CIDR is auto-allocated. Move VMs into it afterward ` +
     `with attach_network_vm.`,
   method: 'POST',
+  idempotent: true,
   safety: { kind: 'plain' },
   input: z.object({ name: z.string().min(1).max(253) }).strict(),
   inputSchema: {
@@ -203,6 +205,7 @@ export const reserveIp: ToolDefinition = writeTool({
     `list_services) to reserve AND attach it to that cloud VM in the same call. Manage it afterward with ` +
     `attach_reserved_ip / detach_reserved_ip / release_reserved_ip.`,
   method: 'POST',
+  idempotent: true,
   safety: {
     kind: 'spends',
     reason: "reserves a public IP billed EUR 2/month until it is released",

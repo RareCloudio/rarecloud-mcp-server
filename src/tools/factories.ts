@@ -18,6 +18,7 @@
 
 import { z } from 'zod';
 import { APIError, type RareCloudClient } from '../client.js';
+import { isIdempotentPostPath, isValidIdempotencyKey, type ReplayInfo } from '../idempotency.js';
 import { type ToolDefinition, type ToolCallResult, jsonResult, errorResult } from './types.js';
 
 // Encode a value as a single URL path segment, rejecting path-traversal tokens.
@@ -182,6 +183,11 @@ export function readTool(opts: {
 //   3. optional secret marking: `returnsSecret` (the result holds a live
 //      credential) and `acceptsSecret` (an input is a credential) append the
 //      standardized SECURITY sentences.
+//   4. optional Idempotency-Key support (`idempotent: true`, POST only, and only
+//      for a route the API covers; index.test.ts pins that the flag matches
+//      idempotency.ts): an optional `idempotency_key` input, sent as the header;
+//      the client generates a key when it is absent, retries safely, and reports
+//      a replay, which this factory turns into a note for the agent.
 
 type WriteMethod = 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
@@ -237,6 +243,31 @@ export function refusalMessage(name: string, safety: { kind: GatedKind; reason: 
   );
 }
 
+/** The advertised `idempotency_key` input of every idempotent write tool. */
+export const IDEMPOTENCY_KEY_PROPERTY = Object.freeze({
+  type: 'string' as const,
+  minLength: 1,
+  maxLength: 255,
+  pattern: '^[\\x20-\\x7E]+$',
+  description:
+    'Optional Idempotency-Key, 1 to 255 printable ASCII characters: reuse the same value if you retry this ' +
+    'exact request, and the API runs it at most once (a retry gets the first answer back). Use a new value ' +
+    'for a different request. Omit it and the server makes one key per call and retries once on a dropped ' +
+    'connection with that same key.',
+});
+
+/** The note put before the result when the API replayed an earlier identical request. */
+export function replayNote(info: ReplayInfo): string {
+  const base =
+    'Note: idempotent replay. The API answered with the stored result of an earlier identical request with ' +
+    'the same Idempotency-Key; the operation ran once, not again.';
+  if (info.secretsOmittedOnReplay.length === 0) return base;
+  return (
+    `${base} secretsOmittedOnReplay: ${JSON.stringify(info.secretsOmittedOnReplay)}. Those secrets were shown ` +
+    'only in the first answer and cannot be shown again; if they were lost, replace the credential (for example reset the password or create a new key).'
+  );
+}
+
 function confirmProperty(safety: { kind: GatedKind; reason: string }) {
   return {
     type: 'boolean' as const,
@@ -267,6 +298,11 @@ export interface WriteToolOptions<S extends z.ZodTypeAny> {
   buildBody?: (args: z.infer<S>) => unknown;
   /** Override result formatting (e.g. unwrap a returned credential). Default: jsonResult. */
   formatResult?: (data: unknown) => ToolCallResult;
+  /**
+   * POST only: the route honours Idempotency-Key (it is in idempotency.ts). Adds the
+   * optional `idempotency_key` input and the safe-retry behaviour.
+   */
+  idempotent?: boolean;
 }
 
 export function writeTool<S extends z.ZodTypeAny>(
@@ -276,16 +312,27 @@ export function writeTool<S extends z.ZodTypeAny>(
   if (safety.kind !== 'plain' && !safety.reason?.trim()) {
     throw new Error(`${opts.name}: a ${safety.kind} tool needs a non-empty safety reason`);
   }
+  if (opts.idempotent && opts.method !== 'POST') {
+    throw new Error(`${opts.name}: only a POST tool can be idempotent`);
+  }
   const gated = safety.kind === 'plain' ? null : safety;
 
-  // Advertise `confirm` on the JSON Schema only when the gate is on.
-  const inputSchema: ToolDefinition['inputSchema'] = gated
-    ? {
-        ...opts.inputSchema,
-        properties: { ...opts.inputSchema.properties, confirm: confirmProperty(gated) },
-        required: [...(opts.inputSchema.required ?? []), 'confirm'],
-      }
-    : opts.inputSchema;
+  // Advertise `idempotency_key` when the route honours it, and `confirm` only
+  // when the gate is on.
+  let inputSchema: ToolDefinition['inputSchema'] = opts.inputSchema;
+  if (opts.idempotent) {
+    inputSchema = {
+      ...inputSchema,
+      properties: { ...inputSchema.properties, idempotency_key: { ...IDEMPOTENCY_KEY_PROPERTY } },
+    };
+  }
+  if (gated) {
+    inputSchema = {
+      ...inputSchema,
+      properties: { ...inputSchema.properties, confirm: confirmProperty(gated) },
+      required: [...(inputSchema.required ?? []), 'confirm'],
+    };
+  }
 
   const description = [
     opts.description,
@@ -307,9 +354,16 @@ export function writeTool<S extends z.ZodTypeAny>(
     },
     async handler(client, args) {
       try {
-        // Separate the factory-owned confirm flag from the domain args so the
-        // per-tool .strict() zod schema never sees it.
-        const { confirm, ...domainArgs } = args as { confirm?: unknown } & Record<string, unknown>;
+        // Separate the factory-owned confirm flag (and, for an idempotent tool,
+        // idempotency_key) from the domain args so the per-tool .strict() zod
+        // schema never sees them. A non-idempotent tool leaves idempotency_key
+        // in place, where .strict() rejects it as unknown.
+        const { confirm, ...rest } = args as { confirm?: unknown } & Record<string, unknown>;
+        let domainArgs: Record<string, unknown> = rest;
+        let idempotencyKey: unknown;
+        if (opts.idempotent) {
+          ({ idempotency_key: idempotencyKey, ...domainArgs } = rest);
+        }
 
         // 1. Runtime input validation (in addition to the advertised JSON Schema).
         const parsed = opts.input.safeParse(domainArgs);
@@ -317,7 +371,12 @@ export function writeTool<S extends z.ZodTypeAny>(
           return errorResult(`Invalid input for ${opts.name}: ${formatZodError(parsed.error)}`);
         }
 
+        if (idempotencyKey !== undefined && !isValidIdempotencyKey(idempotencyKey)) {
+          return errorResult(`Invalid input for ${opts.name}: idempotency_key must be 1 to 255 printable ASCII characters`);
+        }
+
         // 2. Confirm gate: refuse with NO request when required and not granted.
+        //    It runs before any key is generated or any request is made.
         if (gated && confirm !== true) {
           return errorResult(refusalMessage(opts.name, gated));
         }
@@ -327,9 +386,22 @@ export function writeTool<S extends z.ZodTypeAny>(
         const path = opts.buildPath(parsed.data);
         const body = opts.buildBody ? opts.buildBody(parsed.data) : undefined;
 
-        // 4. Dispatch.
-        const data = await callMethod(client, opts.method, path, body);
-        return opts.formatResult ? opts.formatResult(data) : jsonResult(data);
+        // 4. Dispatch. An idempotent POST goes through the client's Idempotency-Key
+        //    path (header, generated key, safe retry); the client itself refuses to
+        //    send the header to a route outside idempotency.ts.
+        let replay: ReplayInfo | undefined;
+        const data =
+          opts.idempotent && isIdempotentPostPath(path)
+            ? await client.post(path, body, {
+                idempotent: {
+                  key: idempotencyKey as string | undefined,
+                  onReplay: (info) => { replay = info; },
+                },
+              })
+            : await callMethod(client, opts.method, path, body);
+        const result = opts.formatResult ? opts.formatResult(data) : jsonResult(data);
+        if (!replay) return result;
+        return { ...result, content: [{ type: 'text', text: replayNote(replay) }, ...result.content] };
       } catch (e) {
         return errorResult(e instanceof APIError ? e.message : (e as Error).message);
       }

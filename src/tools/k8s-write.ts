@@ -44,6 +44,7 @@ export const setClusterScale: ToolDefinition = writeTool({
     `service_id comes from list_services (a cloud-k8s service); read current sizing with ` +
     `get_cluster_scale.`,
   method: 'POST',
+  idempotent: true,
   safety: {
     kind: 'disruptive',
     reason: "changes the worker-count bounds of the cluster's first pool; raising the maximum allows more billable nodes, and lowering the bounds can remove nodes that are running workloads",
@@ -78,6 +79,7 @@ export const addClusterPool: ToolDefinition = writeTool({
     `server-side) and volumeSizeGb (per-node root volume, 10-1000 GiB, default 30) are optional. ` +
     `service_id comes from list_services; inspect existing pools with list_cluster_pools.`,
   method: 'POST',
+  idempotent: true,
   safety: {
     kind: 'spends',
     reason: "provisions new billable worker nodes in the cluster",
@@ -219,6 +221,7 @@ export const enableClusterHa: ToolDefinition = writeTool({
     `etcd). Requires scope services:write. Add-only: Gardener does not allow turning HA back off; ` +
     `idempotent if the cluster is already HA. service_id comes from list_services.`,
   method: 'POST',
+  idempotent: true,
   safety: {
     kind: 'spends',
     reason: "adds about EUR 30/month to the cluster's price, and HA cannot be turned off again once enabled",
@@ -253,6 +256,7 @@ export const createClusterKubeconfig: ToolDefinition = writeTool({
     `"never" mints a 10-year token). Returns the raw kubeconfig YAML as a text block. service_id comes ` +
     `from list_services (a cloud-k8s service). Revoke later with revoke_cluster_kubeconfig.`,
   method: 'POST',
+  idempotent: true,
   safety: {
     kind: 'sensitive',
     reason: "mints a long-lived credential (cluster-admin when role is admin) that stays valid until it is revoked or expires; ttl \"never\" means 10 years",

@@ -71,6 +71,7 @@ export const createTicket: ToolDefinition = writeTool({
     `(1-50000). attachments is an optional list (max 5) of {name, data} where data is base64-encoded file ` +
     `content.`,
   method: 'POST',
+  idempotent: true,
   safety: {
     kind: 'sensitive',
     reason: "sends a message to RareCloud support staff on the user's behalf; staff act on what tickets ask for",
@@ -118,6 +119,7 @@ export const replyTicket: ToolDefinition = writeTool({
     `list_tickets; body is the reply text (1-50000). attachments is an optional list (max 5) of {name, ` +
     `data} where data is base64-encoded file content.`,
   method: 'POST',
+  idempotent: true,
   safety: {
     kind: 'sensitive',
     reason: "sends a message to RareCloud support staff on the user's behalf; staff act on what tickets ask for",

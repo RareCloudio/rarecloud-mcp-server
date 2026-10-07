@@ -7,6 +7,37 @@ import { z } from 'zod';
 import { type ToolDefinition } from './types.js';
 import { writeTool, encodeSegment } from './factories.js';
 
+// --- cloud VM tags (the API's api/src/lib/services/vmTags.ts rules) ---------
+// At most 50 tags, each 1 to 60 characters, no `,` `/` or control characters,
+// and no tag starting with a platform-reserved prefix (case-insensitive).
+export const VM_TAGS_MAX = 50;
+export const VM_TAG_MAX_LENGTH = 60;
+export const VM_TAG_RESERVED_PREFIXES = ['managed:', 'k8s:', 'rarecloud'] as const;
+// eslint-disable-next-line no-control-regex
+const VM_TAG_FORBIDDEN = /[,/\u0000-\u001f\u007f]/;
+
+const vmTag = z
+  .string()
+  .min(1)
+  .max(VM_TAG_MAX_LENGTH)
+  .refine((t) => !VM_TAG_FORBIDDEN.test(t), { message: 'a tag cannot contain a comma, a slash or a control character' })
+  .refine((t) => !VM_TAG_RESERVED_PREFIXES.some((p) => t.toLowerCase().startsWith(p)), {
+    message: `tags starting with ${VM_TAG_RESERVED_PREFIXES.map((p) => `"${p}"`).join(', ')} are reserved for the platform`,
+  });
+
+export const vmTagsInput = z.array(vmTag).max(VM_TAGS_MAX);
+
+const VM_TAG_LIMITS =
+  `At most ${VM_TAGS_MAX} tags, each 1 to ${VM_TAG_MAX_LENGTH} characters, with no comma, slash or control ` +
+  `character; tags starting with "managed:", "k8s:" or "rarecloud" (any case) are reserved for the platform.`;
+
+export const vmTagsJsonSchema = {
+  type: 'array',
+  maxItems: VM_TAGS_MAX,
+  items: { type: 'string', minLength: 1, maxLength: VM_TAG_MAX_LENGTH, pattern: '^[^,/\\u0000-\\u001f\\u007f]+$' },
+  description: `cloud-vm: tags for the new VM. ${VM_TAG_LIMITS}`,
+};
+
 export const setServiceHostname: ToolDefinition = writeTool({
   name: 'set_service_hostname',
   description:
@@ -70,6 +101,7 @@ export const deployService: ToolDefinition = writeTool({
     `Preview the plan and its cost with get_product_details before asking the user to approve. For a ` +
     `cloud VM deployed without rootPassword, the result includes a one-time consolePassword.`,
   method: 'POST',
+  idempotent: true,
   safety: {
     kind: 'spends',
     reason: "places a real order and provisions billable infrastructure, charged to the account",
@@ -100,7 +132,7 @@ export const deployService: ToolDefinition = writeTool({
       healthCheck: z.boolean().optional(),
       sizeGb: z.number().int().optional(),
       addons: z.array(z.string()).optional(),
-      tags: z.array(z.string()).optional(),
+      tags: vmTagsInput.optional(),
       vpcId: z.string().optional(),
       configOptions: z.record(z.unknown()).optional(),
       customFields: z.record(z.unknown()).optional(),
@@ -136,7 +168,8 @@ export const deployService: ToolDefinition = writeTool({
         description: 'cloud-loadbalancer: cloud VMs to balance across (each the same value as the cloud VM service_id from list_services).',
       },
       healthCheck: { type: 'boolean' }, sizeGb: { type: 'integer' },
-      addons: { type: 'array', items: { type: 'string' } }, tags: { type: 'array', items: { type: 'string' } },
+      addons: { type: 'array', items: { type: 'string' } },
+      tags: vmTagsJsonSchema,
       vpcId: { type: 'string', description: 'cloud-vm: private network id from list_networks.' },
       configOptions: { type: 'object' }, customFields: { type: 'object' },
       payWith: { type: 'string' },
@@ -175,6 +208,7 @@ export const resizeService: ToolDefinition = writeTool({
     `list_catalog_products). Requires scope services:write. Runs asynchronously ` +
     `(returns 202). service_id comes from list_services.`,
   method: 'POST',
+  idempotent: true,
   safety: {
     kind: 'spends',
     reason: "moves the VM to a different plan, which changes what the service costs from then on",
@@ -200,6 +234,7 @@ export const upgradeService: ToolDefinition = writeTool({
     `Preview the options and prices with list_upgrade_options. service_id comes from list_services; ` +
     `newProductId comes from list_upgrade_options.`,
   method: 'POST',
+  idempotent: true,
   safety: {
     kind: 'spends',
     reason: "places a real upgrade order and bills the price difference",
@@ -233,6 +268,7 @@ export const renewService: ToolDefinition = writeTool({
     `Ensure a renewal invoice exists for a service (renew the current term). Requires scope ` +
     `services:write. service_id comes from list_services.`,
   method: 'POST',
+  idempotent: true,
   safety: {
     kind: 'spends',
     reason: "generates a renewal invoice for the service and settles it from the account balance",
@@ -254,6 +290,7 @@ export const cancelService: ToolDefinition = writeTool({
     `now; "end_of_term" (the server default) cancels at the paid-through date. service_id comes from ` +
     `list_services.`,
   method: 'POST',
+  idempotent: true,
   safety: {
     kind: 'destructive',
     reason: "schedules the service for termination (now, or at the end of the paid term); once it is terminated the service and its data are gone",
@@ -313,6 +350,7 @@ export const createServiceBackup: ToolDefinition = writeTool({
     `Create an on-demand backup of a legacy VPS service. Requires scope services:write. service_id comes ` +
     `from list_services (a legacy VPS); see existing backups with list_backups.`,
   method: 'POST',
+  idempotent: true,
   safety: { kind: 'plain' },
   input: z.object({ service_id: z.string().min(1) }).strict(),
   inputSchema: {
@@ -413,6 +451,7 @@ export const startService: ToolDefinition = writeTool({
     `Power on a service (cloud VM or legacy VPS). Requires scope services:write. service_id comes from ` +
     `list_services.`,
   method: 'POST',
+  idempotent: true,
   safety: { kind: 'plain' },
   input: z.object({ service_id: z.string().min(1) }).strict(),
   inputSchema: {
@@ -430,6 +469,7 @@ export const stopService: ToolDefinition = writeTool({
     `Power off a service (cloud VM or legacy VPS). Requires scope services:write. service_id comes from ` +
     `list_services. Power it back on with start_service.`,
   method: 'POST',
+  idempotent: true,
   safety: {
     kind: 'disruptive',
     reason: "powers the server off; everything running on it stops until it is started again",
@@ -450,6 +490,7 @@ export const rebootService: ToolDefinition = writeTool({
     `Reboot a service (cloud VM or legacy VPS). Requires scope services:write. service_id comes from ` +
     `list_services.`,
   method: 'POST',
+  idempotent: true,
   safety: {
     kind: 'disruptive',
     reason: "restarts the server; everything running on it is interrupted until it is back up",
@@ -474,6 +515,7 @@ export const reinstallService: ToolDefinition = writeTool({
     `without a password, the result includes a one-time consolePassword. service_id comes from ` +
     `list_services.`,
   method: 'POST',
+  idempotent: true,
   safety: {
     kind: 'destructive',
     reason: "wipes the server's disk and reinstalls the operating system; all data on it is lost",
@@ -516,6 +558,7 @@ export const resetServicePassword: ToolDefinition = writeTool({
     `supply the new password (8-128 chars); the response does not return it. service_id comes from ` +
     `list_services.`,
   method: 'POST',
+  idempotent: true,
   safety: {
     kind: 'disruptive',
     reason: "replaces the root password on the running VM; the old password stops working immediately",
@@ -542,6 +585,7 @@ export const addServiceSshKey: ToolDefinition = writeTool({
     `add_service_ssh_key_to_library, which registers a key in the server's reinstall-time key library. ` +
     `Requires scope services:write. service_id comes from list_services.`,
   method: 'POST',
+  idempotent: true,
   safety: {
     kind: 'sensitive',
     reason: "grants SSH access to the running server to whoever holds the matching private key",
@@ -582,6 +626,7 @@ export const addServiceSshKeyToLibrary: ToolDefinition = writeTool({
     `on the running server (add_service_ssh_key does that). Requires scope services:write. service_id ` +
     `comes from list_services.`,
   method: 'POST',
+  idempotent: true,
   safety: { kind: 'plain' },
   input: z.object({ service_id: z.string().min(1), name: z.string().min(1).max(200), key: z.string().min(1).max(4096) }).strict(),
   inputSchema: {
@@ -630,4 +675,31 @@ export const applyServiceSshKeyLibrary: ToolDefinition = writeTool({
     if (a.keyIds !== undefined) body.keyIds = a.keyIds;
     return body;
   },
+});
+
+// --- set_service_tags (PUT /v1/services/{id}/tags, plain) -----------------
+// Replaces a cloud VM's whole tag set (stored as server tags); [] clears it.
+// Legacy services and other categories have no tags (the API answers
+// NOT_IMPLEMENTED).
+export const setServiceTags: ToolDefinition = writeTool({
+  name: 'set_service_tags',
+  description:
+    `Replace the tags of a cloud VM with the given list: the whole set is replaced, so pass every tag the VM ` +
+    `should keep, and [] removes them all. Cloud VMs only (other services have no tags). Requires scope ` +
+    `services:write. service_id is the cloud VM id from list_services. ${VM_TAG_LIMITS} Exact duplicates are ` +
+    `dropped. Returns the updated service; get_service shows the current tags.`,
+  method: 'PUT',
+  safety: { kind: 'plain' },
+  input: z.object({ service_id: z.string().min(1), tags: vmTagsInput }).strict(),
+  inputSchema: {
+    type: 'object',
+    properties: {
+      service_id: { type: 'string', description: 'Cloud VM service ID from list_services.' },
+      tags: { ...vmTagsJsonSchema, description: `The complete new tag set ([] clears every tag). ${VM_TAG_LIMITS}` },
+    },
+    required: ['service_id', 'tags'],
+    additionalProperties: false,
+  },
+  buildPath: (a) => `/v1/services/${encodeSegment(a.service_id, 'service_id')}/tags`,
+  buildBody: (a) => ({ tags: a.tags }),
 });

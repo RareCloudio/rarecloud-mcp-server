@@ -26,6 +26,7 @@ import {
   addServiceSshKey,
   addServiceSshKeyToLibrary,
   applyServiceSshKeyLibrary,
+  setServiceTags,
 } from './services-write.js';
 import { APIError, type RareCloudClient } from '../client.js';
 import type { ToolCallResult, ToolDefinition } from './types.js';
@@ -699,4 +700,80 @@ test('apply_service_ssh_key_library: omits undefined keyIds (empty body) when no
   const result = await applyServiceSshKeyLibrary.handler(client, {confirm: true,  service_id: 's1' });
   assert.equal(result.isError, undefined);
   assert.deepEqual(calls, [{ method: 'POST', path: '/v1/services/s1/ssh-keys/library/apply', body: {} }]);
+});
+
+// --- set_service_tags -------------------------------------------------------
+
+test('set_service_tags: PUTs the whole tag set to /v1/services/{id}/tags; plain, no confirm', async () => {
+  assert.equal(setServiceTags.name, 'set_service_tags');
+  assert.ok(!('confirm' in setServiceTags.inputSchema.properties));
+  assert.deepEqual(setServiceTags.inputSchema.required, ['service_id', 'tags']);
+  assert.match(setServiceTags.description, /Cloud VMs only/);
+  assert.match(setServiceTags.description, /\[\] removes them all/);
+  assert.match(setServiceTags.description, /At most 50 tags, each 1 to 60 characters/);
+  assert.match(setServiceTags.description, /"managed:", "k8s:" or "rarecloud"/);
+  const { client, calls } = fakeWriteClient();
+  const r = await setServiceTags.handler(client, { service_id: 'vm 1', tags: ['web', 'env:prod'] });
+  assert.equal(r.isError, undefined);
+  assert.deepEqual(calls, [{ method: 'PUT', path: '/v1/services/vm%201/tags', body: { tags: ['web', 'env:prod'] } }]);
+});
+
+test('set_service_tags: [] clears every tag', async () => {
+  const { client, calls } = fakeWriteClient();
+  await setServiceTags.handler(client, { service_id: 'vm-1', tags: [] });
+  assert.deepEqual(calls[0].body, { tags: [] });
+});
+
+test('set_service_tags: the API tag limits are enforced before any request', async () => {
+  const bad: unknown[][] = [
+    [''],
+    ['x'.repeat(61)],
+    ['a,b'],
+    ['a/b'],
+    ['tab\there'],
+    ['managed:kubernetes'],
+    ['K8S:cluster'],
+    ['RareCloud_user_id'],
+    Array.from({ length: 51 }, (_, i) => `t${i}`),
+  ];
+  for (const tags of bad) {
+    const { client, calls } = fakeWriteClient();
+    const r = await setServiceTags.handler(client, { service_id: 'vm-1', tags });
+    assert.equal(r.isError, true, JSON.stringify(tags).slice(0, 60));
+    assert.match((r.content[0] as { text: string }).text, /^Error: Invalid input for set_service_tags/);
+    assert.equal(calls.length, 0);
+  }
+  const { client, calls } = fakeWriteClient();
+  await setServiceTags.handler(client, { service_id: 'vm-1', tags: [...Array.from({ length: 50 }, (_, i) => `t${i}`)] });
+  assert.equal(calls.length, 1, '50 tags is the limit, not over it');
+});
+
+test('set_service_tags: the JSON schema mirrors the limits', () => {
+  const tags = setServiceTags.inputSchema.properties.tags as { maxItems: number; items: { minLength: number; maxLength: number; pattern: string } };
+  assert.equal(tags.maxItems, 50);
+  assert.equal(tags.items.minLength, 1);
+  assert.equal(tags.items.maxLength, 60);
+  const re = new RegExp(tags.items.pattern);
+  assert.equal(re.test('env:prod'), true);
+  assert.equal(re.test('a,b'), false);
+  assert.equal(re.test('a/b'), false);
+});
+
+test('set_service_tags: traversal service_id is rejected before any request', async () => {
+  const { client, calls } = fakeWriteClient();
+  const r = await setServiceTags.handler(client, { service_id: '..', tags: [] });
+  assert.equal(r.isError, true);
+  assert.equal(calls.length, 0);
+});
+
+test('deploy_service: cloud-vm tags follow the same limits (schema + validation)', async () => {
+  const tags = deployService.inputSchema.properties.tags as { maxItems: number; description: string };
+  assert.equal(tags.maxItems, 50);
+  assert.match(tags.description, /reserved for the platform/);
+  const { client, calls } = fakeWriteClient();
+  const r = await deployService.handler(client, { productId: 'sku', tags: ['managed:x'], confirm: true });
+  assert.equal(r.isError, true);
+  assert.equal(calls.length, 0);
+  await deployService.handler(client, { productId: 'sku', tags: ['web'], confirm: true });
+  assert.deepEqual((calls[0].body as { tags: string[] }).tags, ['web']);
 });

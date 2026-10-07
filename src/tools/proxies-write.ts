@@ -121,6 +121,7 @@ export const orderProxy: ToolDefinition = writeTool({
     `with get_proxy_catalog), or a GB Residential bucket {kind:"residential-gb", gb}. For an ISP plan the ` +
     `result includes the new proxy list.`,
   method: 'POST',
+  idempotent: true,
   safety: {
     kind: 'spends',
     reason: "places a charged order for a new proxy plan",
@@ -157,6 +158,7 @@ export const renewProxy: ToolDefinition = writeTool({
     `call; bulk periods carry a discount (3 -> 5%, 6 -> 10%, 12 -> 20%); see get_proxy_catalog for ` +
     `prices. id comes from list_proxies.`,
   method: 'POST',
+  idempotent: true,
   safety: {
     kind: 'spends',
     reason: "creates a charged renewal invoice for the proxy service, settled from credit or bonus when available",
@@ -327,6 +329,7 @@ export const addProxyWhitelistedIp: ToolDefinition = writeTool({
     `ip must be a valid IPv4 or IPv6 address; use get_proxy_auth's yourIp field to whitelist the caller's ` +
     `own detected IP. id comes from list_proxies.`,
   method: 'POST',
+  idempotent: true,
   safety: { kind: 'plain' },
   input: z.object({ id: z.string().min(1), ip: z.string().ip() }).strict(),
   inputSchema: {
@@ -378,6 +381,7 @@ export const requestProxyReplacement: ToolDefinition = writeTool({
     `fulfils the swap; check get_proxy_replacements first to confirm an allowance is available this month ` +
     `(the request is refused server-side once the allowance is used). id comes from list_proxies.`,
   method: 'POST',
+  idempotent: true,
   safety: {
     kind: 'disruptive',
     reason: "uses this month's included replacement and swaps an IP out; clients pinned to the old IP stop working once it is replaced",
@@ -406,6 +410,7 @@ export const createProxyRequest: ToolDefinition = writeTool({
     `list_gb_residential_countries; rotationInterval comes from list_gb_rotation_intervals. id comes from ` +
     `list_proxies (a GB Residential service).`,
   method: 'POST',
+  idempotent: true,
   safety: { kind: 'plain' },
   input: z
     .object({

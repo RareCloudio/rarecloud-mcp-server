@@ -113,7 +113,9 @@ import {
   addServiceSshKey,
   addServiceSshKeyToLibrary,
   applyServiceSshKeyLibrary,
+  setServiceTags,
 } from './services-write.js';
+import { listApiAccess } from './api-access.js';
 import {
   setClusterScale,
   addClusterPool,
@@ -251,6 +253,7 @@ export const TOOLS: ToolDefinition[] = [
   getAccountActivity,
   listAccountEmails,
   listAccountContacts,
+  listApiAccess,
   // Cloud infrastructure ("what storage / networks / LBs / IPs / firewalls do I have?")
   listVolumes,
   getVolume,
@@ -321,6 +324,7 @@ export const TOOLS: ToolDefinition[] = [
   addServiceSshKey,
   addServiceSshKeyToLibrary,
   applyServiceSshKeyLibrary,
+  setServiceTags,
   // Managed Kubernetes — writes
   setClusterScale,
   addClusterPool,

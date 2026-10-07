@@ -4,6 +4,63 @@ All notable changes to `@rarecloudio/mcp-server` are recorded here.
 
 ## Unreleased
 
+### Added: safe retries with idempotency keys
+
+The 40 write tools that map to a POST route where the API honours an
+`Idempotency-Key` now take an optional `idempotency_key` input (1 to 255
+printable ASCII characters; reuse the same value if you retry this exact
+request). It is sent as the `Idempotency-Key` header, so the API runs the
+request at most once per key. Without it the server makes one UUIDv4 key per
+call and retries once, with that key, when the connection drops or times out
+(a gateway 502/503/504 page counts as a dropped answer). `409
+IDEMPOTENCY_IN_PROGRESS` is waited out (`Retry-After`, capped at 10 seconds, at
+most 3 times); `422 IDEMPOTENCY_KEY_REUSED` and every other error are final. A
+replayed answer starts with a note that says so and passes on
+`secretsOmittedOnReplay`. The confirm gate still runs first. The header and the
+retry live in the client, once, and are never used on any other POST. Tools:
+`add_account_ssh_key`, `add_cluster_pool`, `add_firewall_rule`,
+`add_load_balancer_member`, `add_proxy_whitelisted_ip`, `add_service_ssh_key`,
+`add_service_ssh_key_to_library`, `cancel_service`, `create_bucket`,
+`create_cluster_kubeconfig`, `create_firewall`, `create_load_balancer`,
+`create_network`, `create_object_storage_key`, `create_proxy_request`,
+`create_service_backup`, `create_ticket`, `create_volume`, `deploy_service`,
+`enable_cluster_ha`, `enable_object_storage`, `manage_account_contact`,
+`order_proxy`, `reboot_service`, `redeem_voucher`, `register_domain`,
+`reinstall_service`, `renew_domain`, `renew_proxy`, `renew_service`,
+`reply_ticket`, `request_proxy_replacement`, `reserve_ip`,
+`reset_service_password`, `resize_service`, `set_cluster_scale`,
+`start_service`, `stop_service`, `transfer_domain`, `upgrade_service`.
+
+### Added: resources the user made read-only for agents
+
+- `list_api_access` (read, `GET /v1/api-access`): the services and domains the
+  user made read-only for agents and API tokens, to check before planning
+  changes.
+- A `403 RESOURCE_PROTECTED` refusal is turned, in one place, into an error that
+  tells the agent the user made the resource read-only, that it must not retry
+  or work around it, and to ask the user to turn API access on in the console at
+  the link the API gives, if the change is really wanted.
+- The switch endpoints (`PUT /v1/services/{id}/api-access`,
+  `PUT /v1/domains/{id}/api-access`) have no tool: only a console session can
+  change API access. The registry exclusion test pins it.
+
+### Added: `set_service_tags`
+
+`set_service_tags` (plain, `PUT /v1/services/{id}/tags`) replaces a cloud VM's
+whole tag set; `[]` clears it. At most 50 tags, each 1 to 60 characters, no
+comma, slash or control character, and no tag starting with `managed:`, `k8s:`
+or `rarecloud` (any case).
+
+### Changed
+
+- `deploy_service`: `tags` (cloud VM) now enforces the same tag limits.
+- `list_services`, `get_service`, `list_domains`, `get_domain` describe the
+  `apiAccess` field (`"full"` or `"read_only"`, missing means full);
+  `get_service` also describes a cloud VM's `tags` and `bandwidthUsage`
+  (`usedGb`, `includedGb`, `periodStart`, `measuredThrough`, present while
+  egress metering is on).
+- The server now exposes 172 tools: 85 reads and 87 writes, 63 of them gated.
+
 ### Added: Object Storage tools
 
 Object Storage (S3-compatible buckets with optional CDN delivery) had no MCP

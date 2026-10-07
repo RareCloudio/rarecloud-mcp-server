@@ -9,7 +9,7 @@ import { readTool, encodeSegment, defineReadTool } from './factories.js';
 
 export const listServices: ToolDefinition = defineReadTool({
   name: 'list_services',
-  description: 'List all services in the authenticated account: VPS servers, cloud VMs, proxies, hosting, domains. Returns each service\'s id, kind, name, status, IPv4, region, specs, billing cycle. Use to answer "what do I have running?" or to find a service ID for follow-up calls.',
+  description: 'List all services in the authenticated account: VPS servers, cloud VMs, proxies, hosting, domains. Returns each service\'s id, kind, name, status, IPv4, region, specs, billing cycle, and apiAccess ("full", or "read_only" when the user made it read-only for agents and API tokens: no tool can change it, see list_api_access; missing means "full"). Use to answer "what do I have running?" or to find a service ID for follow-up calls.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -35,7 +35,7 @@ export const listServices: ToolDefinition = defineReadTool({
 
 export const getService: ToolDefinition = defineReadTool({
   name: 'get_service',
-  description: 'Get full details for a single service by ID: status, network config, billing state, current-month usage. Use when you need more than the list_services summary (e.g. to inspect logs, current cost, attached resources).',
+  description: 'Get full details for a single service by ID: status, network config, billing state, current-month usage. For a cloud VM it also returns tags (change them with set_service_tags) and, while egress metering is on, bandwidthUsage {usedGb, includedGb, periodStart, measuredThrough} (outbound traffic this period against the included allowance). It also carries apiAccess ("full", or "read_only" when the user made the service read-only for agents and API tokens: no tool can change it; ask the user to turn API access on in the console if a change is really wanted); missing means "full". Use when you need more than the list_services summary (e.g. to inspect logs, current cost, attached resources).',
   inputSchema: {
     type: 'object',
     properties: {
