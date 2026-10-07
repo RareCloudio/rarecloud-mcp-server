@@ -86,6 +86,7 @@ export const redeemVoucher: ToolDefinition = writeTool({
     `Redeem a credit voucher / promo code, adding credit to the account balance. Requires scope ` +
     `billing:write. It grants credit; no money leaves the account. code is the voucher code (1-64 chars).`,
   method: 'POST',
+  idempotent: true,
   safety: { kind: 'plain' },
   input: z.object({ code: z.string().min(1).max(64) }).strict(),
   inputSchema: {

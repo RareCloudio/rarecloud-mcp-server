@@ -66,6 +66,7 @@ export const createFirewall: ToolDefinition = writeTool({
     `Create a new cloud firewall (security group). Requires scope services:write. name is the display ` +
     `name (1-63 chars). Add rules with add_firewall_rule, then attach it to a VM with attach_firewall.`,
   method: 'POST',
+  idempotent: true,
   safety: { kind: 'plain' },
   input: z.object({ name: z.string().min(1).max(63) }).strict(),
   inputSchema: {
@@ -108,6 +109,7 @@ export const addFirewallRule: ToolDefinition = writeTool({
     `label (max 255 chars). The server enforces portRangeMin <= portRangeMax; a rule violating that ` +
     `ordering is rejected with a 400.`,
   method: 'POST',
+  idempotent: true,
   safety: { kind: 'plain' },
   input: z
     .object({
@@ -234,6 +236,7 @@ export const createLoadBalancer: ToolDefinition = writeTool({
     `list_services); healthCheck enables a TCP health monitor (defaults to true server-side if omitted). ` +
     `Manage it afterward with add_load_balancer_member / remove_load_balancer_member.`,
   method: 'POST',
+  idempotent: true,
   safety: {
     kind: 'spends',
     reason: "creates a load balancer and a public IP, each billed hourly until the load balancer is deleted",
@@ -297,6 +300,7 @@ export const addLoadBalancerMember: ToolDefinition = writeTool({
     `list_load_balancers; serverId is the cloud VM to add (the same value as the cloud VM service_id from ` +
     `list_services); port is the member port (1-65535).`,
   method: 'POST',
+  idempotent: true,
   safety: { kind: 'plain' },
   input: z.object({ id: z.string().min(1), serverId: z.string().min(1), port: z.number().int().min(1).max(65535) }).strict(),
   inputSchema: {

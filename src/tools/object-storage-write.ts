@@ -39,6 +39,7 @@ export const enableObjectStorage: ToolDefinition = writeTool({
     'create_bucket, which enables the service itself; the namespace handle is chosen at the first ' +
     'create_bucket. get_object_storage shows the price card.',
   method: 'POST',
+  idempotent: true,
   safety: {
     kind: 'spends',
     reason:
@@ -81,6 +82,7 @@ export const createBucket: ToolDefinition = writeTool({
     'to the stored one; it can never be changed. versioning keeps old object versions, which are billed ' +
     'as stored data. Enables Object Storage if it is off.',
   method: 'POST',
+  idempotent: true,
   safety: {
     kind: 'spends',
     reason:
@@ -217,6 +219,7 @@ export const createObjectStorageKey: ToolDefinition = writeTool({
     'key and revoke the old one. The result holds accessKeyId and secretAccessKey; the secret is shown ' +
     'only this once.',
   method: 'POST',
+  idempotent: true,
   safety: {
     kind: 'sensitive',
     reason: 'creates a new credential that can read (or read and write) the chosen buckets until it is revoked',

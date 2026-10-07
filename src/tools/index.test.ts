@@ -5,11 +5,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { TOOLS, findTool } from './index.js';
-import type { RareCloudClient } from '../client.js';
+import type { RareCloudClient, PostOptions } from '../client.js';
+import { isIdempotentPostPath } from '../idempotency.js';
 
 // Bump this in the same commit that adds/removes tools. A mismatch means the
 // registry changed without the test acknowledging it.
-const EXPECTED_TOOL_COUNT = 170;
+const EXPECTED_TOOL_COUNT = 172;
 
 test('registry: tool count matches the expected total', () => {
   assert.equal(TOOLS.length, EXPECTED_TOOL_COUNT);
@@ -88,6 +89,11 @@ const FORBIDDEN_TOOL_NAMES = [
   'create_token', 'create_api_token', 'add_token', 'delete_token', 'revoke_token', 'delete_api_token', 'revoke_api_token',
   // vpanel act / SSO / checkout-url (browser-only / zero agent value)
   'vpanel_act', 'service_vpanel_action', 'vpanel_action', 'panel_sso', 'renew_sso', 'get_checkout_url', 'checkout_url',
+  // per-resource API access switch (PUT /services/{id}/api-access, PUT /domains/{id}/api-access):
+  // only a console session can change API access; an agent that could flip it could
+  // turn a read-only resource writable and then change it.
+  'set_api_access', 'set_service_api_access', 'set_domain_api_access', 'update_api_access',
+  'enable_api_access', 'disable_api_access', 'set_resource_api_access', 'toggle_api_access',
 ] as const;
 
 test('exclusion guard: no forbidden identity/credential/money tool is registered', () => {
@@ -195,6 +201,7 @@ test('exclusion guard: the services:write surface is EXACTLY the safe set (IaaS 
     'set_service_autorenew',
     'set_service_hostname',
     'set_service_password',
+    'set_service_tags',
     'start_service',
     'stop_service',
     'unmount_service_iso',
@@ -341,6 +348,7 @@ const PLAIN_TOOLS = [
   'set_proxy_auto_renew',
   'set_service_autorenew',
   'set_service_hostname',
+  'set_service_tags',
   'start_service',
   'unmount_service_iso',
 ];
@@ -364,10 +372,10 @@ function reasonOf(description: string): string {
   return m[1];
 }
 
-test('safety: every tool (all 170) carries annotations; reads are readOnly, writes are not', () => {
+test('safety: every tool (all 172) carries annotations; reads are readOnly, writes are not', () => {
   assert.equal(readTools().length + writeTools().length, TOOLS.length, 'every tool sets readOnlyHint');
-  assert.equal(readTools().length, 84);
-  assert.equal(writeTools().length, 86);
+  assert.equal(readTools().length, 85);
+  assert.equal(writeTools().length, 87);
   for (const t of readTools()) {
     assert.deepEqual(
       t.annotations,
@@ -377,13 +385,13 @@ test('safety: every tool (all 170) carries annotations; reads are readOnly, writ
   }
 });
 
-test('safety: the gated set (63) and the plain set (23) are exactly the pinned ones', () => {
+test('safety: the gated set (63) and the plain set (24) are exactly the pinned ones', () => {
   const gated = writeTools().filter((t) => 'confirm' in t.inputSchema.properties).map((t) => t.name).sort();
   const plain = writeTools().filter((t) => !('confirm' in t.inputSchema.properties)).map((t) => t.name).sort();
   assert.deepEqual(gated, Object.keys(GATED_TOOLS).sort());
   assert.deepEqual(plain, [...PLAIN_TOOLS].sort());
   assert.equal(gated.length, 63);
-  assert.equal(plain.length, 23);
+  assert.equal(plain.length, 24);
 });
 
 test('safety: each write tool carries its kind (Safety tag + destructiveHint + openWorldHint)', () => {
@@ -581,5 +589,155 @@ test('descriptions: every id parameter names the specific tool its value comes f
       assert.match(d, /\b(list|get)_[a-z_]+[a-z]\b/, `${t.name}.${key} must name its source tool: "${d}"`);
       assert.ok(!d.includes('list_*'), `${t.name}.${key} must name a concrete tool, not list_*: "${d}"`);
     }
+  }
+});
+
+// ---------------------------------------------------------------------------
+// IDEMPOTENCY KEYS. A write tool takes `idempotency_key` exactly when it POSTs
+// to a route the API covers (idempotency.ts mirrors the API's list). Proven by
+// running every write tool with valid args against a recording client and
+// matching the request it actually makes, so a new POST tool on a covered route
+// that forgets `idempotent: true` (or a flag on an exempt route) fails here.
+// ---------------------------------------------------------------------------
+
+const PLAIN_ARGS: Record<string, Record<string, unknown>> = {
+  add_account_ssh_key: { name: 'laptop', publicKey: 'ssh-ed25519 AAAA' },
+  add_firewall_rule: { ...ID, direction: 'inbound', protocol: 'tcp' },
+  add_load_balancer_member: { ...ID, serverId: 'vm-1', port: 80 },
+  add_proxy_whitelisted_ip: { ...ID, ip: '203.0.113.5' },
+  add_service_ssh_key_to_library: { ...SVC, name: 'k', key: 'ssh-ed25519 AAAA' },
+  attach_firewall: { ...ID, serverId: 'vm-1' },
+  attach_reserved_ip: { ...ID, serverId: 'vm-1' },
+  attach_volume: { ...ID, serverId: 'vm-1' },
+  close_ticket: { ...ID },
+  create_affiliate_link: { destination: 'https://rarecloud.io/' },
+  create_firewall: { name: 'web' },
+  create_network: { name: 'vpc' },
+  create_proxy_request: { ...ID, countryId: 1, proxyCount: 1, rotationInterval: 'all' },
+  create_service_backup: { ...SVC },
+  mount_service_iso: { ...SVC, iso_url: 'https://example.com/a.iso' },
+  redeem_voucher: { code: 'CODE' },
+  resend_email_verification: {},
+  set_billing_alert: { thresholdCents: 1000 },
+  set_proxy_auto_renew: { ...ID, enabled: true },
+  set_service_autorenew: { ...SVC, enabled: true },
+  set_service_hostname: { ...SVC, hostname: 'web-1' },
+  set_service_tags: { ...SVC, tags: ['web'] },
+  start_service: { ...SVC },
+  unmount_service_iso: { ...SVC },
+};
+
+// The tools that take idempotency_key, pinned by name (the README lists them).
+const IDEMPOTENT_TOOLS = [
+  'add_account_ssh_key',
+  'add_cluster_pool',
+  'add_firewall_rule',
+  'add_load_balancer_member',
+  'add_proxy_whitelisted_ip',
+  'add_service_ssh_key',
+  'add_service_ssh_key_to_library',
+  'cancel_service',
+  'create_bucket',
+  'create_cluster_kubeconfig',
+  'create_firewall',
+  'create_load_balancer',
+  'create_network',
+  'create_object_storage_key',
+  'create_proxy_request',
+  'create_service_backup',
+  'create_ticket',
+  'create_volume',
+  'deploy_service',
+  'enable_cluster_ha',
+  'enable_object_storage',
+  'manage_account_contact',
+  'order_proxy',
+  'reboot_service',
+  'redeem_voucher',
+  'register_domain',
+  'reinstall_service',
+  'renew_domain',
+  'renew_proxy',
+  'renew_service',
+  'reply_ticket',
+  'request_proxy_replacement',
+  'reserve_ip',
+  'reset_service_password',
+  'resize_service',
+  'set_cluster_scale',
+  'start_service',
+  'stop_service',
+  'transfer_domain',
+  'upgrade_service',
+];
+
+function recordingClientWithOpts() {
+  const calls: Array<{ method: string; path: string; idempotent: boolean }> = [];
+  const rec = (method: string) => async (path: string, _body?: unknown, opts?: PostOptions) => {
+    calls.push({ method, path, idempotent: Boolean(opts?.idempotent) });
+    return { ok: true };
+  };
+  const client = { get: rec('GET'), post: rec('POST'), put: rec('PUT'), patch: rec('PATCH'), delete: rec('DELETE') };
+  return { client: client as unknown as RareCloudClient, calls };
+}
+
+test('idempotency: idempotency_key is offered exactly by the tools that POST to a covered route', async () => {
+  const ARGS = { ...GATED_ARGS, ...PLAIN_ARGS };
+  assert.deepEqual(Object.keys(ARGS).sort(), writeTools().map((t) => t.name).sort(), 'args table covers every write tool');
+  const offered: string[] = [];
+  for (const t of writeTools()) {
+    const { client, calls } = recordingClientWithOpts();
+    const r = await t.handler(client, { ...ARGS[t.name], confirm: true });
+    // (a result formatter may still reject the canned answer; the request is what counts)
+    assert.equal(calls.length, 1, `${t.name} args must be valid and make one request: ${JSON.stringify(r.content)}`);
+    const covered = calls[0].method === 'POST' && isIdempotentPostPath(calls[0].path);
+    const hasKey = 'idempotency_key' in t.inputSchema.properties;
+    assert.equal(hasKey, covered, `${t.name} (${calls[0].method} ${calls[0].path}): idempotency_key offered=${hasKey}, route covered=${covered}`);
+    assert.equal(calls[0].idempotent, covered, `${t.name} must use the idempotent POST path exactly when covered`);
+    if (hasKey) offered.push(t.name);
+  }
+  assert.deepEqual(offered.sort(), [...IDEMPOTENT_TOOLS].sort());
+});
+
+test('idempotency: no read tool and no non-POST tool offers idempotency_key', () => {
+  for (const t of TOOLS) {
+    if (!('idempotency_key' in t.inputSchema.properties)) continue;
+    assert.ok(IDEMPOTENT_TOOLS.includes(t.name), `${t.name} offers idempotency_key but is not pinned`);
+    assert.equal(t.annotations.readOnlyHint, false, `${t.name} is a read`);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// PER-RESOURCE API ACCESS. The switch endpoints have NO tool: only a console
+// session can change API access. Proven on the requests the write tools
+// actually make (not only on names), plus the read tool that lists the state.
+// ---------------------------------------------------------------------------
+
+test('api access: no tool ever calls the api-access switch endpoints (only a console session can change API access)', async () => {
+  const ARGS = { ...GATED_ARGS, ...PLAIN_ARGS };
+  for (const t of writeTools()) {
+    const { client, calls } = recordingClientWithOpts();
+    await t.handler(client, { ...ARGS[t.name], confirm: true });
+    for (const c of calls) {
+      assert.doesNotMatch(c.path, /\/api-access(\?|$)/, `${t.name} must not reach ${c.method} ${c.path}`);
+    }
+  }
+  for (const t of TOOLS) {
+    assert.ok(t.name === 'list_api_access' || !/api_access/.test(t.name), `${t.name}: only list_api_access may exist`);
+  }
+});
+
+test('api access: list_api_access is a read of GET /v1/api-access', async () => {
+  const t = findTool('list_api_access')!;
+  assert.equal(t.annotations.readOnlyHint, true);
+  assert.match(t.description, /^Resources the user made read-only for agents and API tokens\. Check before planning changes; these cannot be changed by any tool\./);
+  const { client, calls } = recordingClient();
+  await t.handler(client, {});
+  assert.deepEqual(calls, ['GET /v1/api-access']);
+});
+
+test('api access: the service and domain reads mention apiAccess', () => {
+  for (const name of ['list_services', 'get_service', 'list_domains', 'get_domain']) {
+    assert.match(findTool(name)!.description, /apiAccess \("full", or "read_only"/, name);
   }
 });

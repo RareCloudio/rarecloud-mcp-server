@@ -10,13 +10,13 @@ import { readList, readOne, readTool, encodeSegment } from './factories.js';
 export const listDomains = readList(
   'list_domains',
   '/v1/domains',
-  'List registered domains: id, name, status, expiry, auto-renew. Use for "what domains do I own?" or to find a domain id.',
+  'List registered domains: id, name, status, expiry, auto-renew, and apiAccess ("full", or "read_only" when the user made the domain read-only for agents and API tokens: no tool can change it, see list_api_access; missing means "full"). Use for "what domains do I own?" or to find a domain id.',
 );
 
 export const getDomain = readOne(
   'get_domain',
   '/v1/domains',
-  'Get one domain: nameservers, transfer lock, WHOIS privacy, auto-renew, expiry. Use after list_domains for management detail.',
+  'Get one domain: nameservers, transfer lock, WHOIS privacy, auto-renew, expiry, and apiAccess ("full", or "read_only" when the user made it read-only for agents and API tokens: no tool can change its nameservers, DNS, contacts or settings; missing means "full"). Use after list_domains for management detail.',
   'id',
   { idSource: 'list_domains' },
 );

@@ -125,6 +125,7 @@ export const addAccountSshKey: ToolDefinition = writeTool({
     `public-key string (ssh-ed25519 / ssh-rsa / ecdsa, max 4096). This is a PUBLIC key: never paste a ` +
     `private key. It is not installed on any existing server (add_service_ssh_key does that).`,
   method: 'POST',
+  idempotent: true,
   safety: { kind: 'plain' },
   input: z
     .object({
@@ -196,6 +197,7 @@ export const manageAccountContact: ToolDefinition = writeTool({
     `to change), delete (needs id). id comes from list_account_contacts. generalemails / invoiceemails / ` +
     `supportemails toggle which notification streams this contact receives.`,
   method: 'POST',
+  idempotent: true,
   safety: {
     kind: 'sensitive',
     reason: "adds, changes or removes a contact who receives copies of account emails",

@@ -116,6 +116,7 @@ export const registerDomain: ToolDefinition = writeTool({
     `(registrar-dependent). Check availability first with check_domain_availability and price with ` +
     `get_tld_pricing.`,
   method: 'POST',
+  idempotent: true,
   safety: {
     kind: 'spends',
     reason: "places a charged registration order and invoice for the domain",
@@ -172,6 +173,7 @@ export const transferDomain: ToolDefinition = writeTool({
     `1); nameservers is an optional list of up to 5 custom nameserver hostnames; idProtection is an ` +
     `optional WHOIS-privacy add-on (registrar-dependent). Check the price with get_tld_pricing.`,
   method: 'POST',
+  idempotent: true,
   safety: {
     kind: 'spends',
     reason: "places a charged transfer-in order and invoice for the domain",
@@ -226,6 +228,7 @@ export const renewDomain: ToolDefinition = writeTool({
     `comes from list_domains; years is the renewal term (1-10, default 1); autoRenew optionally sets the ` +
     `domain's auto-renew flag. Check the price with get_tld_pricing.`,
   method: 'POST',
+  idempotent: true,
   safety: {
     kind: 'spends',
     reason: "places a charged renewal order and invoice for the domain",
