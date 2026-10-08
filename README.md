@@ -15,12 +15,12 @@ Exposes **173 tools** wrapping the RareCloud REST API: **86 read tools** (inspec
 | Catalog | `list_catalog_products` | Orderable products in the catalog (filter by kind / backend) |
 | | `get_catalog_plan` | Full product detail: plans (sizes), specs, per-cycle pricing, billing tracks |
 | | `list_regions` | Available datacenter regions |
-| | `list_images` | OS images (Ubuntu / Debian / Rocky / Windows Server / …) installable on new servers |
+| | `list_images` | OS images (Ubuntu / Debian / Rocky / Windows Server / …) installable on new servers; only deployable images are listed |
 | | `get_product_details` | Order-ready detail for one SKU: cycles + prices, plans, config options |
 | | `list_prepurchase_os_templates` | OS templates selectable at purchase time for a VPS / dedicated SKU |
 | | `list_catalog_listings` | Deploy-wizard product cards for one category (the console "create" tiles) |
 | | `list_kubernetes_versions` | Managed-Kubernetes (Gardener) versions on offer, newest-supported first |
-| Services | `list_services` | All services in the account: VPS, cloud VMs, proxies, hosting, domains (each with `apiAccess`) |
+| Services | `list_services` | All services in the account: VPS, cloud VMs, proxies, hosting, domains (each with `apiAccess`); a first "partial results" note when some categories could not be loaded |
 | | `get_service` | Full detail for one service: status, network, billing state, usage, `apiAccess`; for a cloud VM also `tags` and `bandwidthUsage` |
 | | `get_service_metrics` | CPU / RAM / disk / bandwidth time series for one service |
 | | `list_backups` | Backups for one legacy VPS |
@@ -109,7 +109,7 @@ The **Safety** column is each tool's kind (see [Safety model](#safety-model)). *
 |---|---|---|---|
 | Services | `set_service_hostname` | plain | Rename a service (legacy VPS hostname, or the cloud VM's server name) |
 | | `deploy_service` | **spends** | Deploy (order + provision) a new service: polymorphic across VM / k8s / volume / load-balancer / network / proxy / domain; load balancers, volumes and networks take no SKU (call `check_order` first; returns a **live secret**) |
-| | `destroy_service` | **destructive** | Permanently destroy a service and release its resources |
+| | `destroy_service` | **destructive** | Permanently destroy a service and release its resources (also load balancers, volumes and private networks by id) |
 | | `resize_service` | **spends** | Resize a cloud VM to a new flavor/plan |
 | | `upgrade_service` | **spends** | Create an upgrade order moving a service to a new product/plan |
 | | `renew_service` | **spends** | Ensure a renewal invoice exists for a service |
@@ -153,8 +153,8 @@ The **Safety** column is each tool's kind (see [Safety model](#safety-model)). *
 | | `delete_firewall_rule` | **destructive** | Remove a rule from a firewall |
 | | `attach_firewall` | plain | Attach a firewall to a cloud VM |
 | | `detach_firewall` | **disruptive** | Detach a firewall from a cloud VM |
-| | `create_load_balancer` | **spends** | Create a new L4 load balancer (VIP + listener + pool + floating IP) |
-| | `delete_load_balancer` | **destructive** | Delete a load balancer |
+| | `create_load_balancer` | **spends** | Create a new L4 load balancer (VIP + listener + pool + floating IP); returns at once with status `pending`, poll `get_load_balancer` until `active` |
+| | `delete_load_balancer` | **destructive** | Delete a load balancer; `deleted` at once, or `deleting` when it was still being set up |
 | | `add_load_balancer_member` | plain | Add a VM as a member of a load-balancer pool |
 | | `remove_load_balancer_member` | **destructive** | Remove a member from a load-balancer pool |
 | Object Storage | `enable_object_storage` | **spends** | Enable Object Storage (starts the monthly base fee); optional, the first bucket does it too |

@@ -3,13 +3,15 @@
 // derived-token + plan-and-approve flow described in
 // docs/ideas/2026-05-22-agent-ai-architecture.md.
 
-import { APIError } from '../client.js';
+import { APIError, type ResponseMeta } from '../client.js';
 import { type ToolDefinition, jsonResult, errorResult } from './types.js';
 import { readTool, encodeSegment, defineReadTool } from './factories.js';
 
 export const listServices: ToolDefinition = defineReadTool({
   name: 'list_services',
-  description: 'List all services in the authenticated account: VPS servers, cloud VMs, proxies, hosting, domains. Returns each service\'s id, kind, name, status, IPv4, region, specs, billing cycle, and apiAccess ("full", or "read_only" when the user made it read-only for agents and API tokens: no tool can change it, see list_api_access; missing means "full"). Use to answer "what do I have running?" or to find a service ID for follow-up calls.',
+  description: 'List all services in the authenticated account: VPS servers, cloud VMs, proxies, hosting, domains. Returns each service\'s id, kind, name, status, IPv4, region, specs, billing cycle, and apiAccess ("full", or "read_only" when the user made it read-only for agents and API tokens: no tool can change it, see list_api_access; missing means "full"). Use to answer "what do I have running?" or to find a service ID for follow-up calls.' +
+    ' If the response carries an X-Partial-Results header, the list is incomplete: the named categories (for example cloud-vm) could not be loaded right now; those resources still exist and are not deleted, so retry in a minute instead of treating them as gone.' +
+    ' status is one of: pending/provisioning (being built), active, suspended (unpaid: billing suspended it), hibernated (stopped on purpose, not unpaid), deleting, terminating, error (statusReason says why). For a cloud VM, powerStatus tells whether it is running or stopped.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -23,10 +25,19 @@ export const listServices: ToolDefinition = defineReadTool({
   async handler(client, args) {
     try {
       // The /v1/services route filters by `category` (not `kind`).
+      const meta: ResponseMeta = {};
       const data = await client.get('/v1/services', {
         category: args.category as string | undefined,
-      });
-      return jsonResult(data);
+      }, meta);
+      const result = jsonResult(data);
+      if (!meta.partialResults) return result;
+      return {
+        ...result,
+        content: [
+          { type: 'text', text: `Note: partial results, missing: ${meta.partialResults.join(', ')}` },
+          ...result.content,
+        ],
+      };
     } catch (e) {
       return errorResult(e instanceof APIError ? e.message : (e as Error).message);
     }
@@ -35,7 +46,8 @@ export const listServices: ToolDefinition = defineReadTool({
 
 export const getService: ToolDefinition = defineReadTool({
   name: 'get_service',
-  description: 'Get full details for a single service by ID: status, network config, billing state, current-month usage. For a cloud VM it also returns tags (change them with set_service_tags) and, while egress metering is on, bandwidthUsage {usedGb, includedGb, periodStart, measuredThrough} (outbound traffic this period against the included allowance). It also carries apiAccess ("full", or "read_only" when the user made the service read-only for agents and API tokens: no tool can change it; ask the user to turn API access on in the console if a change is really wanted); missing means "full". Use when you need more than the list_services summary (e.g. to inspect logs, current cost, attached resources).',
+  description: 'Get full details for a single service by ID: status, network config, billing state, current-month usage. For a cloud VM it also returns tags (change them with set_service_tags) and, while egress metering is on, bandwidthUsage {usedGb, includedGb, periodStart, measuredThrough} (outbound traffic this period against the included allowance). It also carries apiAccess ("full", or "read_only" when the user made the service read-only for agents and API tokens: no tool can change it; ask the user to turn API access on in the console if a change is really wanted); missing means "full". Use when you need more than the list_services summary (e.g. to inspect logs, current cost, attached resources).' +
+    ' status is one of: pending/provisioning (being built), active, suspended (unpaid: billing suspended it), hibernated (stopped on purpose, not unpaid), deleting, terminating, error (statusReason says why). For a cloud VM, powerStatus tells whether it is running or stopped.',
   inputSchema: {
     type: 'object',
     properties: {

@@ -88,7 +88,7 @@ export const listRegions: ToolDefinition = defineReadTool({
 
 export const listImages: ToolDefinition = defineReadTool({
   name: 'list_images',
-  description: 'List available OS images (Ubuntu / Debian / Rocky / Windows Server / etc) that can be installed on new servers. Use to validate an image slug before recommending it.',
+  description: 'List available OS images (Ubuntu / Debian / Rocky / Windows Server / etc) that can be installed on new servers. Use to validate an image slug before recommending it. Only images that can actually be deployed are listed.',
   inputSchema: {
     type: 'object',
     properties: {},

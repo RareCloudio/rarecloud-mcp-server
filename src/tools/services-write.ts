@@ -231,7 +231,9 @@ export const deployService: ToolDefinition = writeTool({
     `list_kubernetes_versions, list_regions, list_images. Preview the plan and its cost with ` +
     `get_product_details before asking the user to approve. Call check_order first to see whether the ` +
     `order will be accepted. For a cloud VM deployed without rootPassword, the result includes a one-time ` +
-    `consolePassword.`,
+    `consolePassword. ` +
+    `For category cloud-loadbalancer the call returns status "provisioning" with serviceId as soon as the ` +
+    `load balancer exists; poll get_load_balancer (or get_service) until status is "active".`,
   method: 'POST',
   idempotent: true,
   safety: {
@@ -289,7 +291,10 @@ export const destroyService: ToolDefinition = writeTool({
   name: 'destroy_service',
   description:
     `Permanently destroy a service and release its resources. Requires scope services:write. service_id ` +
-    `comes from list_services.`,
+    `comes from list_services. For a load balancer, the result includes status "deleted" (gone now) or ` +
+    `"deleting" (it was still being set up and is deleted in the background within a few minutes; poll ` +
+    `get_service until not found). Repeating the call while it is deleting is safe. It also deletes load ` +
+    `balancers, volumes and private networks by id; object storage buckets are deleted with delete_bucket.`,
   method: 'DELETE',
   safety: {
     kind: 'destructive',

@@ -156,3 +156,23 @@ test('patch() sends PATCH with a JSON body and returns the data envelope', async
     stub.restore();
   }
 });
+
+test('client: get exposes the X-Partial-Results header through meta', async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify({ ok: true, data: [] }), {
+      headers: { 'X-Partial-Results': 'cloud-vm, cloud-k8s' },
+    })) as typeof fetch;
+  try {
+    const client = new RareCloudClient({ endpoint: 'https://x.test', token: 't' });
+    const meta: { partialResults?: string[] } = {};
+    await client.get('/v1/services', undefined, meta);
+    assert.deepEqual(meta.partialResults, ['cloud-vm', 'cloud-k8s']);
+    const none: { partialResults?: string[] } = {};
+    globalThis.fetch = (async () => new Response(JSON.stringify({ ok: true, data: [] }))) as typeof fetch;
+    await client.get('/v1/services', undefined, none);
+    assert.equal(none.partialResults, undefined);
+  } finally {
+    globalThis.fetch = original;
+  }
+});

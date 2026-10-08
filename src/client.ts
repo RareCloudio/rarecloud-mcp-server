@@ -99,9 +99,16 @@ interface Envelope<T> {
   secretsOmittedOnReplay?: unknown;
 }
 
+/** Response facts a caller can ask for next to the data (see RareCloudClient.get). */
+export interface ResponseMeta {
+  /** Categories named by the X-Partial-Results header: the list is incomplete without them. */
+  partialResults?: string[];
+}
+
 interface DoResult<T> {
   data: T;
   replayed: boolean;
+  partialResults: string[];
   secretsOmittedOnReplay: string[];
 }
 
@@ -111,9 +118,15 @@ const GATEWAY_STATUSES = new Set([502, 503, 504]);
 export class RareCloudClient {
   constructor(private readonly config: RareCloudClientConfig) {}
 
-  async get<T = unknown>(path: string, query?: Record<string, string | number | undefined>): Promise<T> {
+  async get<T = unknown>(
+    path: string,
+    query?: Record<string, string | number | undefined>,
+    meta?: ResponseMeta,
+  ): Promise<T> {
     const url = this.url(path, query);
-    return (await this.do<T>('GET', url)).data;
+    const r = await this.do<T>('GET', url);
+    if (meta && r.partialResults.length > 0) meta.partialResults = r.partialResults;
+    return r.data;
   }
 
   async post<T = unknown>(path: string, body?: unknown, opts: PostOptions = {}): Promise<T> {
@@ -236,9 +249,14 @@ export class RareCloudClient {
     const data = (env.data ?? ({} as T)) as T;
     const replayed = header('Idempotent-Replayed')?.toLowerCase() === 'true';
     const omitted = env.secretsOmittedOnReplay ?? (data as { secretsOmittedOnReplay?: unknown } | null)?.secretsOmittedOnReplay;
+    const partialResults = (header('X-Partial-Results') ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => s !== '');
     return {
       data,
       replayed,
+      partialResults,
       secretsOmittedOnReplay: Array.isArray(omitted) ? omitted.filter((s): s is string => typeof s === 'string') : [],
     };
   }
