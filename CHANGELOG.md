@@ -4,6 +4,18 @@ All notable changes to `@rarecloudio/mcp-server` are recorded here.
 
 ## Unreleased
 
+### Changed
+
+- Descriptions for asynchronous load balancer create and delete, partial lists,
+  hibernated clusters, deployable images only: `create_load_balancer` (returns
+  `pending`, poll until `active`, never retry create), `delete_load_balancer`
+  (`deleted` or `deleting`), `deploy_service` and `destroy_service` (load
+  balancer results), `list_services` (X-Partial-Results), `get_service` and
+  `list_services` (status vocabulary), `list_images` (deployable only).
+- `list_services` puts a first text block "Note: partial results, missing:
+  cloud-vm" in the result when the API sends an `X-Partial-Results` header;
+  `RareCloudClient.get` takes an optional `meta` object that receives it.
+
 ### Added: `check_order`
 
 - `check_order` (read, `POST /v1/services/preflight`, scope `services:write`):

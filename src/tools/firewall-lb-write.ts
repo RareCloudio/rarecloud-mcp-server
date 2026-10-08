@@ -234,6 +234,11 @@ export const createLoadBalancer: ToolDefinition = writeTool({
     `is the display name (1-253 chars); port is the listener + member port (1-65535); memberServerIds are ` +
     `the cloud VMs to balance across, at least one (each the same value as the cloud VM service_id from ` +
     `list_services); healthCheck enables a TCP health monitor (defaults to true server-side if omitted). ` +
+    `Returns as soon as the load balancer exists, with its id and status "pending" (provisioning). The ` +
+    `listener, members, health check and public IP are then built in the background, usually in a few ` +
+    `minutes. Poll get_load_balancer until status is "active". If status becomes "error", statusReason ` +
+    `says why; the load balancer is not deleted automatically, call delete_load_balancer. Do not call ` +
+    `create again to retry: that builds a second, billed load balancer. ` +
     `Manage it afterward with add_load_balancer_member / remove_load_balancer_member.`,
   method: 'POST',
   idempotent: true,
@@ -276,8 +281,14 @@ export const createLoadBalancer: ToolDefinition = writeTool({
 export const deleteLoadBalancer: ToolDefinition = writeTool({
   name: 'delete_load_balancer',
   description:
-    `Delete a load balancer. Requires scope services:write. Refused server-side for k8s-managed load ` +
-    `balancers (manage those via the Kubernetes Service instead). id comes from list_load_balancers.`,
+    `Delete a load balancer. Requires scope services:write. id comes from list_load_balancers. Deletes ` +
+    `the load balancer (cascade: listener, pool, members, health check; its public IP is released). A load ` +
+    `balancer that is ready is deleted at once and the call returns status "deleted". One that is still ` +
+    `being set up, or still applying a change, is accepted at once and deleted in the background: the call ` +
+    `returns status "deleting" within seconds; it then reads status "deleting" until it is gone, after ` +
+    `which get_load_balancer returns not found. Calling this again while it is deleting is safe and ` +
+    `returns the same answer. If the background deletion fails, the load balancer reads status "error" ` +
+    `with statusReason "Deletion failed, contact support". Kubernetes-managed load balancers are refused.`,
   method: 'DELETE',
   safety: {
     kind: 'destructive',
