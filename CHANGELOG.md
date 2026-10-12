@@ -2,6 +2,53 @@
 
 All notable changes to `@rarecloudio/mcp-server` are recorded here.
 
+## Unreleased
+
+### Added: Container Registry tools
+
+20 tools for the private OCI registry (`/v1/registry*`), all under
+`services:read` / `services:write` (there is no separate registry scope).
+Until the registry launches every registry write answers `503
+BACKEND_UNAVAILABLE` and changes nothing; each write's description says so.
+
+- Reads: `registry_get` (usage is the hourly metering sample; `push.reason`
+  explains a refusal, including the repository cap `repo_limit`, which counts
+  the repository index), `registry_tiers`, `registry_handle_suggest`,
+  `registry_credentials_list` (optional `status: "active"`),
+  `registry_repositories_list` (`lastPush` is the newest image's build time),
+  `registry_repository_get` (`createdAt` is the build time; `pushedAt` is a
+  deprecated alias of it), `registry_repository_vulnerabilities`,
+  `registry_clusters_list`.
+- Writes: `registry_enable` and `registry_set_tier` (spends),
+  `registry_close`, `registry_credentials_revoke`, `registry_repository_delete`
+  (an empty repository answers `deleted: 0`), `registry_tag_delete` (404 for a
+  missing tag), `registry_manifest_delete` (by digest; `confirm_multiple_tags`
+  sends the API's `confirm=true`, without which a digest more than one tag
+  points at answers 409), `registry_cluster_unlink` (destructive),
+  `registry_cluster_rotate` (disruptive), `registry_credentials_create`,
+  `registry_kubernetes_manifest` and `registry_cluster_link` (sensitive; the
+  first two return a live secret once).
+- `registry_enable`, `registry_credentials_create` and `registry_cluster_link`
+  take `idempotency_key`.
+- The client treats an empty 2xx body (a bare 204) as a success instead of
+  `INVALID_RESPONSE`, and `post()` takes an optional `headers` overlay (used to
+  ask the Kubernetes manifest endpoint for JSON).
+
+193 tools: 94 reads, 99 writes (75 gated, 24 plain).
+
+### Changed: Private network firewall and load balancer members
+
+- `list_firewalls` / `get_firewall` describe `isPrivateNetwork` and
+  `remoteFirewallId`; `list_firewalls` no longer mentions a status field.
+- `attach_firewall`, `detach_firewall` and `delete_firewall` say the Private
+  network firewall answers 409; `add_firewall_rule` says an inbound rule on it
+  needs a private source range (400 otherwise) and that `rarecloud:`
+  descriptions are reserved.
+- `create_load_balancer` caps `memberServerIds` at 50 (as the API does) and
+  describes the managed rule on the Private network firewall.
+- `add_load_balancer_member` / `remove_load_balancer_member` describe the 409
+  while a load balancer is being set up or deleted and the two kinds of 503.
+
 ## 0.3.0 (2026-10-08)
 
 ### Changed
