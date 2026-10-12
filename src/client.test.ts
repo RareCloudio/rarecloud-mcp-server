@@ -191,7 +191,7 @@ test('patch() sends PATCH with a JSON body and returns the data envelope', async
 // --- Fix round 1: empty-body responses (a bare 204 from a DELETE route) ----
 //
 // Bug: do() called JSON.parse on the response text unconditionally. A real
-// 204 No Content response (registry_credentials_revoke, registry_tag_delete,
+// 204 No Content response (revoke_registry_credential, delete_registry_tag,
 // and any future DELETE route with no body) has an EMPTY text body, and
 // JSON.parse('') throws, which the old code mapped to a false
 // INVALID_RESPONSE error on every successful call. None of the tool tests

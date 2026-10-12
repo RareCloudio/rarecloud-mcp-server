@@ -93,7 +93,7 @@ export interface PostOptions {
   /**
    * Extra request headers, additive over Authorization / User-Agent /
    * Content-Type. Used by exactly one call site today
-   * (registry_kubernetes_manifest): that endpoint's default response is a raw
+   * (create_registry_kubernetes_manifest): that endpoint's default response is a raw
    * `application/yaml` manifest for a plain `curl | kubectl apply -f -` flow,
    * and it only answers with the structured `{credential,manifest,secret}`
    * JSON envelope when the request carries `Accept: application/json`.
@@ -233,8 +233,8 @@ export class RareCloudClient {
 
     const header = (name: string): string | null => resp.headers?.get?.(name) ?? null;
 
-    // A bare 204 No Content (registry_credentials_revoke, registry_tag_delete,
-    // registry_manifest_delete, and any future DELETE-style route with no body)
+    // A bare 204 No Content (revoke_registry_credential, delete_registry_tag,
+    // delete_registry_manifest, and any future DELETE-style route with no body)
     // has an EMPTY text body. JSON.parse('') throws, which used to map every one
     // of these successful calls to a false INVALID_RESPONSE error. An empty body
     // on a 2xx status is a success with nothing to report ({} as T, the same as

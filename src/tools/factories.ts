@@ -301,7 +301,7 @@ export interface WriteToolOptions<S extends z.ZodTypeAny> {
   /**
    * Extra request headers for this tool's one HTTP call. Additive over the
    * client's own Authorization/User-Agent/Content-Type, used ONLY by
-   * registry_kubernetes_manifest today, whose endpoint answers with a raw
+   * create_registry_kubernetes_manifest today, whose endpoint answers with a raw
    * `application/yaml` manifest unless the request carries
    * `Accept: application/json`. Every other write tool omits this.
    */

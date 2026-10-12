@@ -74,14 +74,14 @@ Exposes **193 tools** wrapping the RareCloud REST API: **94 read tools** (inspec
 | | `get_bucket` | One bucket: endpoint and URLs, public URL, versioning, size and object count |
 | | `get_bucket_usage` | Daily usage series for one bucket (1-90 days) |
 | | `list_object_storage_keys` | S3 access keys: id, name, access key id, scope, status (never the secret) |
-| Container Registry | `registry_get` | The account's private OCI registry: handle, hostname, tier, status, hourly usage sample, quota, push state (incl. the repository cap), linked-cluster counts |
-| | `registry_tiers` | Billing tiers: storage quota, burst ceiling, monthly price (EUR/USD), overage rate, availability |
-| | `registry_handle_suggest` | Up to 3 free, valid, non-reserved handle suggestions from a `base` string |
-| | `registry_credentials_list` | Robot credentials (docker login / pull / push), metadata only, never a secret; `status: "active"` for usable ones only |
-| | `registry_repositories_list` | Repositories under the account's registry handle, paginated (`lastPush` is the newest image's build time) |
-| | `registry_repository_get` | One repository's tags: digest, build time (`createdAt`), platforms, CVE severity counts |
-| | `registry_repository_vulnerabilities` | Paginated CVE findings for one tag |
-| | `registry_clusters_list` | Kubernetes clusters linked to the registry, with syncer health and credential name |
+| Container Registry | `get_registry` | The account's private OCI registry: handle, hostname, tier, status, hourly usage sample, quota, push state (incl. the repository cap), linked-cluster counts |
+| | `list_registry_tiers` | Billing tiers: storage quota, burst ceiling, monthly price (EUR/USD), overage rate, availability |
+| | `suggest_registry_handle` | Up to 3 free, valid, non-reserved handle suggestions from a `base` string |
+| | `list_registry_credentials` | Robot credentials (docker login / pull / push), metadata only, never a secret; `status: "active"` for usable ones only |
+| | `list_registry_repositories` | Repositories under the account's registry handle, paginated (`lastPush` is the newest image's build time) |
+| | `get_registry_repository` | One repository's tags: digest, build time (`createdAt`), platforms, CVE severity counts |
+| | `list_registry_tag_vulnerabilities` | Paginated CVE findings for one tag |
+| | `list_registry_clusters` | Kubernetes clusters linked to the registry, with syncer health and credential name |
 | Domains | `list_domains` | Registered domains: id, name, status, expiry, auto-renew, `apiAccess` |
 | | `get_domain` | One domain: nameservers, transfer lock, WHOIS privacy, auto-renew, expiry, `apiAccess` |
 | | `check_domain_availability` | Whether a domain name is available to register |
@@ -172,18 +172,18 @@ The **Safety** column is each tool's kind (see [Safety model](#safety-model)). *
 | | `delete_bucket` | **destructive** | Delete a bucket; `purge:true` deletes every object in it first |
 | | `create_object_storage_key` | **sensitive** | Create an S3 access key scoped to buckets + read/readwrite (returns a **live secret**, shown once) |
 | | `delete_object_storage_key` | **destructive** | Revoke an S3 access key |
-| Container Registry | `registry_enable` | **spends** | Enable the registry with an immutable handle and a tier, or reopen / re-enable a closed one |
-| | `registry_set_tier` | **spends** | Change the registry's billing tier (a downgrade below measured usage is refused) |
-| | `registry_close` | **destructive** | Close the registry (the API also wants the handle typed back); storage is purged after `deleteAfter` unless reopened |
-| | `registry_credentials_create` | **sensitive** | Create a pull or push robot credential (returns a **live secret**, shown once) |
-| | `registry_credentials_revoke` | **destructive** | Revoke a robot credential immediately |
-| | `registry_repository_delete` | **destructive** | Delete every image in a repository (an empty repository answers `deleted: 0`) |
-| | `registry_tag_delete` | **destructive** | Delete one tag (404 if it does not exist); the image stays pullable by digest about 8 days |
-| | `registry_manifest_delete` | **destructive** | Delete an image by digest with every tag on it; `confirm_multiple_tags` when more than one tag points at it (409 otherwise) |
-| | `registry_cluster_link` | **sensitive** | Link a managed Kubernetes cluster (installs the secret-syncer; relay the returned disclosure verbatim) |
-| | `registry_cluster_unlink` | **destructive** | Unlink a cluster, removing everything the link installed and revoking its credential |
-| | `registry_cluster_rotate` | **disruptive** | Rotate a linked cluster's pull credential (no secret returned) |
-| | `registry_kubernetes_manifest` | **sensitive** | Pull-secret manifest for a cluster you run yourself (returns a **live secret**, shown once) |
+| Container Registry | `enable_registry` | **spends** | Enable the registry with an immutable handle and a tier, or reopen / re-enable a closed one |
+| | `set_registry_tier` | **spends** | Change the registry's billing tier (a downgrade below measured usage is refused) |
+| | `close_registry` | **destructive** | Close the registry (the API also wants the handle typed back); storage is purged after `deleteAfter` unless reopened |
+| | `create_registry_credential` | **sensitive** | Create a pull or push robot credential (returns a **live secret**, shown once) |
+| | `revoke_registry_credential` | **destructive** | Revoke a robot credential immediately |
+| | `delete_registry_repository` | **destructive** | Delete every image in a repository (an empty repository answers `deleted: 0`) |
+| | `delete_registry_tag` | **destructive** | Delete one tag (404 if it does not exist); the image stays pullable by digest about 8 days |
+| | `delete_registry_manifest` | **destructive** | Delete an image by digest with every tag on it; `confirm_multiple_tags` when more than one tag points at it (409 otherwise) |
+| | `link_registry_cluster` | **sensitive** | Link a managed Kubernetes cluster (installs the secret-syncer; relay the returned disclosure verbatim) |
+| | `unlink_registry_cluster` | **destructive** | Unlink a cluster, removing everything the link installed and revoking its credential |
+| | `rotate_registry_cluster_link` | **disruptive** | Rotate a linked cluster's pull credential (no secret returned) |
+| | `create_registry_kubernetes_manifest` | **sensitive** | Pull-secret manifest for a cluster you run yourself (returns a **live secret**, shown once) |
 | Domains | `register_domain` | **spends** | Register a new domain name |
 | | `transfer_domain` | **spends** | Transfer a domain in from another registrar |
 | | `renew_domain` | **spends** | Renew an owned domain |
@@ -215,7 +215,7 @@ The **Safety** column is each tool's kind (see [Safety model](#safety-model)). *
 | | `create_proxy_request` | plain | Create a proxy-request on a GB Residential bucket |
 | | `delete_proxy_request` | **destructive** | Delete a proxy-request from a GB Residential bucket |
 
-Notably absent by design: no password/2FA changes, no sub-user invites, no payment-method or API-token management, no credit top-up, no invoice payment, no affiliate activate/withdraw, and no way to change a resource's API access. Those are identity, credential, or raw-money-movement operations that stay out of an agent's reach: they have no tool at all (see [Security](#security)). Registry robot credentials (`registry_credentials_create`, `registry_kubernetes_manifest`) are a different class: infrastructure access, like SSH keys and kubeconfigs, so they have tools, gated as **sensitive** and shown once.
+Notably absent by design: no password/2FA changes, no sub-user invites, no payment-method or API-token management, no credit top-up, no invoice payment, no affiliate activate/withdraw, and no way to change a resource's API access. Those are identity, credential, or raw-money-movement operations that stay out of an agent's reach: they have no tool at all (see [Security](#security)). Registry robot credentials (`create_registry_credential`, `create_registry_kubernetes_manifest`) are a different class: infrastructure access, like SSH keys and kubeconfigs, so they have tools, gated as **sensitive** and shown once.
 
 ## Safety model
 
@@ -232,7 +232,7 @@ Every read tool only inspects account state and is always safe to call. Every wr
 - **Gated tools refuse with zero API calls unless the call passes `confirm: true`.** No side effect, no partial charge, nothing to undo. The refusal says what the tool would have done, for example `stop_service was NOT executed because it is disruptive: it powers the server off; everything running on it stops until it is started again.`, so the agent can go back to you for an explicit go-ahead. The confirm is per call; there is no "confirm once, run twice" shortcut.
 - **Every description ends with one standard `Safety:` sentence** naming the kind and the concrete consequence, so the agent sees the same information before it calls.
 - **Every tool carries MCP annotations.** All reads set `readOnlyHint: true` (so a client can auto-approve them), plus `idempotentHint: true` and `destructiveHint: false`. All writes set `readOnlyHint: false`, and `destructiveHint` is true for destructive and disruptive tools, so an MCP client's own guardrails can treat those more cautiously. Every tool sets `openWorldHint: true` (it talks to the live RareCloud API).
-- **Credentials are marked.** Tools whose result contains a live credential (`deploy_service` and `reinstall_service` when they return a one-time console password, `order_proxy` for an ISP plan's proxy list, `create_cluster_kubeconfig`, `create_object_storage_key`, `registry_credentials_create`, `registry_kubernetes_manifest`, `get_cluster_kubeconfig`, `download_cluster_kubeconfig`, `get_proxy_list`, `get_proxy_auth`, `get_proxy_request_list`) carry one standard sentence: *SECURITY: the result contains ..., a live credential. Treat it as a secret: do not repeat it to the user, or write it to files or logs, unless the user explicitly asks; pass it straight to whatever needs it.* Tools that take a secret as input (`set_service_password`, `reset_service_password`, `set_proxy_credentials`) tell the agent never to echo the value back.
+- **Credentials are marked.** Tools whose result contains a live credential (`deploy_service` and `reinstall_service` when they return a one-time console password, `order_proxy` for an ISP plan's proxy list, `create_cluster_kubeconfig`, `create_object_storage_key`, `create_registry_credential`, `create_registry_kubernetes_manifest`, `get_cluster_kubeconfig`, `download_cluster_kubeconfig`, `get_proxy_list`, `get_proxy_auth`, `get_proxy_request_list`) carry one standard sentence: *SECURITY: the result contains ..., a live credential. Treat it as a secret: do not repeat it to the user, or write it to files or logs, unless the user explicitly asks; pass it straight to whatever needs it.* Tools that take a secret as input (`set_service_password`, `reset_service_password`, `set_proxy_credentials`) tell the agent never to echo the value back.
 
 ### Resources the user made read-only for agents
 
@@ -253,7 +253,7 @@ A dropped connection after the API created something used to leave the agent gue
 - The confirm gate still comes first: without `confirm:true` a gated tool makes no key and no request.
 - No other POST ever carries the header, and no other request is ever retried.
 
-The tools: `add_account_ssh_key`, `add_cluster_pool`, `add_firewall_rule`, `add_load_balancer_member`, `add_proxy_whitelisted_ip`, `add_service_ssh_key`, `add_service_ssh_key_to_library`, `cancel_service`, `create_bucket`, `create_cluster_kubeconfig`, `create_firewall`, `create_load_balancer`, `create_network`, `create_object_storage_key`, `create_proxy_request`, `create_service_backup`, `create_ticket`, `create_volume`, `deploy_service`, `enable_cluster_ha`, `enable_object_storage`, `manage_account_contact`, `order_proxy`, `reboot_service`, `redeem_voucher`, `register_domain`, `registry_cluster_link`, `registry_credentials_create`, `registry_enable`, `reinstall_service`, `renew_domain`, `renew_proxy`, `renew_service`, `reply_ticket`, `request_proxy_replacement`, `reserve_ip`, `reset_service_password`, `resize_service`, `set_cluster_scale`, `start_service`, `stop_service`, `transfer_domain`, `upgrade_service`.
+The tools: `add_account_ssh_key`, `add_cluster_pool`, `add_firewall_rule`, `add_load_balancer_member`, `add_proxy_whitelisted_ip`, `add_service_ssh_key`, `add_service_ssh_key_to_library`, `cancel_service`, `create_bucket`, `create_cluster_kubeconfig`, `create_firewall`, `create_load_balancer`, `create_network`, `create_object_storage_key`, `create_proxy_request`, `create_registry_credential`, `create_service_backup`, `create_ticket`, `create_volume`, `deploy_service`, `enable_cluster_ha`, `enable_object_storage`, `enable_registry`, `link_registry_cluster`, `manage_account_contact`, `order_proxy`, `reboot_service`, `redeem_voucher`, `register_domain`, `reinstall_service`, `renew_domain`, `renew_proxy`, `renew_service`, `reply_ticket`, `request_proxy_replacement`, `reserve_ip`, `reset_service_password`, `resize_service`, `set_cluster_scale`, `start_service`, `stop_service`, `transfer_domain`, `upgrade_service`.
 
 For anything outside the 99 write tools, the agent can read, recommend, and generate Terraform/CLI commands. You copy-paste them or run them via [the RareCloud CLI](https://github.com/RareCloudio/rarecloud-cli).
 

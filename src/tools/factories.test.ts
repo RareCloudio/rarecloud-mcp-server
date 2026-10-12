@@ -666,7 +666,7 @@ test('writeTool: a ZodEffects refine violation returns errorResult and makes no 
   assert.deepEqual(calls, [], 'a refine-violating call must issue no request');
 });
 
-// (m) extraHeaders (registry_kubernetes_manifest's Accept: application/json
+// (m) extraHeaders (create_registry_kubernetes_manifest's Accept: application/json
 // need) is forwarded to client.post as the 3rd argument's `headers`. A bespoke fake (not
 // the shared fakeWriteClient) because every other test above asserts calls
 // as a plain {method,path,body} tuple. Adding a headers field there would

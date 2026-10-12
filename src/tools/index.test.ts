@@ -161,6 +161,7 @@ test('exclusion guard: the services:write surface is EXACTLY the safe set (IaaS 
     'cancel_proxy',
     'cancel_service',
     'check_order',
+    'close_registry',
     'create_bucket',
     'create_cluster_kubeconfig',
     'create_firewall',
@@ -168,6 +169,8 @@ test('exclusion guard: the services:write surface is EXACTLY the safe set (IaaS 
     'create_network',
     'create_object_storage_key',
     'create_proxy_request',
+    'create_registry_credential',
+    'create_registry_kubernetes_manifest',
     'create_service_backup',
     'create_volume',
     'delete_bucket',
@@ -178,6 +181,9 @@ test('exclusion guard: the services:write surface is EXACTLY the safe set (IaaS 
     'delete_network',
     'delete_object_storage_key',
     'delete_proxy_request',
+    'delete_registry_manifest',
+    'delete_registry_repository',
+    'delete_registry_tag',
     'delete_volume',
     'deploy_service',
     'destroy_service',
@@ -187,21 +193,11 @@ test('exclusion guard: the services:write surface is EXACTLY the safe set (IaaS 
     'disable_object_storage',
     'enable_cluster_ha',
     'enable_object_storage',
+    'enable_registry',
+    'link_registry_cluster',
     'mount_service_iso',
     'order_proxy',
     'reboot_service',
-    'registry_close',
-    'registry_cluster_link',
-    'registry_cluster_rotate',
-    'registry_cluster_unlink',
-    'registry_credentials_create',
-    'registry_credentials_revoke',
-    'registry_enable',
-    'registry_kubernetes_manifest',
-    'registry_manifest_delete',
-    'registry_repository_delete',
-    'registry_set_tier',
-    'registry_tag_delete',
     'reinstall_service',
     'release_reserved_ip',
     'remove_load_balancer_member',
@@ -214,16 +210,20 @@ test('exclusion guard: the services:write surface is EXACTLY the safe set (IaaS 
     'reset_service_password',
     'resize_service',
     'revoke_cluster_kubeconfig',
+    'revoke_registry_credential',
+    'rotate_registry_cluster_link',
     'set_cluster_scale',
     'set_proxy_auth_method',
     'set_proxy_auto_renew',
     'set_proxy_credentials',
+    'set_registry_tier',
     'set_service_autorenew',
     'set_service_hostname',
     'set_service_password',
     'set_service_tags',
     'start_service',
     'stop_service',
+    'unlink_registry_cluster',
     'unmount_service_iso',
     'update_bucket',
     'update_cluster_pool',
@@ -311,7 +311,7 @@ test('registry policy (CR-12): robot/infra credential-minting tools ARE register
   const byName = new Map(TOOLS.map((t) => [t.name, t]));
   // These three mint a live secret (robot credential secret, or a BYO
   // manifest's embedded secret) and MUST require confirm:true.
-  for (const name of ['registry_credentials_create', 'registry_kubernetes_manifest']) {
+  for (const name of ['create_registry_credential', 'create_registry_kubernetes_manifest']) {
     const tool = byName.get(name);
     assert.ok(tool, `${name} must be registered per CR-12`);
     assert.ok(
@@ -319,35 +319,35 @@ test('registry policy (CR-12): robot/infra credential-minting tools ARE register
       `${name} must require confirm:true (it mints a live secret)`,
     );
   }
-  // registry_credentials_revoke does not mint anything, but it is the other
+  // revoke_registry_credential does not mint anything, but it is the other
   // half of the robot-credential lifecycle this ruling covers. Confirm it
   // exists too (gated as destructive, checked in registry-write.test.ts).
-  assert.ok(byName.has('registry_credentials_revoke'), 'registry_credentials_revoke must be registered');
+  assert.ok(byName.has('revoke_registry_credential'), 'revoke_registry_credential must be registered');
 });
 
-test('registry policy (CR-12): the full registry surface is EXACTLY 20 tools, all named registry_*', () => {
-  const registryTools = TOOLS.filter((t) => t.name.startsWith('registry_')).map((t) => t.name).sort();
+test('registry policy (CR-12): the full registry surface is EXACTLY 20 tools, verb-first *_registry* names', () => {
+  const registryTools = TOOLS.filter((t) => /(^|_)registry(_|$)/.test(t.name)).map((t) => t.name).sort();
   assert.deepEqual(registryTools, [
-    'registry_close',
-    'registry_cluster_link',
-    'registry_cluster_rotate',
-    'registry_cluster_unlink',
-    'registry_clusters_list',
-    'registry_credentials_create',
-    'registry_credentials_list',
-    'registry_credentials_revoke',
-    'registry_enable',
-    'registry_get',
-    'registry_handle_suggest',
-    'registry_kubernetes_manifest',
-    'registry_manifest_delete',
-    'registry_repositories_list',
-    'registry_repository_delete',
-    'registry_repository_get',
-    'registry_repository_vulnerabilities',
-    'registry_set_tier',
-    'registry_tag_delete',
-    'registry_tiers',
+    'close_registry',
+    'create_registry_credential',
+    'create_registry_kubernetes_manifest',
+    'delete_registry_manifest',
+    'delete_registry_repository',
+    'delete_registry_tag',
+    'enable_registry',
+    'get_registry',
+    'get_registry_repository',
+    'link_registry_cluster',
+    'list_registry_clusters',
+    'list_registry_credentials',
+    'list_registry_repositories',
+    'list_registry_tag_vulnerabilities',
+    'list_registry_tiers',
+    'revoke_registry_credential',
+    'rotate_registry_cluster_link',
+    'set_registry_tier',
+    'suggest_registry_handle',
+    'unlink_registry_cluster',
   ]);
 });
 
@@ -424,18 +424,18 @@ const GATED_TOOLS: Record<string, Exclude<Kind, 'plain'>> = {
   update_bucket: 'sensitive',
   update_cluster_pool: 'disruptive',
   upgrade_service: 'spends',
-  registry_enable: 'spends',
-  registry_set_tier: 'spends',
-  registry_close: 'destructive',
-  registry_credentials_create: 'sensitive',
-  registry_credentials_revoke: 'destructive',
-  registry_repository_delete: 'destructive',
-  registry_tag_delete: 'destructive',
-  registry_manifest_delete: 'destructive',
-  registry_cluster_link: 'sensitive',
-  registry_cluster_unlink: 'destructive',
-  registry_cluster_rotate: 'disruptive',
-  registry_kubernetes_manifest: 'sensitive',
+  enable_registry: 'spends',
+  set_registry_tier: 'spends',
+  close_registry: 'destructive',
+  create_registry_credential: 'sensitive',
+  revoke_registry_credential: 'destructive',
+  delete_registry_repository: 'destructive',
+  delete_registry_tag: 'destructive',
+  delete_registry_manifest: 'destructive',
+  link_registry_cluster: 'sensitive',
+  unlink_registry_cluster: 'destructive',
+  rotate_registry_cluster_link: 'disruptive',
+  create_registry_kubernetes_manifest: 'sensitive',
 };
 
 const PLAIN_TOOLS = [
@@ -620,18 +620,18 @@ const GATED_ARGS: Record<string, Record<string, unknown>> = {
   update_bucket: { ...ID, public: true },
   update_cluster_pool: { ...SVC, pool: 'workers', maximum: 3 },
   upgrade_service: { ...SVC, newProductId: 'p2', cycle: 'monthly' },
-  registry_enable: { handle: 'acme', tier: 'free' },
-  registry_set_tier: { tier: 'starter' },
-  registry_close: { handle: 'acme' },
-  registry_credentials_create: { name: 'ci', scope: 'pull' },
-  registry_credentials_revoke: { id: '11111111-1111-1111-1111-111111111111' },
-  registry_repository_delete: { repo: 'app' },
-  registry_tag_delete: { repo: 'app', tag: '1.0' },
-  registry_manifest_delete: { repo: 'app', digest: `sha256:${'a'.repeat(64)}` },
-  registry_cluster_link: { ...SVC },
-  registry_cluster_unlink: { ...SVC },
-  registry_cluster_rotate: { ...SVC },
-  registry_kubernetes_manifest: {},
+  enable_registry: { handle: 'acme', tier: 'free' },
+  set_registry_tier: { tier: 'starter' },
+  close_registry: { handle: 'acme' },
+  create_registry_credential: { name: 'ci', scope: 'pull' },
+  revoke_registry_credential: { id: '11111111-1111-1111-1111-111111111111' },
+  delete_registry_repository: { repo: 'app' },
+  delete_registry_tag: { repo: 'app', tag: '1.0' },
+  delete_registry_manifest: { repo: 'app', digest: `sha256:${'a'.repeat(64)}` },
+  link_registry_cluster: { ...SVC },
+  unlink_registry_cluster: { ...SVC },
+  rotate_registry_cluster_link: { ...SVC },
+  create_registry_kubernetes_manifest: {},
 };
 
 function recordingClient(): { client: RareCloudClient; calls: string[] } {
@@ -676,8 +676,8 @@ const RETURNS_SECRET = [
   'get_proxy_list',
   'get_proxy_request_list',
   'order_proxy',
-  'registry_credentials_create',
-  'registry_kubernetes_manifest',
+  'create_registry_credential',
+  'create_registry_kubernetes_manifest',
   'reinstall_service',
 ];
 
@@ -712,13 +712,7 @@ test('descriptions: every id parameter names the specific tool its value comes f
     for (const [key, prop] of Object.entries(t.inputSchema.properties)) {
       if (!/(^id$|Id$|_id$|Ids$)/.test(key) || key === 'taxId' || CALLER_CHOSEN.has(`${t.name}.${key}`)) continue;
       const d = (prop as { description?: string }).description ?? '';
-      // registry tools are named registry_<noun>_<verb> (the registry plan's naming), so a
-      // registry_*_list / registry_*_get source counts as well.
-      assert.match(
-        d,
-        /\b((list|get)_[a-z_]+[a-z]|registry_[a-z_]+_(list|get))\b/,
-        `${t.name}.${key} must name its source tool: "${d}"`,
-      );
+      assert.match(d, /\b(list|get)_[a-z_]+[a-z]\b/, `${t.name}.${key} must name its source tool: "${d}"`);
       assert.ok(!d.includes('list_*'), `${t.name}.${key} must name a concrete tool, not list_*: "${d}"`);
     }
   }
@@ -787,9 +781,9 @@ const IDEMPOTENT_TOOLS = [
   'reboot_service',
   'redeem_voucher',
   'register_domain',
-  'registry_cluster_link',
-  'registry_credentials_create',
-  'registry_enable',
+  'link_registry_cluster',
+  'create_registry_credential',
+  'enable_registry',
   'reinstall_service',
   'renew_domain',
   'renew_proxy',

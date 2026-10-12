@@ -8,14 +8,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  registryGet,
-  registryTiers,
-  registryHandleSuggest,
-  registryCredentialsList,
-  registryRepositoriesList,
-  registryRepositoryGet,
-  registryRepositoryVulnerabilities,
-  registryClustersList,
+  getRegistry,
+  listRegistryTiers,
+  suggestRegistryHandle,
+  listRegistryCredentials,
+  listRegistryRepositories,
+  getRegistryRepository,
+  listRegistryTagVulnerabilities,
+  listRegistryClusters,
 } from './registry.js';
 import { APIError, type RareCloudClient } from '../client.js';
 import type { ToolCallResult, ToolDefinition } from './types.js';
@@ -37,12 +37,12 @@ function textOf(result: ToolCallResult): string {
   return (block as { type: 'text'; text: string }).text;
 }
 
-// --- fixed-path list tools (registry_get / registry_tiers / registry_clusters_list) ---
+// --- fixed-path list tools (get_registry / list_registry_tiers / list_registry_clusters) ---
 
 const FIXED_PATH_TOOLS: Array<{ tool: ToolDefinition; path: string }> = [
-  { tool: registryGet, path: '/v1/registry' },
-  { tool: registryTiers, path: '/v1/registry/tiers' },
-  { tool: registryClustersList, path: '/v1/registry/clusters' },
+  { tool: getRegistry, path: '/v1/registry' },
+  { tool: listRegistryTiers, path: '/v1/registry/tiers' },
+  { tool: listRegistryClusters, path: '/v1/registry/clusters' },
 ];
 
 test('registry reads: fixed-path tools have an empty closed schema and no scope literal in the description', () => {
@@ -74,10 +74,10 @@ test('registry reads: fixed-path tools map APIError to errorResult', async () =>
   }
 });
 
-// --- registry_get / registry_tiers specifics -------------------------------
+// --- get_registry / list_registry_tiers specifics -------------------------------
 
-test('registry_get: names registry_get and returns usage/quota/push/clusters verbatim', async () => {
-  assert.equal(registryGet.name, 'registry_get');
+test('get_registry: names get_registry and returns usage/quota/push/clusters verbatim', async () => {
+  assert.equal(getRegistry.name, 'get_registry');
   const payload = {
     handle: 'acme',
     hostname: 'registry.example.com',
@@ -90,12 +90,12 @@ test('registry_get: names registry_get and returns usage/quota/push/clusters ver
     clusters: { linked: 1, linkable: 2 },
   };
   const { client } = fakeClient(() => payload);
-  const result = await registryGet.handler(client, {});
+  const result = await getRegistry.handler(client, {});
   assert.deepEqual(JSON.parse(textOf(result)), payload);
 });
 
-test('registry_tiers: names registry_tiers and returns the items array verbatim', async () => {
-  assert.equal(registryTiers.name, 'registry_tiers');
+test('list_registry_tiers: names list_registry_tiers and returns the items array verbatim', async () => {
+  assert.equal(listRegistryTiers.name, 'list_registry_tiers');
   const payload = {
     items: [
       { tier: 'free', quotaGb: 1, burstCeilingGb: 1, monthlyCents: { EUR: 0, USD: 0 }, overageCentsPerGbMonth: 2, available: true },
@@ -103,227 +103,227 @@ test('registry_tiers: names registry_tiers and returns the items array verbatim'
     ],
   };
   const { client } = fakeClient(() => payload);
-  const result = await registryTiers.handler(client, {});
+  const result = await listRegistryTiers.handler(client, {});
   assert.deepEqual(JSON.parse(textOf(result)), payload);
 });
 
-test('registry_get: description says usage is the hourly sample and explains the repository cap', () => {
-  assert.match(registryGet.description, /HOURLY metering sample/);
-  assert.match(registryGet.description, /repo_limit/);
-  assert.match(registryGet.description, /NEW repository is refused while pushes to existing ones keep working/);
-  assert.match(registryGet.description, /push\.repoCount\), not usage\.repoCount/);
+test('get_registry: description says usage is the hourly sample and explains the repository cap', () => {
+  assert.match(getRegistry.description, /HOURLY metering sample/);
+  assert.match(getRegistry.description, /repo_limit/);
+  assert.match(getRegistry.description, /NEW repository is refused while pushes to existing ones keep working/);
+  assert.match(getRegistry.description, /push\.repoCount\), not usage\.repoCount/);
 });
 
-// --- registry_credentials_list (optional `status` filter) -------------------
+// --- list_registry_credentials (optional `status` filter) -------------------
 
-test('registry_credentials_list: schema advertises an optional status enum ["active"], closed', () => {
-  assert.equal(registryCredentialsList.name, 'registry_credentials_list');
-  assert.equal(registryCredentialsList.inputSchema.additionalProperties, false);
-  assert.equal(registryCredentialsList.inputSchema.required, undefined);
-  const props = registryCredentialsList.inputSchema.properties as Record<string, { enum?: string[] }>;
+test('list_registry_credentials: schema advertises an optional status enum ["active"], closed', () => {
+  assert.equal(listRegistryCredentials.name, 'list_registry_credentials');
+  assert.equal(listRegistryCredentials.inputSchema.additionalProperties, false);
+  assert.equal(listRegistryCredentials.inputSchema.required, undefined);
+  const props = listRegistryCredentials.inputSchema.properties as Record<string, { enum?: string[] }>;
   assert.deepEqual(Object.keys(props), ['status']);
   assert.deepEqual(props.status.enum, ['active']);
-  assert.doesNotMatch(registryCredentialsList.description, /services:(read|write)/, 'must not name a scope');
+  assert.doesNotMatch(listRegistryCredentials.description, /services:(read|write)/, 'must not name a scope');
 });
 
-test('registry_credentials_list: no status -> bare path (every credential, revoked included)', async () => {
+test('list_registry_credentials: no status -> bare path (every credential, revoked included)', async () => {
   const { client, calls } = fakeClient(() => ({ items: [] }));
-  const result = await registryCredentialsList.handler(client, {});
+  const result = await listRegistryCredentials.handler(client, {});
   assert.deepEqual(calls, ['/v1/registry/credentials']);
   assert.equal(result.isError, undefined);
 });
 
-test('registry_credentials_list: status "active" is forwarded as ?status=active', async () => {
+test('list_registry_credentials: status "active" is forwarded as ?status=active', async () => {
   const { client, calls } = fakeClient(() => ({ items: [] }));
-  await registryCredentialsList.handler(client, { status: 'active' });
+  await listRegistryCredentials.handler(client, { status: 'active' });
   assert.deepEqual(calls, ['/v1/registry/credentials?status=active']);
 });
 
-test('registry_credentials_list: an empty-string status is dropped, not sent literally', async () => {
+test('list_registry_credentials: an empty-string status is dropped, not sent literally', async () => {
   const { client, calls } = fakeClient(() => ({ items: [] }));
-  await registryCredentialsList.handler(client, { status: '' });
+  await listRegistryCredentials.handler(client, { status: '' });
   assert.deepEqual(calls, ['/v1/registry/credentials']);
 });
 
-test('registry_credentials_list: maps APIError to errorResult', async () => {
+test('list_registry_credentials: maps APIError to errorResult', async () => {
   const { client } = fakeClient(() => {
     throw new APIError({ code: 'INVALID_PARAM', message: 'status must be active.' });
   });
-  const result = await registryCredentialsList.handler(client, { status: 'active' });
+  const result = await listRegistryCredentials.handler(client, { status: 'active' });
   assert.equal(result.isError, true);
   assert.equal(textOf(result), 'Error: [INVALID_PARAM] status must be active.');
 });
 
-// --- registry_handle_suggest (optional `base` query) ------------------------
+// --- suggest_registry_handle (optional `base` query) ------------------------
 
-test('registry_handle_suggest: name + schema advertises an optional base, closed, nothing required', () => {
-  assert.equal(registryHandleSuggest.name, 'registry_handle_suggest');
-  assert.equal(registryHandleSuggest.inputSchema.additionalProperties, false);
-  assert.deepEqual(Object.keys(registryHandleSuggest.inputSchema.properties), ['base']);
-  assert.equal(registryHandleSuggest.inputSchema.required, undefined);
-  assert.doesNotMatch(registryHandleSuggest.description, /services:(read|write)/, 'must not name a scope');
+test('suggest_registry_handle: name + schema advertises an optional base, closed, nothing required', () => {
+  assert.equal(suggestRegistryHandle.name, 'suggest_registry_handle');
+  assert.equal(suggestRegistryHandle.inputSchema.additionalProperties, false);
+  assert.deepEqual(Object.keys(suggestRegistryHandle.inputSchema.properties), ['base']);
+  assert.equal(suggestRegistryHandle.inputSchema.required, undefined);
+  assert.doesNotMatch(suggestRegistryHandle.description, /services:(read|write)/, 'must not name a scope');
 });
 
-test('registry_handle_suggest: no base given -> bare path', async () => {
+test('suggest_registry_handle: no base given -> bare path', async () => {
   const { client, calls } = fakeClient(() => ({ suggestions: [] }));
-  await registryHandleSuggest.handler(client, {});
+  await suggestRegistryHandle.handler(client, {});
   assert.deepEqual(calls, ['/v1/registry/handles/suggest']);
 });
 
-test('registry_handle_suggest: forwards base as a query param', async () => {
+test('suggest_registry_handle: forwards base as a query param', async () => {
   const { client, calls } = fakeClient(() => ({ suggestions: ['acme01', 'acme02', 'acme03'] }));
-  await registryHandleSuggest.handler(client, { base: 'acme' });
+  await suggestRegistryHandle.handler(client, { base: 'acme' });
   assert.deepEqual(calls, ['/v1/registry/handles/suggest?base=acme']);
 });
 
-test('registry_handle_suggest: an empty-string base is dropped, not sent literally', async () => {
+test('suggest_registry_handle: an empty-string base is dropped, not sent literally', async () => {
   const { client, calls } = fakeClient(() => ({ suggestions: [] }));
-  await registryHandleSuggest.handler(client, { base: '' });
+  await suggestRegistryHandle.handler(client, { base: '' });
   assert.deepEqual(calls, ['/v1/registry/handles/suggest']);
 });
 
-test('registry_handle_suggest: a base needing URL-encoding is escaped (space, punctuation)', async () => {
+test('suggest_registry_handle: a base needing URL-encoding is escaped (space, punctuation)', async () => {
   const { client, calls } = fakeClient(() => ({ suggestions: [] }));
-  await registryHandleSuggest.handler(client, { base: 'my app!' });
+  await suggestRegistryHandle.handler(client, { base: 'my app!' });
   assert.deepEqual(calls, ['/v1/registry/handles/suggest?base=my+app%21']);
 });
 
-test('registry_handle_suggest: returns the suggestions array verbatim', async () => {
+test('suggest_registry_handle: returns the suggestions array verbatim', async () => {
   const payload = { suggestions: ['bluefalcon42', 'redotter17'] };
   const { client } = fakeClient(() => payload);
-  const result = await registryHandleSuggest.handler(client, {});
+  const result = await suggestRegistryHandle.handler(client, {});
   assert.deepEqual(JSON.parse(textOf(result)), payload);
 });
 
-// --- registry_repositories_list (optional limit/cursor query) --------------
+// --- list_registry_repositories (optional limit/cursor query) --------------
 
-test('registry_repositories_list: name + schema advertises optional limit/cursor, closed', () => {
-  assert.equal(registryRepositoriesList.name, 'registry_repositories_list');
-  assert.equal(registryRepositoriesList.inputSchema.additionalProperties, false);
-  assert.deepEqual(Object.keys(registryRepositoriesList.inputSchema.properties), ['limit', 'cursor']);
+test('list_registry_repositories: name + schema advertises optional limit/cursor, closed', () => {
+  assert.equal(listRegistryRepositories.name, 'list_registry_repositories');
+  assert.equal(listRegistryRepositories.inputSchema.additionalProperties, false);
+  assert.deepEqual(Object.keys(listRegistryRepositories.inputSchema.properties), ['limit', 'cursor']);
 });
 
-test('registry_repositories_list: no query params -> bare path', async () => {
+test('list_registry_repositories: no query params -> bare path', async () => {
   const { client, calls } = fakeClient(() => ({ items: [] }));
-  await registryRepositoriesList.handler(client, {});
+  await listRegistryRepositories.handler(client, {});
   assert.deepEqual(calls, ['/v1/registry/repositories']);
 });
 
-test('registry_repositories_list: forwards limit + cursor as query params', async () => {
+test('list_registry_repositories: forwards limit + cursor as query params', async () => {
   const { client, calls } = fakeClient(() => ({ items: [] }));
-  await registryRepositoriesList.handler(client, { limit: 25, cursor: 'abc123' });
+  await listRegistryRepositories.handler(client, { limit: 25, cursor: 'abc123' });
   assert.deepEqual(calls, ['/v1/registry/repositories?limit=25&cursor=abc123']);
 });
 
-test('registry_repositories_list: an empty-string cursor is dropped, not sent literally', async () => {
+test('list_registry_repositories: an empty-string cursor is dropped, not sent literally', async () => {
   const { client, calls } = fakeClient(() => ({ items: [] }));
-  await registryRepositoriesList.handler(client, { cursor: '' });
+  await listRegistryRepositories.handler(client, { cursor: '' });
   assert.deepEqual(calls, ['/v1/registry/repositories']);
 });
 
-// --- registry_repository_get (repo may contain '/') -------------------------
+// --- get_registry_repository (repo may contain '/') -------------------------
 
-test('registry_repository_get: name + requires only repo (closed schema)', () => {
-  assert.equal(registryRepositoryGet.name, 'registry_repository_get');
-  assert.deepEqual(registryRepositoryGet.inputSchema.required, ['repo']);
-  assert.equal(registryRepositoryGet.inputSchema.additionalProperties, false);
+test('get_registry_repository: name + requires only repo (closed schema)', () => {
+  assert.equal(getRegistryRepository.name, 'get_registry_repository');
+  assert.deepEqual(getRegistryRepository.inputSchema.required, ['repo']);
+  assert.equal(getRegistryRepository.inputSchema.additionalProperties, false);
 });
 
-test('registry_repository_get: encodes a simple repo into the path', async () => {
+test('get_registry_repository: encodes a simple repo into the path', async () => {
   const { client, calls } = fakeClient(() => ({ path: 'app', name: 'app', tags: [] }));
-  await registryRepositoryGet.handler(client, { repo: 'app' });
+  await getRegistryRepository.handler(client, { repo: 'app' });
   assert.deepEqual(calls, ['/v1/registry/repositories/app']);
 });
 
-test('registry_repository_get: a repo containing "/" is encoded as one opaque segment', async () => {
+test('get_registry_repository: a repo containing "/" is encoded as one opaque segment', async () => {
   const { client, calls } = fakeClient(() => ({ path: 'team/app', name: 'team/app', tags: [] }));
-  await registryRepositoryGet.handler(client, { repo: 'team/app' });
+  await getRegistryRepository.handler(client, { repo: 'team/app' });
   assert.deepEqual(calls, ['/v1/registry/repositories/team%2Fapp']);
 });
 
-test('registry_repository_get: a ".." repo is rejected before any request', async () => {
+test('get_registry_repository: a ".." repo is rejected before any request', async () => {
   const { client, calls } = fakeClient(() => ({}));
-  const result = await registryRepositoryGet.handler(client, { repo: '..' });
+  const result = await getRegistryRepository.handler(client, { repo: '..' });
   assert.equal(result.isError, true);
   assert.equal(textOf(result), 'Error: Invalid repo value');
   assert.deepEqual(calls, []);
 });
 
-test('registry_repository_get: an embedded ".." (e.g. "a/../b") reaches the server as one opaque segment, not a path-traversal', async () => {
+test('get_registry_repository: an embedded ".." (e.g. "a/../b") reaches the server as one opaque segment, not a path-traversal', async () => {
   const { client, calls } = fakeClient(() => ({}));
-  await registryRepositoryGet.handler(client, { repo: 'a/../b' });
+  await getRegistryRepository.handler(client, { repo: 'a/../b' });
   // encodeURIComponent('a/../b') -> 'a%2F..%2Fb': the '..' is never a bare,
   // unescaped path segment, so URL dot-segment normalization cannot fire.
   // This reaches the server intact for ITS OCI-grammar validation to reject.
   assert.deepEqual(calls, ['/v1/registry/repositories/a%2F..%2Fb']);
 });
 
-test('registry_repository_get: APIError maps to errorResult', async () => {
+test('get_registry_repository: APIError maps to errorResult', async () => {
   const { client } = fakeClient(() => {
     throw new APIError({ code: 'BACKEND_UNAVAILABLE', message: 'The container registry backend is temporarily unavailable.' });
   });
-  const result = await registryRepositoryGet.handler(client, { repo: 'app' });
+  const result = await getRegistryRepository.handler(client, { repo: 'app' });
   assert.equal(result.isError, true);
   assert.equal(textOf(result), 'Error: [BACKEND_UNAVAILABLE] The container registry backend is temporarily unavailable.');
 });
 
-// --- registry_repository_vulnerabilities (repo + tag path, limit/cursor query) --
+// --- list_registry_tag_vulnerabilities (repo + tag path, limit/cursor query) --
 
-test('registry_repository_vulnerabilities: name + requires repo and tag (closed schema)', () => {
-  assert.equal(registryRepositoryVulnerabilities.name, 'registry_repository_vulnerabilities');
-  assert.deepEqual(registryRepositoryVulnerabilities.inputSchema.required, ['repo', 'tag']);
-  assert.equal(registryRepositoryVulnerabilities.inputSchema.additionalProperties, false);
+test('list_registry_tag_vulnerabilities: name + requires repo and tag (closed schema)', () => {
+  assert.equal(listRegistryTagVulnerabilities.name, 'list_registry_tag_vulnerabilities');
+  assert.deepEqual(listRegistryTagVulnerabilities.inputSchema.required, ['repo', 'tag']);
+  assert.equal(listRegistryTagVulnerabilities.inputSchema.additionalProperties, false);
 });
 
-test('registry_repository_vulnerabilities: builds .../tags/{tag}/vulnerabilities with no query when omitted', async () => {
+test('list_registry_tag_vulnerabilities: builds .../tags/{tag}/vulnerabilities with no query when omitted', async () => {
   const { client, calls } = fakeClient(() => ({ items: [], unavailable: false }));
-  await registryRepositoryVulnerabilities.handler(client, { repo: 'app', tag: '1.0' });
+  await listRegistryTagVulnerabilities.handler(client, { repo: 'app', tag: '1.0' });
   assert.deepEqual(calls, ['/v1/registry/repositories/app/tags/1.0/vulnerabilities']);
 });
 
-test('registry_repository_vulnerabilities: forwards limit + cursor', async () => {
+test('list_registry_tag_vulnerabilities: forwards limit + cursor', async () => {
   const { client, calls } = fakeClient(() => ({ items: [], unavailable: false }));
-  await registryRepositoryVulnerabilities.handler(client, { repo: 'app', tag: '1.0', limit: 10, cursor: 'xyz' });
+  await listRegistryTagVulnerabilities.handler(client, { repo: 'app', tag: '1.0', limit: 10, cursor: 'xyz' });
   assert.deepEqual(calls, ['/v1/registry/repositories/app/tags/1.0/vulnerabilities?limit=10&cursor=xyz']);
 });
 
-test('registry_repository_vulnerabilities: repo may contain "/" (encoded as one opaque segment)', async () => {
+test('list_registry_tag_vulnerabilities: repo may contain "/" (encoded as one opaque segment)', async () => {
   const { client, calls } = fakeClient(() => ({ items: [], unavailable: false }));
-  await registryRepositoryVulnerabilities.handler(client, { repo: 'team/app', tag: 'latest' });
+  await listRegistryTagVulnerabilities.handler(client, { repo: 'team/app', tag: 'latest' });
   assert.deepEqual(calls, ['/v1/registry/repositories/team%2Fapp/tags/latest/vulnerabilities']);
 });
 
-test('registry_repository_vulnerabilities: a ".." repo or tag is rejected before any request', async () => {
+test('list_registry_tag_vulnerabilities: a ".." repo or tag is rejected before any request', async () => {
   const { client, calls } = fakeClient(() => ({}));
-  const badRepo = await registryRepositoryVulnerabilities.handler(client, { repo: '..', tag: '1.0' });
+  const badRepo = await listRegistryTagVulnerabilities.handler(client, { repo: '..', tag: '1.0' });
   assert.equal(textOf(badRepo), 'Error: Invalid repo value');
-  const badTag = await registryRepositoryVulnerabilities.handler(client, { repo: 'app', tag: '..' });
+  const badTag = await listRegistryTagVulnerabilities.handler(client, { repo: 'app', tag: '..' });
   assert.equal(textOf(badTag), 'Error: Invalid tag value');
   assert.deepEqual(calls, []);
 });
 
-test('registry_repository_vulnerabilities: surfaces unavailable:true (scan disabled) verbatim, not as an error', async () => {
+test('list_registry_tag_vulnerabilities: surfaces unavailable:true (scan disabled) verbatim, not as an error', async () => {
   const { client } = fakeClient(() => ({ items: [], nextCursor: undefined, unavailable: true }));
-  const result = await registryRepositoryVulnerabilities.handler(client, { repo: 'app', tag: '1.0' });
+  const result = await listRegistryTagVulnerabilities.handler(client, { repo: 'app', tag: '1.0' });
   assert.equal(result.isError, undefined);
   assert.deepEqual(JSON.parse(textOf(result)), { items: [], unavailable: true });
 });
 
 // --- contract notes the descriptions must carry ------------------------------
 
-test('registry_repositories_list: name (not path) is the repo argument; lastPush is the build time', () => {
-  assert.match(registryRepositoriesList.description, /`name` never carries the handle/);
-  assert.match(registryRepositoriesList.description, /`path` is the full `<handle>\/<name>`/);
-  assert.match(registryRepositoriesList.description, /lastPush is a deprecated name/);
-  assert.match(registryRepositoriesList.description, /BUILD time/);
+test('list_registry_repositories: name (not path) is the repo argument; lastPush is the build time', () => {
+  assert.match(listRegistryRepositories.description, /`name` never carries the handle/);
+  assert.match(listRegistryRepositories.description, /`path` is the full `<handle>\/<name>`/);
+  assert.match(listRegistryRepositories.description, /lastPush is a deprecated name/);
+  assert.match(listRegistryRepositories.description, /BUILD time/);
 });
 
-test('registry_repository_get: createdAt is the build time and pushedAt a deprecated alias of it', () => {
-  assert.match(registryRepositoryGet.description, /createdAt is when the image was BUILT/);
-  assert.match(registryRepositoryGet.description, /pushedAt is a deprecated alias that always equals createdAt/);
-  assert.match(registryRepositoryGet.description, /registry_manifest_delete/);
+test('get_registry_repository: createdAt is the build time and pushedAt a deprecated alias of it', () => {
+  assert.match(getRegistryRepository.description, /createdAt is when the image was BUILT/);
+  assert.match(getRegistryRepository.description, /pushedAt is a deprecated alias that always equals createdAt/);
+  assert.match(getRegistryRepository.description, /delete_registry_manifest/);
 });
 
-test('registry_clusters_list: mentions credentialName (never the secret)', () => {
-  assert.match(registryClustersList.description, /credentialName/);
+test('list_registry_clusters: mentions credentialName (never the secret)', () => {
+  assert.match(listRegistryClusters.description, /credentialName/);
 });

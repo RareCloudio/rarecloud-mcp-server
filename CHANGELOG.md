@@ -11,24 +11,24 @@ All notable changes to `@rarecloudio/mcp-server` are recorded here.
 Until the registry launches every registry write answers `503
 BACKEND_UNAVAILABLE` and changes nothing; each write's description says so.
 
-- Reads: `registry_get` (usage is the hourly metering sample; `push.reason`
+- Reads: `get_registry` (usage is the hourly metering sample; `push.reason`
   explains a refusal, including the repository cap `repo_limit`, which counts
-  the repository index), `registry_tiers`, `registry_handle_suggest`,
-  `registry_credentials_list` (optional `status: "active"`),
-  `registry_repositories_list` (`lastPush` is the newest image's build time),
-  `registry_repository_get` (`createdAt` is the build time; `pushedAt` is a
-  deprecated alias of it), `registry_repository_vulnerabilities`,
-  `registry_clusters_list`.
-- Writes: `registry_enable` and `registry_set_tier` (spends),
-  `registry_close`, `registry_credentials_revoke`, `registry_repository_delete`
-  (an empty repository answers `deleted: 0`), `registry_tag_delete` (404 for a
-  missing tag), `registry_manifest_delete` (by digest; `confirm_multiple_tags`
+  the repository index), `list_registry_tiers`, `suggest_registry_handle`,
+  `list_registry_credentials` (optional `status: "active"`),
+  `list_registry_repositories` (`lastPush` is the newest image's build time),
+  `get_registry_repository` (`createdAt` is the build time; `pushedAt` is a
+  deprecated alias of it), `list_registry_tag_vulnerabilities`,
+  `list_registry_clusters`.
+- Writes: `enable_registry` and `set_registry_tier` (spends),
+  `close_registry`, `revoke_registry_credential`, `delete_registry_repository`
+  (an empty repository answers `deleted: 0`), `delete_registry_tag` (404 for a
+  missing tag), `delete_registry_manifest` (by digest; `confirm_multiple_tags`
   sends the API's `confirm=true`, without which a digest more than one tag
-  points at answers 409), `registry_cluster_unlink` (destructive),
-  `registry_cluster_rotate` (disruptive), `registry_credentials_create`,
-  `registry_kubernetes_manifest` and `registry_cluster_link` (sensitive; the
+  points at answers 409), `unlink_registry_cluster` (destructive),
+  `rotate_registry_cluster_link` (disruptive), `create_registry_credential`,
+  `create_registry_kubernetes_manifest` and `link_registry_cluster` (sensitive; the
   first two return a live secret once).
-- `registry_enable`, `registry_credentials_create` and `registry_cluster_link`
+- `enable_registry`, `create_registry_credential` and `link_registry_cluster`
   take `idempotency_key`.
 - The client treats an empty 2xx body (a bare 204) as a success instead of
   `INVALID_RESPONSE`, and `post()` takes an optional `headers` overlay (used to
