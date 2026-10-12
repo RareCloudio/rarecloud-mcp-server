@@ -145,7 +145,7 @@ test('post() accepts an extra-headers overlay without dropping Authorization/Use
   const stub = stubFetch(ok({ minted: true }));
   try {
     const client = new RareCloudClient({ endpoint: 'https://example.com', token: 't' });
-    await client.post('/v1/registry/docker-credentials/kubernetes', undefined, { Accept: 'application/json' });
+    await client.post('/v1/registry/docker-credentials/kubernetes', undefined, { headers: { Accept: 'application/json' } });
     const req = stub.calls[0];
     assert.equal(req.headers.Accept, 'application/json');
     assert.equal(req.headers.Authorization, 'Bearer t');
@@ -242,5 +242,25 @@ test('post() with an empty 2xx body (no Content-Length case) is also a success',
     assert.deepEqual(data, {});
   } finally {
     stub.restore();
+  }
+});
+
+test('client: get exposes the X-Partial-Results header through meta', async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify({ ok: true, data: [] }), {
+      headers: { 'X-Partial-Results': 'cloud-vm, cloud-k8s' },
+    })) as typeof fetch;
+  try {
+    const client = new RareCloudClient({ endpoint: 'https://x.test', token: 't' });
+    const meta: { partialResults?: string[] } = {};
+    await client.get('/v1/services', undefined, meta);
+    assert.deepEqual(meta.partialResults, ['cloud-vm', 'cloud-k8s']);
+    const none: { partialResults?: string[] } = {};
+    globalThis.fetch = (async () => new Response(JSON.stringify({ ok: true, data: [] }))) as typeof fetch;
+    await client.get('/v1/services', undefined, none);
+    assert.equal(none.partialResults, undefined);
+  } finally {
+    globalThis.fetch = original;
   }
 });

@@ -2,26 +2,26 @@
 
 Model Context Protocol server for the [RareCloud](https://rarecloud.io) API.
 
-Drop into [Claude Code](https://claude.com/claude-code), Claude Desktop, [Cursor](https://cursor.com), or your own MCP client to let AI agents inspect, reason about, and now also **manage** your RareCloud account — list servers, browse the catalog, check billing, inspect cloud infrastructure, deploy a VM, resize it, attach storage, and more.
+Drop into [Claude Code](https://claude.com/claude-code), Claude Desktop, [Cursor](https://cursor.com), or your own MCP client to let AI agents inspect, reason about, and now also **manage** your RareCloud account: list servers, browse the catalog, check billing, inspect cloud infrastructure, deploy a VM, resize it, attach storage, and more.
 
 ## What it does
 
-Exposes **175 tools** wrapping the RareCloud REST API: **85 read tools** (inspect / list / get, always safe) plus **90 write/action tools** (deploy, resize, destroy, order, renew, and similar mutations, gated where money or irreversibility is involved). See [Reads + gated writes](#reads--gated-writes) below for how the gate works.
+Exposes **173 tools** wrapping the RareCloud REST API: **86 read tools** (inspect / list / get / check, always safe) plus **87 write/action tools** (deploy, resize, destroy, order, renew, and similar mutations). 63 of the writes are gated behind an explicit `confirm:true`; the other 24 are plain. See [Safety model](#safety-model) below for how it works.
 
-### Read tools (85)
+### Read tools (86)
 
 | Category | Tool | Purpose |
 |---|---|---|
 | Catalog | `list_catalog_products` | Orderable products in the catalog (filter by kind / backend) |
 | | `get_catalog_plan` | Full product detail: plans (sizes), specs, per-cycle pricing, billing tracks |
 | | `list_regions` | Available datacenter regions |
-| | `list_images` | OS images (Ubuntu / Debian / Rocky / Windows Server / …) installable on new servers |
+| | `list_images` | OS images (Ubuntu / Debian / Rocky / Windows Server / …) installable on new servers; only deployable images are listed |
 | | `get_product_details` | Order-ready detail for one SKU: cycles + prices, plans, config options |
 | | `list_prepurchase_os_templates` | OS templates selectable at purchase time for a VPS / dedicated SKU |
 | | `list_catalog_listings` | Deploy-wizard product cards for one category (the console "create" tiles) |
 | | `list_kubernetes_versions` | Managed-Kubernetes (Gardener) versions on offer, newest-supported first |
-| Services | `list_services` | All services in the account: VPS, cloud VMs, proxies, hosting, domains |
-| | `get_service` | Full detail for one service: status, network, billing state, usage |
+| Services | `list_services` | All services in the account: VPS, cloud VMs, proxies, hosting, domains (each with `apiAccess`); a first "partial results" note when some categories could not be loaded |
+| | `get_service` | Full detail for one service: status, network, billing state, usage, `apiAccess`; for a cloud VM also `tags` and `bandwidthUsage` |
 | | `get_service_metrics` | CPU / RAM / disk / bandwidth time series for one service |
 | | `list_backups` | Backups for one legacy VPS |
 | | `get_provisioning_state` | Setup state of a pending service (paid? VM exists yet? stuck?) |
@@ -30,7 +30,7 @@ Exposes **175 tools** wrapping the RareCloud REST API: **85 read tools** (inspec
 | | `get_service_iso` | Mounted-ISO status for a legacy VPS (is a rescue/install ISO attached?) |
 | | `list_service_ssh_key_library` | SSH keys registered in a legacy VPS's key library |
 | | `get_service_autorenew` | Whether a service auto-renews from account balance |
-| Orders | `list_orders` | The account's orders — the purchase records behind its services |
+| Orders | `list_orders` | The account's orders: the purchase records behind its services |
 | | `get_order` | One order: line items, status, payment status, and its invoice |
 | Billing | `list_invoices` | Invoice history: number, status, issued date, total |
 | | `get_invoice` | Full invoice detail: line items, taxes, payment method + timestamp |
@@ -56,6 +56,7 @@ Exposes **175 tools** wrapping the RareCloud REST API: **85 read tools** (inspec
 | | `get_account_activity` | Account audit trail: sign-ins, 2FA changes, service + billing actions |
 | | `list_account_emails` | Emails WHMCS sent to this account, newest first |
 | | `list_account_contacts` | Billing / technical contacts (email-copy recipients, no login) |
+| | `list_api_access` | Resources the user made read-only for agents and API tokens (check before planning changes) |
 | Cloud infrastructure | `list_volumes` | Block-storage volumes: id, name, size, status, attachment, region |
 | | `get_volume` | One block-storage volume and which VM it is attached to |
 | | `list_networks` | Private networks (VPCs): id, name, CIDR, status, attached VM count |
@@ -66,8 +67,15 @@ Exposes **175 tools** wrapping the RareCloud REST API: **85 read tools** (inspec
 | | `list_reserved_ips` | Reserved (static) public IPs and their attachments |
 | | `list_firewalls` | Cloud firewalls (security groups): status, attached VMs, rule count |
 | | `get_firewall` | One firewall with its full rule set and attached VMs |
-| Domains | `list_domains` | Registered domains: id, name, status, expiry, auto-renew |
-| | `get_domain` | One domain: nameservers, transfer lock, WHOIS privacy, auto-renew, expiry |
+| Object Storage | `get_object_storage` | The S3-compatible storage service: status, namespace handle, price card, month-to-date charge, limits (null if not enabled) |
+| | `list_object_storage_regions` | Regions a bucket can be created in, with their S3 endpoints |
+| | `get_object_storage_usage` | Daily usage series for the account: stored bytes, egress, CDN traffic (1-90 days) |
+| | `list_buckets` | Buckets: id, full name, region, status, versioning, public (CDN) state, size |
+| | `get_bucket` | One bucket: endpoint and URLs, public URL, versioning, size and object count |
+| | `get_bucket_usage` | Daily usage series for one bucket (1-90 days) |
+| | `list_object_storage_keys` | S3 access keys: id, name, access key id, scope, status (never the secret) |
+| Domains | `list_domains` | Registered domains: id, name, status, expiry, auto-renew, `apiAccess` |
+| | `get_domain` | One domain: nameservers, transfer lock, WHOIS privacy, auto-renew, expiry, `apiAccess` |
 | | `check_domain_availability` | Whether a domain name is available to register |
 | | `get_tld_pricing` | Register / transfer / renew prices per TLD, in the account currency |
 | | `get_domain_nameservers` | Nameservers currently set on an owned domain |
@@ -76,145 +84,162 @@ Exposes **175 tools** wrapping the RareCloud REST API: **85 read tools** (inspec
 | | `get_domain_management` | Combined management snapshot for an owned domain in one call |
 | Managed Kubernetes | `get_cluster_scale` | Current scale of a managed K8s cluster: node pools + add-ons |
 | | `list_cluster_pools` | Worker node pools: name, machine type, count, autoscale min/max |
-| | `get_cluster_kubeconfig` | Short-lived admin kubeconfig (expires in hours) — **live secret** |
+| | `get_cluster_kubeconfig` | Short-lived admin kubeconfig (expires in hours), **live secret** |
 | | `list_cluster_kubeconfigs` | Long-lived kubeconfig credentials, metadata only (token never returned) |
-| | `download_cluster_kubeconfig` | Re-download a long-lived credential's kubeconfig (active-only) — **live secret** |
+| | `download_cluster_kubeconfig` | Re-download a long-lived credential's kubeconfig (active-only), **live secret** |
 | Proxies | `list_proxies` | Residential proxy services: id, name, flavor, status, plan, expiry |
 | | `get_proxy_catalog` | Proxy order-wizard catalog: ISP IP-count tiers + GB Residential buckets, pricing |
 | | `get_proxy` | One proxy service: flavor, status, plan, location, expiry / renewal |
-| | `get_proxy_list` | Live proxy endpoints + credentials for an ISP fixed-IP plan — **live secret** |
-| | `get_proxy_auth` | Auth settings for a proxy service: method, credentials, IP whitelist — **live secret** |
+| | `get_proxy_list` | Live proxy endpoints + credentials for an ISP fixed-IP plan, **live secret** |
+| | `get_proxy_auth` | Auth settings for a proxy service: method, credentials, IP whitelist, **live secret** |
 | | `list_gb_residential_countries` | Countries selectable when creating a GB Residential proxy-request |
 | | `list_gb_rotation_intervals` | Rotation intervals selectable for a GB Residential proxy-request |
 | | `list_proxy_requests` | Proxy-requests on a GB Residential bucket (country + rotation + count groups) |
-| | `get_proxy_request_list` | Live endpoints + credentials for one GB Residential proxy-request — **live secret** |
+| | `get_proxy_request_list` | Live endpoints + credentials for one GB Residential proxy-request, **live secret** |
 | | `get_proxy_replacements` | IP-replacement allowance + history for a proxy service |
-| Container Registry | `registry_get` | The account's private OCI registry: handle, hostname, tier, status, live usage/quota/push state, linked-cluster counts |
-| | `registry_tiers` | Billing tiers: storage quota, burst ceiling, monthly price (EUR/USD), overage rate, availability |
-| | `registry_handle_suggest` | Up to 3 free, valid, non-reserved handle suggestions from a `base` string |
-| | `registry_credentials_list` | Robot credentials (docker login / pull / push), metadata only, never a secret |
-| | `registry_repositories_list` | Repositories under the account's registry handle, paginated |
-| | `registry_repository_get` | One repository's tags, each with CVE severity counts |
-| | `registry_repository_vulnerabilities` | Paginated CVE findings for one tag |
-| | `registry_clusters_list` | Kubernetes clusters linked to the registry, with syncer health |
+| | `check_order` | Would `deploy_service` be accepted right now? Same body, creates and reserves nothing; on a refusal returns the message plus the Add funds or Pay invoice link for the human (needs `services:write`) |
 
-Tools marked **live secret** return a real credential (a kubeconfig bearer token, or proxy `ip:port:user:pass`). Their descriptions instruct the agent to treat the result as a secret and not echo it back unless you explicitly ask.
+Tools marked **live secret** return a real credential (a kubeconfig bearer token, proxy `ip:port:user:pass`, or an S3 secret access key). Their descriptions carry the standard SECURITY sentence (see [Safety model](#safety-model)).
 
-### Write / action tools (90)
+### Write / action tools (87)
 
-Legend: **(spends)** = places a real order or otherwise charges the account; **(destructive — needs `confirm`)** = irreversibly tears something down; **(mints a secret, needs `confirm`)** = the result carries a live credential shown exactly once; **(disruptive, needs `confirm`)** = swaps or otherwise disturbs a live credential without showing it. All four kinds refuse to run, making **no** API call, unless the call passes `confirm:true`; an agent must always surface the action and its consequence to the user first. Tools with neither marker are plain writes (no charge, nothing torn down, no secret minted) and run unconditionally.
+The **Safety** column is each tool's kind (see [Safety model](#safety-model)). **spends**, **destructive**, **disruptive** and **sensitive** tools are gated (63 tools): they refuse to run, making **no** API call, unless the call passes `confirm:true`, so an agent must surface the action and its cost or consequence to the user first. **plain** tools (24) cost nothing, tear nothing down, and run without confirmation.
 
-| Category | Tool | Purpose |
-|---|---|---|
-| Services | `set_service_hostname` | Set the hostname of a service (cloud VM or legacy VPS) |
-| | `deploy_service` | Deploy (order + provision) a new service — polymorphic across VM / k8s / volume / load-balancer / network / proxy / domain **(spends)** |
-| | `destroy_service` | Permanently destroy a service and release its resources **(destructive — needs `confirm`)** |
-| | `resize_service` | Resize a cloud VM to a new flavor/plan **(spends)** |
-| | `upgrade_service` | Create an upgrade order moving a service to a new product/plan **(spends)** |
-| | `renew_service` | Ensure a renewal invoice exists for a service **(spends)** |
-| | `cancel_service` | File a cancellation request — immediate or end-of-term **(destructive — needs `confirm`)** |
-| | `set_service_autorenew` | Toggle auto-renew for a service |
-| | `create_service_backup` | Create an on-demand backup of a legacy VPS |
-| | `mount_service_iso` | Mount a rescue/install ISO on a VPS |
-| | `unmount_service_iso` | Unmount the currently mounted ISO from a VPS |
-| | `set_service_password` | Set the root/administrator password of a VPS **(destructive — needs `confirm`)** |
-| | `start_service` | Power on a service |
-| | `stop_service` | Power off a service |
-| | `reboot_service` | Reboot a service |
-| | `reinstall_service` | Reinstall (rebuild from scratch) a service, wiping the disk **(destructive — needs `confirm`)** |
-| | `reset_service_password` | Reset the root password live via qemu-guest-agent, on a running cloud VM **(destructive — needs `confirm`)** |
-| | `add_service_ssh_key` | Install an SSH public key directly onto a running service |
-| | `add_service_ssh_key_to_library` | Register an SSH key in a legacy VPS's reinstall-time key library |
-| | `apply_service_ssh_key_library` | Apply a set of library SSH keys to a legacy VPS, replacing the current set |
-| Managed Kubernetes | `set_cluster_scale` | Set the autoscaling bounds of a cluster's first node pool |
-| | `add_cluster_pool` | Add a named worker node pool **(spends)** |
-| | `update_cluster_pool` | Edit an existing node pool's bounds / machineType / volume size |
-| | `delete_cluster_pool` | Remove a worker node pool **(destructive — needs `confirm`)** |
-| | `rename_cluster_pool` | Rename a worker node pool (rolls its nodes) |
-| | `enable_cluster_ha` | Enable the HA control plane — add-only, irreversible **(spends)** |
-| | `create_cluster_kubeconfig` | Mint a long-lived, revocable kubeconfig credential — **live secret** |
-| | `revoke_cluster_kubeconfig` | Revoke a long-lived kubeconfig credential **(destructive — needs `confirm`)** |
-| Cloud infra — volumes / networks / IPs | `create_volume` | Create a new block-storage volume **(spends)** |
-| | `delete_volume` | Delete a block-storage volume permanently **(destructive — needs `confirm`)** |
-| | `attach_volume` | Attach a volume to a cloud VM |
-| | `detach_volume` | Detach a volume from a cloud VM |
-| | `create_network` | Create a new private network (VPC) |
-| | `delete_network` | Delete a private network (VPC) **(destructive — needs `confirm`)** |
-| | `attach_network_vm` | Move a cloud VM into a private network |
-| | `reserve_ip` | Reserve a new static public IP **(spends)** |
-| | `release_reserved_ip` | Release (permanently delete) a reserved public IP **(destructive — needs `confirm`)** |
-| | `attach_reserved_ip` | Attach a reserved public IP to a cloud VM |
-| | `detach_reserved_ip` | Detach a reserved public IP from its VM |
-| Cloud infra — firewalls / load balancers | `create_firewall` | Create a new cloud firewall (security group) |
-| | `delete_firewall` | Delete a cloud firewall **(destructive — needs `confirm`)** |
-| | `add_firewall_rule` | Add an inbound/outbound rule to a firewall |
-| | `delete_firewall_rule` | Remove a rule from a firewall **(destructive — needs `confirm`)** |
-| | `attach_firewall` | Attach a firewall to a cloud VM |
-| | `detach_firewall` | Detach a firewall from a cloud VM |
-| | `create_load_balancer` | Create a new L4 load balancer (VIP + listener + pool + floating IP) **(spends)** |
-| | `delete_load_balancer` | Delete a load balancer **(destructive — needs `confirm`)** |
-| | `add_load_balancer_member` | Add a VM as a member of a load-balancer pool |
-| | `remove_load_balancer_member` | Remove a member from a load-balancer pool **(destructive — needs `confirm`)** |
-| Domains | `register_domain` | Register a new domain name **(spends)** |
-| | `transfer_domain` | Transfer a domain in from another registrar **(spends)** |
-| | `renew_domain` | Renew an owned domain **(spends)** |
-| | `set_domain_nameservers` | Replace an owned domain's nameservers (2-5) |
-| | `set_domain_contacts` | Update an owned domain's registrant WHOIS contact |
-| | `set_domain_dns` | Replace an owned domain's DNS host records |
-| | `manage_domain` | Dispatch a single domain management action (nameservers / lock / autorenew / idprotect / epp) |
-| Account | `update_account` | Update the account's billing / contact profile |
-| | `add_account_ssh_key` | Add an account-wide SSH public key |
-| | `delete_account_ssh_key` | Delete an account-wide SSH key **(destructive — needs `confirm`)** |
-| | `resend_email_verification` | Resend the account's email-verification email |
-| | `manage_account_contact` | Add, update, or delete a billing/technical contact |
-| | `create_affiliate_link` | Mint a signed affiliate referral link (no money movement) |
-| Billing | `set_billing_alert` | Set (or update) the month-to-date spend alert |
-| | `delete_billing_alert` | Remove the month-to-date spend alert **(destructive — needs `confirm`)** |
-| | `redeem_voucher` | Redeem a credit voucher / promo code (adds credit — never spends) |
-| Support | `create_ticket` | Open a support ticket |
-| | `reply_ticket` | Post a reply to an existing support ticket |
-| | `close_ticket` | Close a support ticket |
-| Proxies | `order_proxy` | Order a new residential proxy plan — ISP or GB Residential **(spends)** |
-| | `renew_proxy` | Renew a proxy service for another billing term **(spends)** |
-| | `set_proxy_auto_renew` | Turn a proxy service's auto-renew on/off |
-| | `cancel_proxy` | Cancel a proxy service **(destructive — needs `confirm`)** |
-| | `set_proxy_auth_method` | Switch a proxy service's authentication method |
-| | `set_proxy_credentials` | Set a proxy service's username/password — secrets, never echoed |
-| | `add_proxy_whitelisted_ip` | Add an IP to a proxy service's whitelist |
-| | `remove_proxy_whitelisted_ip` | Remove an IP from a proxy service's whitelist **(destructive — needs `confirm`)** |
-| | `request_proxy_replacement` | Request an IP replacement, consuming the monthly allowance |
-| | `create_proxy_request` | Create a proxy-request on a GB Residential bucket |
-| | `delete_proxy_request` | Delete a proxy-request from a GB Residential bucket **(destructive — needs `confirm`)** |
-| Container Registry | `registry_enable` | Enable the registry, or reopen/re-enable a previously closed one |
-| | `registry_set_tier` | Change the registry's billing tier |
-| | `registry_close` | Close the registry (storage deletion is scheduled, not immediate) **(destructive — needs `confirm`)** |
-| | `registry_credentials_create` | Create a robot credential for docker login / pull / push **(mints a secret, needs `confirm`)** |
-| | `registry_credentials_revoke` | Revoke a robot credential immediately **(destructive — needs `confirm`)** |
-| | `registry_repository_delete` | Delete an entire repository (every image in it) **(destructive — needs `confirm`)** |
-| | `registry_tag_delete` | Delete one tag from a repository **(destructive — needs `confirm`)** |
-| | `registry_cluster_link` | Link an owned Kubernetes cluster to the registry (installs a secret-syncer controller) |
-| | `registry_cluster_unlink` | Unlink a cluster, removing everything the link installed **(destructive — needs `confirm`)** |
-| | `registry_cluster_rotate` | Rotate a linked cluster's pull credential **(disruptive, needs `confirm`)** |
-| | `registry_kubernetes_manifest` | Get a ready-to-apply pull-secret manifest for a BYO (self-managed) cluster **(mints a secret, needs `confirm`)** |
+| Category | Tool | Safety | Purpose |
+|---|---|---|---|
+| Services | `set_service_hostname` | plain | Rename a service (legacy VPS hostname, or the cloud VM's server name) |
+| | `deploy_service` | **spends** | Deploy (order + provision) a new service: polymorphic across VM / k8s / volume / load-balancer / network / proxy / domain; load balancers, volumes and networks take no SKU (call `check_order` first; returns a **live secret**) |
+| | `destroy_service` | **destructive** | Permanently destroy a service and release its resources (also load balancers, volumes and private networks by id) |
+| | `resize_service` | **spends** | Resize a cloud VM to a new flavor/plan |
+| | `upgrade_service` | **spends** | Create an upgrade order moving a service to a new product/plan |
+| | `renew_service` | **spends** | Ensure a renewal invoice exists for a service |
+| | `cancel_service` | **destructive** | File a cancellation request: immediate or end-of-term |
+| | `set_service_autorenew` | plain | Toggle auto-renew for a service |
+| | `create_service_backup` | plain | Create an on-demand backup of a legacy VPS |
+| | `mount_service_iso` | plain | Mount a rescue/install ISO on a VPS |
+| | `unmount_service_iso` | plain | Unmount the currently mounted ISO from a VPS |
+| | `set_service_password` | **disruptive** | Set the root/administrator password of a legacy VPS |
+| | `start_service` | plain | Power on a service |
+| | `stop_service` | **disruptive** | Power off a service |
+| | `reboot_service` | **disruptive** | Reboot a service |
+| | `reinstall_service` | **destructive** | Reinstall (rebuild from scratch) a service, wiping the disk (returns a **live secret**) |
+| | `reset_service_password` | **disruptive** | Reset the root password live via qemu-guest-agent, on a running cloud VM |
+| | `add_service_ssh_key` | **sensitive** | Install an SSH public key directly onto a running service |
+| | `add_service_ssh_key_to_library` | plain | Register an SSH key in a legacy VPS's reinstall-time key library |
+| | `apply_service_ssh_key_library` | **disruptive** | Apply a set of library SSH keys to a legacy VPS, replacing the current set |
+| | `set_service_tags` | plain | Replace a cloud VM's tags (the whole set; `[]` clears them) |
+| Managed Kubernetes | `set_cluster_scale` | **disruptive** | Set the autoscaling bounds of a cluster's first node pool |
+| | `add_cluster_pool` | **spends** | Add a named worker node pool |
+| | `update_cluster_pool` | **disruptive** | Edit an existing node pool's bounds / machineType / volume size |
+| | `delete_cluster_pool` | **destructive** | Remove a worker node pool |
+| | `rename_cluster_pool` | **disruptive** | Rename a worker node pool (rolls its nodes) |
+| | `enable_cluster_ha` | **spends** | Enable the HA control plane: add-only, irreversible |
+| | `create_cluster_kubeconfig` | **sensitive** | Mint a long-lived, revocable kubeconfig credential (returns a **live secret**) |
+| | `revoke_cluster_kubeconfig` | **destructive** | Revoke a long-lived kubeconfig credential |
+| Cloud infra: volumes / networks / IPs | `create_volume` | **spends** | Create a new block-storage volume |
+| | `delete_volume` | **destructive** | Delete a block-storage volume permanently |
+| | `attach_volume` | plain | Attach a volume to a cloud VM |
+| | `detach_volume` | **disruptive** | Detach a volume from a cloud VM |
+| | `create_network` | plain | Create a new private network (VPC) |
+| | `delete_network` | **destructive** | Delete a private network (VPC) |
+| | `attach_network_vm` | **disruptive** | Move a cloud VM into a private network |
+| | `reserve_ip` | **spends** | Reserve a new static public IP |
+| | `release_reserved_ip` | **destructive** | Release (permanently delete) a reserved public IP |
+| | `attach_reserved_ip` | plain | Attach a reserved public IP to a cloud VM |
+| | `detach_reserved_ip` | **disruptive** | Detach a reserved public IP from its VM |
+| Cloud infra: firewalls / load balancers | `create_firewall` | plain | Create a new cloud firewall (security group) |
+| | `delete_firewall` | **destructive** | Delete a cloud firewall |
+| | `add_firewall_rule` | plain | Add an inbound/outbound rule to a firewall |
+| | `delete_firewall_rule` | **destructive** | Remove a rule from a firewall |
+| | `attach_firewall` | plain | Attach a firewall to a cloud VM |
+| | `detach_firewall` | **disruptive** | Detach a firewall from a cloud VM |
+| | `create_load_balancer` | **spends** | Create a new L4 load balancer (VIP + listener + pool + floating IP); returns at once with status `pending`, poll `get_load_balancer` until `active` |
+| | `delete_load_balancer` | **destructive** | Delete a load balancer; `deleted` at once, or `deleting` when it was still being set up |
+| | `add_load_balancer_member` | plain | Add a VM as a member of a load-balancer pool |
+| | `remove_load_balancer_member` | **destructive** | Remove a member from a load-balancer pool |
+| Object Storage | `enable_object_storage` | **spends** | Enable Object Storage (starts the monthly base fee); optional, the first bucket does it too |
+| | `disable_object_storage` | **destructive** | Delete the storage account for good (only once every bucket is deleted and every key revoked) |
+| | `create_bucket` | **spends** | Create a bucket (the first one enables or wakes the service and its base fee) |
+| | `update_bucket` | **sensitive** | Toggle a bucket's versioning or public CDN delivery (public makes every object readable by anyone) |
+| | `delete_bucket` | **destructive** | Delete a bucket; `purge:true` deletes every object in it first |
+| | `create_object_storage_key` | **sensitive** | Create an S3 access key scoped to buckets + read/readwrite (returns a **live secret**, shown once) |
+| | `delete_object_storage_key` | **destructive** | Revoke an S3 access key |
+| Domains | `register_domain` | **spends** | Register a new domain name |
+| | `transfer_domain` | **spends** | Transfer a domain in from another registrar |
+| | `renew_domain` | **spends** | Renew an owned domain |
+| | `set_domain_nameservers` | **disruptive** | Replace an owned domain's nameservers (2-5) |
+| | `set_domain_contacts` | **sensitive** | Update an owned domain's registrant WHOIS contact |
+| | `set_domain_dns` | **disruptive** | Replace an owned domain's DNS host records |
+| | `manage_domain` | **sensitive** | Dispatch a single domain management action (nameservers / lock / autorenew / idprotect / epp) |
+| Account | `update_account` | **sensitive** | Update the account's billing / contact profile |
+| | `add_account_ssh_key` | plain | Add an account-wide SSH public key |
+| | `delete_account_ssh_key` | **destructive** | Delete an account-wide SSH key |
+| | `resend_email_verification` | plain | Resend the account's email-verification email |
+| | `manage_account_contact` | **sensitive** | Add, update, or delete a billing/technical contact |
+| | `create_affiliate_link` | plain | Mint a signed affiliate referral link (no money movement) |
+| Billing | `set_billing_alert` | plain | Set (or update) the month-to-date spend alert |
+| | `delete_billing_alert` | **destructive** | Remove the month-to-date spend alert |
+| | `redeem_voucher` | plain | Redeem a credit voucher / promo code (adds credit: never spends) |
+| Support | `create_ticket` | **sensitive** | Open a support ticket |
+| | `reply_ticket` | **sensitive** | Post a reply to an existing support ticket |
+| | `close_ticket` | plain | Close a support ticket |
+| Proxies | `order_proxy` | **spends** | Order a new residential proxy plan: ISP or GB Residential (returns a **live secret**) |
+| | `renew_proxy` | **spends** | Renew a proxy service for another billing term |
+| | `set_proxy_auto_renew` | plain | Turn a proxy service's auto-renew on/off |
+| | `cancel_proxy` | **destructive** | Cancel a proxy service |
+| | `set_proxy_auth_method` | **disruptive** | Switch a proxy service's authentication method |
+| | `set_proxy_credentials` | **disruptive** | Set a proxy service's username/password |
+| | `add_proxy_whitelisted_ip` | plain | Add an IP to a proxy service's whitelist |
+| | `remove_proxy_whitelisted_ip` | **destructive** | Remove an IP from a proxy service's whitelist |
+| | `request_proxy_replacement` | **disruptive** | Request an IP replacement, consuming the monthly allowance |
+| | `create_proxy_request` | plain | Create a proxy-request on a GB Residential bucket |
+| | `delete_proxy_request` | **destructive** | Delete a proxy-request from a GB Residential bucket |
 
-Notably absent by design: no password/2FA changes, no sub-user invites, no payment-method or API-token management, no credit top-up, no invoice payment, no affiliate activate/withdraw. Those are identity, credential, or raw-money-movement operations that stay out of an agent's reach; see [Reads + gated writes](#reads--gated-writes). Registry ROBOT credentials are a different, allowed class: infrastructure access material, not identity (spec CR-12); see [Reads + gated writes](#reads--gated-writes) below.
+Notably absent by design: no password/2FA changes, no sub-user invites, no payment-method or API-token management, no credit top-up, no invoice payment, no affiliate activate/withdraw, and no way to change a resource's API access. Those are identity, credential, or raw-money-movement operations that stay out of an agent's reach: they have no tool at all (see [Security](#security)).
 
-## Reads + gated writes
+## Safety model
 
-Every read tool above is always safe to call — it only ever inspects account state. Write tools mutate state, and the ones that spend money or destroy something are **gated**: they require an explicit `confirm: true` argument, and if it's missing the tool refuses immediately and issues **zero** API calls (no side effect, no partial charge, nothing to undo). The tool's own error message says so ("... was NOT executed ...") so the agent knows to go back and get the user's explicit go-ahead before retrying with `confirm:true`.
+Every read tool only inspects account state and is always safe to call. Every write tool has exactly **one safety kind**, and everything safety-related is derived from it in one place (the `writeTool` factory), so no tool hand-writes its own warning:
 
-Two independent things are true of every gated tool:
+| Kind | Meaning | Gated | `destructiveHint` |
+|---|---|---|---|
+| **plain** | No charge, nothing torn down, nothing running is interrupted | no | false |
+| **spends** | Places an order or otherwise charges the account | yes | false |
+| **destructive** | Irreversible: deletes data or a resource, revokes access, cancels a service | yes | true |
+| **disruptive** | Reversible, but interrupts something running or locks someone out (power off, reboot, detach, move a VM between networks, roll a node pool, replace DNS, replace credentials or keys) | yes | true |
+| **sensitive** | Grants access, changes ownership or legal data, or speaks for you (SSH key install, long-lived kubeconfig, domain contacts, account profile, support tickets) | yes | false |
 
-- **`confirm: true` required** — the caller must actively opt in per call; there is no "confirm once, run twice" shortcut.
-- **`destructiveHint` annotation** — set on the subset of gated tools whose effect is irreversible teardown (delete, revoke, cancel, remove-member, …), so an MCP client's own UI/guardrails can treat those more cautiously than a merely money-spending gated tool (deploy, resize, renew, …). See the legend above the write-tools table for which tools carry which marker.
+- **Gated tools refuse with zero API calls unless the call passes `confirm: true`.** No side effect, no partial charge, nothing to undo. The refusal says what the tool would have done, for example `stop_service was NOT executed because it is disruptive: it powers the server off; everything running on it stops until it is started again.`, so the agent can go back to you for an explicit go-ahead. The confirm is per call; there is no "confirm once, run twice" shortcut.
+- **Every description ends with one standard `Safety:` sentence** naming the kind and the concrete consequence, so the agent sees the same information before it calls.
+- **Every tool carries MCP annotations.** All reads set `readOnlyHint: true` (so a client can auto-approve them), plus `idempotentHint: true` and `destructiveHint: false`. All writes set `readOnlyHint: false`, and `destructiveHint` is true for destructive and disruptive tools, so an MCP client's own guardrails can treat those more cautiously. Every tool sets `openWorldHint: true` (it talks to the live RareCloud API).
+- **Credentials are marked.** Tools whose result contains a live credential (`deploy_service` and `reinstall_service` when they return a one-time console password, `order_proxy` for an ISP plan's proxy list, `create_cluster_kubeconfig`, `create_object_storage_key`, `get_cluster_kubeconfig`, `download_cluster_kubeconfig`, `get_proxy_list`, `get_proxy_auth`, `get_proxy_request_list`) carry one standard sentence: *SECURITY: the result contains ..., a live credential. Treat it as a secret: do not repeat it to the user, or write it to files or logs, unless the user explicitly asks; pass it straight to whatever needs it.* Tools that take a secret as input (`set_service_password`, `reset_service_password`, `set_proxy_credentials`) tell the agent never to echo the value back.
 
-A handful of tools also return a **live credential** in their result: long-lived kubeconfigs (`create_cluster_kubeconfig`, plus the read-only `get_cluster_kubeconfig` / `download_cluster_kubeconfig`), proxy endpoint/auth data (`get_proxy_list`, `get_proxy_auth`, `get_proxy_request_list`), and registry robot credentials (`registry_credentials_create`, `registry_kubernetes_manifest`). Their descriptions explicitly instruct the agent to treat the value as a secret, never echo it back or log it, and pass it straight to whatever consumes it unless the user explicitly asks to see it. The two registry tools additionally require `confirm: true` (spec CR-12) and append a one-line warning after the secret in their result, since the secret can never be retrieved again once shown.
+### Resources the user made read-only for agents
 
-For anything still outside the 90 write tools: the agent can read, recommend, and generate Terraform/CLI commands. The user copy-pastes them or runs them via [the RareCloud CLI](https://github.com/RareCloudio/rarecloud-cli).
+In the console you can switch **API access** off for any service (VPS, cloud VM, cluster, volume, load balancer, network, hosting, proxy) or domain. That resource becomes read-only for every API token, so for this server too:
+
+- The agent can still list it and read its details. `list_services`, `get_service`, `list_domains` and `get_domain` show `apiAccess: "read_only"` (missing means `"full"`), and `list_api_access` lists every read-only resource in one call, so the agent can check before it plans a change.
+- Every change to it, and every read of its credentials (kubeconfigs, proxy credentials and similar), is refused by the API with `RESOURCE_PROTECTED`. The agent gets this error text: *The user made this resource read-only for agents and API tokens, so this request was refused and nothing was changed. Agents can still list it and read its details, but cannot change it or read its credentials. Do not retry, and do not try to reach the same result through another tool. If the change is really wanted, ask the user to turn API access on for this resource in the console: \<link\>*
+- Only you can turn API access back on, signed in to the console. The switch endpoints (`PUT /v1/services/{id}/api-access`, `PUT /v1/domains/{id}/api-access`) have no tool on purpose, and a registry test pins that: an agent that could flip the switch could make a protected resource writable and then change it.
+
+### Safe retries (idempotency keys)
+
+A dropped connection after the API created something used to leave the agent guessing whether to retry, and a retry could create a second VM or charge twice. The 40 write tools that map to a route where the API honours an `Idempotency-Key` take an optional `idempotency_key` input (1 to 255 printable ASCII characters): reuse the same value if you retry the exact same request, and the API runs it at most once and returns the first answer again.
+
+- Without `idempotency_key`, the server makes a fresh UUIDv4 key for the call and, if the connection drops or times out before the answer arrives, retries **once** with that same key.
+- If the API says the first request with that key is still running (`409 IDEMPOTENCY_IN_PROGRESS`), the server waits the `Retry-After` time (at most 10 seconds) and asks again with the same key, up to 3 times.
+- `422 IDEMPOTENCY_KEY_REUSED` (the key was used for a different request) and every other API error are final: no retry.
+- A replayed answer starts with a note saying it is a replay and that the operation ran once. Secrets are never stored for a replay: when the first answer held one (a console password, a secret key), the note passes on `secretsOmittedOnReplay` so the agent knows it was shown only the first time.
+- The confirm gate still comes first: without `confirm:true` a gated tool makes no key and no request.
+- No other POST ever carries the header, and no other request is ever retried.
+
+The tools: `add_account_ssh_key`, `add_cluster_pool`, `add_firewall_rule`, `add_load_balancer_member`, `add_proxy_whitelisted_ip`, `add_service_ssh_key`, `add_service_ssh_key_to_library`, `cancel_service`, `create_bucket`, `create_cluster_kubeconfig`, `create_firewall`, `create_load_balancer`, `create_network`, `create_object_storage_key`, `create_proxy_request`, `create_service_backup`, `create_ticket`, `create_volume`, `deploy_service`, `enable_cluster_ha`, `enable_object_storage`, `manage_account_contact`, `order_proxy`, `reboot_service`, `redeem_voucher`, `register_domain`, `reinstall_service`, `renew_domain`, `renew_proxy`, `renew_service`, `reply_ticket`, `request_proxy_replacement`, `reserve_ip`, `reset_service_password`, `resize_service`, `set_cluster_scale`, `start_service`, `stop_service`, `transfer_domain`, `upgrade_service`.
+
+For anything outside the 87 write tools, the agent can read, recommend, and generate Terraform/CLI commands. You copy-paste them or run them via [the RareCloud CLI](https://github.com/RareCloudio/rarecloud-cli).
 
 ## Install
 
-Requires Node.js 20+ to run the published server. Contributors running the test suite locally need Node.js **21+** — `npm test` passes a glob (`src/**/*.test.ts`) straight to `node --test`, which only gained glob-pattern support in Node 21.
+Requires Node.js **21+** (the package's `engines` field). The test suite needs it too: `npm test` passes a glob (`src/**/*.test.ts`) straight to `node --test`, which only gained glob-pattern support in Node 21.
 
 ```bash
 npm install -g @rarecloudio/mcp-server
@@ -231,12 +256,12 @@ npx @rarecloudio/mcp-server
 Get an API token: **Dashboard → Account → API tokens → New token**. Pick scopes for what you want the agent to do:
 
 - Read-only agent: the explicit read scopes `account:read`, `services:read`, `billing:read`, `domains:read`, `tickets:read`.
-- An agent that can also act: add the matching `{domain}:write` scope(s): `services:write` (covers cloud VMs, managed Kubernetes, volumes, networks, reserved IPs, firewalls, load balancers, residential proxies, **and the container registry**, there is no separate proxy or registry scope), `domains:write`, `account:write`, `billing:write`, `tickets:write`.
+- An agent that can also act: add the matching `{domain}:write` scope(s): `services:write` (covers cloud VMs, managed Kubernetes, volumes, networks, reserved IPs, firewalls, load balancers, Object Storage, **and residential proxies**: there is no separate proxy scope; the read-only `check_order` also needs it, because it answers whether this token can order), `domains:write`, `account:write`, `billing:write`, `tickets:write`.
 - Full access: bare `*`.
 
-Scope matching is **exact per token**: wildcard patterns like `*:read` are not supported; a token must carry the precise scope string a tool's description names. `account:write` / `billing:write` / `tickets:write` are deliberately narrow: they cover only the safe write tools listed above (profile fields, SSH keys, contacts, spend alerts, voucher redemption, tickets) and exclude every identity/credential/money-movement operation (password/2FA changes, sub-user invites, payment methods, API tokens, credit top-up, invoice payment, affiliate activate/withdraw); those simply have no tool here, gated or otherwise. Registry robot credentials (`registry_credentials_create`/`_revoke`, `registry_kubernetes_manifest`) are NOT part of that exclusion: they are infrastructure access material, the same class as SSH keys and kubeconfigs, not account identity (spec CR-12); see [Reads + gated writes](#reads--gated-writes) above.
+Scope matching is **exact per token**: wildcard patterns like `*:read` are not supported; a token must carry the precise scope string a tool's description names. `account:write` / `billing:write` / `tickets:write` are deliberately narrow: they cover only the safe write tools listed above (profile fields, SSH keys, contacts, spend alerts, voucher redemption, tickets) and exclude every identity/credential/money-movement operation (password/2FA changes, sub-user invites, payment methods, API tokens, credit top-up, invoice payment, affiliate activate/withdraw): those simply have no tool here, gated or otherwise.
 
-Copy the token — shown once.
+Copy the token; it is shown only once.
 
 Set the env var:
 
@@ -273,8 +298,7 @@ Restart Claude Desktop. The tools become available under the 🔌 menu.
 ## Use with Claude Code
 
 ```bash
-claude mcp add rarecloud npx -- -y @rarecloudio/mcp-server \
-  -e RARECLOUD_API_TOKEN=rc_pat_...
+claude mcp add rarecloud -e RARECLOUD_API_TOKEN=rc_pat_... -- npx -y @rarecloudio/mcp-server
 ```
 
 ## Use with Cursor
@@ -303,9 +327,9 @@ Once configured, try:
 - *"Show my block volumes and which VM each is attached to"* → `list_volumes`
 - *"Any unpaid invoices, and what would paying the latest one from my balance cost?"* → `list_invoices` + `get_invoice_pay_preview`
 - *"Give me a Terraform config for a 2 vCPU / 4 GB VPS in The Hague"* → `get_catalog_plan` + composition
-- *"Deploy a 2 vCPU / 4 GB VM in The Hague named web-01"* → `get_product_details` to confirm the plan and cost, then `deploy_service` with `confirm:true` once you approve
+- *"Deploy a 2 vCPU / 4 GB VM in The Hague named web-01"* → `get_product_details` to confirm the plan and cost, `check_order` to see the order will be accepted, then `deploy_service` with `confirm:true` once you approve
 - *"Resize db-02 to the next size up"* → `list_upgrade_options` + `resize_service` (confirm required)
-- *"Mint a 90-day view-only kubeconfig for my cluster for CI"* → `create_cluster_kubeconfig`
+- *"Mint a 90-day view-only kubeconfig for my cluster for CI"* → `create_cluster_kubeconfig` (confirm required: it mints a long-lived credential)
 
 ## Develop locally
 
@@ -337,16 +361,16 @@ Then point Claude Desktop at your local checkout:
 npm test
 ```
 
-Tests run on the built-in Node test runner (`node:test`) via `tsx`, no build step, no network. Each tool is exercised against an injected mock client that records the request path and returns a canned payload, so the suite asserts path construction, input-schema shape, JSON-vs-raw output, secret-handling guidance, and error mapping without ever calling the live API. For write tools, the same fake-client harness also proves the confirm gate makes zero requests when `confirm` is omitted, that both the zod input and the JSON `inputSchema` enforce the same bounds (mirrored both layers), and that every dynamic path segment is guarded against path traversal. A registry invariant test pins the exposed tool count (175) and enforces unique names, well-formed schemas, and, for the write-scope surfaces, an exact pinned set of tool names per scope, so a future change can't silently add a tool under the wrong scope.
+Tests run on the built-in Node test runner (`node:test`) via `tsx`: no build step, no network. Each tool is exercised against an injected mock client that records the request path and returns a canned payload, so the suite asserts path construction, input-schema shape, JSON-vs-raw output, secret-handling guidance, and error mapping without ever calling the live API. For write tools, the same fake-client harness also proves every gated tool (63, pinned by name and kind) refuses with its reason and makes zero requests when `confirm` is omitted, that every tool carries the right MCP annotations, that both the zod input and the JSON `inputSchema` enforce the same bounds (mirrored both layers), and that every dynamic path segment is guarded against path traversal. Further tests drop the first answer of an idempotent request and prove the retry reuses the same key, pin which tools take `idempotency_key` against the API's covered routes, and pin the `RESOURCE_PROTECTED` error text. A registry invariant test pins the exposed tool count (173) and enforces unique names, well-formed schemas, and, for the write-scope surfaces, an exact pinned set of tool names per scope, so a future change can't silently add a tool under the wrong scope.
 
 ## Security
 
 - Tokens never touch shell history (we use env vars, not CLI flags).
 - Each tool maps 1:1 to a RareCloud API endpoint; the MCP server doesn't aggregate or transform data beyond what the API returns.
-- **Scope is exact-match per token, enforced server-side.** A token only unlocks the tools whose scope it carries; there is no wildcard scope matching (`*:read` does not imply `services:read`) and no client-side scope bypass — an unscoped or under-scoped token gets the API's own `[FORBIDDEN]` response back.
-- **Writes exist and are gated.** 90 of the 175 tools mutate state. The ones that spend money or destroy something require `confirm:true` and make no API call at all without it (see [Reads + gated writes](#reads--gated-writes)). The remaining write tools are plain (no charge, nothing torn down) and run unconditionally once the token's scope allows them.
-- **No identity/credential/money-movement surface, by design, not by gate.** Password/2FA changes, sub-user invites, payment-method management, API-token management, credit top-up, invoice payment, and affiliate activate/withdraw have no tool here at all — an agent holding even a maximally-scoped token cannot reach them. A registry test pins this exclusion list so a future change can't quietly add one back.
-- The handful of tools that return live credentials (kubeconfigs — including the long-lived `create_cluster_kubeconfig` — and proxy endpoint/auth lists) carry explicit secret-handling guidance so the agent doesn't echo them back unprompted.
+- **Scope is exact-match per token, enforced server-side.** A token only unlocks the tools whose scope it carries; there is no wildcard scope matching (`*:read` does not imply `services:read`) and no client-side scope bypass: an unscoped or under-scoped token gets the API's own `[FORBIDDEN]` response back.
+- **Writes exist and are gated.** 87 of the 173 tools mutate state. The 63 that spend money, destroy something, disrupt something running, or are security-sensitive require `confirm:true` and make no API call at all without it (see [Safety model](#safety-model)). The remaining 24 are plain (no charge, nothing torn down) and run without confirmation once the token's scope allows them.
+- **No identity/credential/money-movement surface, by design, not by gate.** Password/2FA changes, sub-user invites, payment-method management, API-token management, credit top-up, invoice payment, and affiliate activate/withdraw, and the per-resource API access switch, have no tool here at all: an agent holding even a maximally-scoped token cannot reach them. A registry test pins this exclusion list so a future change can't quietly add one back.
+- The tools that return live credentials (kubeconfigs, proxy endpoint/auth lists, one-time console passwords) carry the standard SECURITY sentence so the agent doesn't echo them back unprompted.
 - Revoke a token at any time: **Dashboard → Account → API tokens**. Revocation is instant, no propagation delay.
 
 ## License

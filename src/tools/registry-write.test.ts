@@ -60,16 +60,16 @@ function textOf(result: ToolCallResult): string {
 type Case = { tool: ToolDefinition; gated: boolean; destructive: boolean; args: Record<string, unknown> };
 
 const TOOLS: Record<string, Case> = {
-  registry_enable: { tool: registryEnable, gated: false, destructive: false, args: { handle: 'acme', tier: 'free' } },
-  registry_set_tier: { tool: registrySetTier, gated: false, destructive: false, args: { tier: 'starter' } },
+  registry_enable: { tool: registryEnable, gated: true, destructive: false, args: { handle: 'acme', tier: 'free' } },
+  registry_set_tier: { tool: registrySetTier, gated: true, destructive: false, args: { tier: 'starter' } },
   registry_close: { tool: registryClose, gated: true, destructive: true, args: { handle: 'acme' } },
   registry_credentials_create: { tool: registryCredentialsCreate, gated: true, destructive: false, args: { name: 'ci', scope: 'pull' } },
   registry_credentials_revoke: { tool: registryCredentialsRevoke, gated: true, destructive: true, args: { id: '11111111-1111-1111-1111-111111111111' } },
   registry_repository_delete: { tool: registryRepositoryDelete, gated: true, destructive: true, args: { repo: 'app' } },
   registry_tag_delete: { tool: registryTagDelete, gated: true, destructive: true, args: { repo: 'app', tag: '1.0' } },
-  registry_cluster_link: { tool: registryClusterLink, gated: false, destructive: false, args: { service_id: 'svc-1' } },
+  registry_cluster_link: { tool: registryClusterLink, gated: true, destructive: false, args: { service_id: 'svc-1' } },
   registry_cluster_unlink: { tool: registryClusterUnlink, gated: true, destructive: true, args: { service_id: 'svc-1' } },
-  registry_cluster_rotate: { tool: registryClusterRotate, gated: true, destructive: false, args: { service_id: 'svc-1' } },
+  registry_cluster_rotate: { tool: registryClusterRotate, gated: true, destructive: true, args: { service_id: 'svc-1' } },
   registry_kubernetes_manifest: { tool: registryKubernetesManifest, gated: true, destructive: false, args: {} },
 };
 
@@ -110,11 +110,10 @@ test('registry writes: gated tools refuse with NO request when confirm is absent
   }
 });
 
-test('registry writes: non-gated tools issue exactly one request with confirm absent', async () => {
+test('registry writes: every tool issues exactly one request with confirm:true', async () => {
   for (const [name, c] of Object.entries(TOOLS)) {
-    if (c.gated) continue;
     const { client, calls } = fakeWriteClient();
-    const result = await c.tool.handler(client, { ...c.args });
+    const result = await c.tool.handler(client, { ...c.args, confirm: true });
     assert.equal(result.isError, undefined, `${name} must succeed`);
     assert.equal(calls.length, 1, `${name} must issue exactly one request`);
   }
@@ -132,11 +131,11 @@ test('registry writes: APIError from the client maps to errorResult with [CODE] 
   }
 });
 
-// --- registry_enable (POST /registry, no gate) ------------------------------
+// --- registry_enable (POST /registry, spends) --------------------------------
 
 test('registry_enable: POSTs {handle, tier} to /v1/registry', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await registryEnable.handler(client, { handle: 'acme', tier: 'starter' });
+  const result = await registryEnable.handler(client, { handle: 'acme', tier: 'starter', confirm: true });
   assert.equal(result.isError, undefined);
   assert.deepEqual(calls, [{ method: 'POST', path: '/v1/registry', body: { handle: 'acme', tier: 'starter' } }]);
 });
@@ -144,7 +143,7 @@ test('registry_enable: POSTs {handle, tier} to /v1/registry', async () => {
 test('registry_enable: rejects a malformed handle before any request', async () => {
   const { client, calls } = fakeWriteClient();
   for (const bad of ['AB', 'ab', 'has-hyphen', 'has_underscore', '']) {
-    const result = await registryEnable.handler(client, { handle: bad, tier: 'free' });
+    const result = await registryEnable.handler(client, { handle: bad, tier: 'free', confirm: true });
     assert.equal(result.isError, true, `handle=${JSON.stringify(bad)} must be rejected`);
     assert.match(textOf(result), /^Error: Invalid input for registry_enable:/);
   }
@@ -153,7 +152,7 @@ test('registry_enable: rejects a malformed handle before any request', async () 
 
 test('registry_enable: rejects an out-of-enum tier before any request', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await registryEnable.handler(client, { handle: 'acme', tier: 'gold' });
+  const result = await registryEnable.handler(client, { handle: 'acme', tier: 'gold', confirm: true });
   assert.equal(result.isError, true);
   assert.match(textOf(result), /^Error: Invalid input for registry_enable:/);
   assert.deepEqual(calls, []);
@@ -164,18 +163,18 @@ test('registry_enable: JSON inputSchema mirrors the handle pattern', () => {
   assert.equal(props.handle.pattern, '^[a-z0-9]{3,30}$');
 });
 
-// --- registry_set_tier (PATCH /registry, no gate) ---------------------------
+// --- registry_set_tier (PATCH /registry, spends) ----------------------------
 
 test('registry_set_tier: PATCHes {tier} to /v1/registry', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await registrySetTier.handler(client, { tier: 'enterprise' });
+  const result = await registrySetTier.handler(client, { tier: 'enterprise', confirm: true });
   assert.equal(result.isError, undefined);
   assert.deepEqual(calls, [{ method: 'PATCH', path: '/v1/registry', body: { tier: 'enterprise' } }]);
 });
 
 test('registry_set_tier: rejects an out-of-enum tier before any request', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await registrySetTier.handler(client, { tier: 'gold' });
+  const result = await registrySetTier.handler(client, { tier: 'gold', confirm: true });
   assert.equal(result.isError, true);
   assert.match(textOf(result), /^Error: Invalid input for registry_set_tier:/);
   assert.deepEqual(calls, []);
@@ -373,7 +372,7 @@ test('registry_tag_delete: a ".." tag is rejected by zod (TAG_RE) before any req
   assert.deepEqual(calls, []);
 });
 
-// --- registry_cluster_link (POST /registry/clusters/{serviceId}, no gate) --
+// --- registry_cluster_link (POST /registry/clusters/{serviceId}, sensitive) --
 
 const LINK_RESPONSE = {
   link: {
@@ -386,16 +385,16 @@ const LINK_RESPONSE = {
   disclosure: 'Linking installs a small controller... TEST DISCLOSURE TEXT ...Unlinking removes everything it installed.',
 };
 
-test('registry_cluster_link: POSTs to /v1/registry/clusters/{service_id} with no body, no confirm required', async () => {
+test('registry_cluster_link: POSTs to /v1/registry/clusters/{service_id} with no body when confirmed', async () => {
   const { client, calls } = fakeWriteClient(() => LINK_RESPONSE);
-  const result = await registryClusterLink.handler(client, { service_id: 'svc-1' });
+  const result = await registryClusterLink.handler(client, { service_id: 'svc-1', confirm: true });
   assert.equal(result.isError, undefined);
   assert.deepEqual(calls, [{ method: 'POST', path: '/v1/registry/clusters/svc-1', body: undefined }]);
 });
 
 test('registry_cluster_link: the disclosure text is returned verbatim in the result', async () => {
   const { client } = fakeWriteClient(() => LINK_RESPONSE);
-  const result = await registryClusterLink.handler(client, { service_id: 'svc-1' });
+  const result = await registryClusterLink.handler(client, { service_id: 'svc-1', confirm: true });
   const parsed = JSON.parse(textOf(result));
   assert.equal(parsed.disclosure, LINK_RESPONSE.disclosure);
   assert.equal(parsed.link.credentialName, 'k8s-svc-1');
@@ -408,7 +407,7 @@ test('registry_cluster_link: description instructs relaying the disclosure verba
 
 test('registry_cluster_link: a ".." service_id is rejected before any request', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await registryClusterLink.handler(client, { service_id: '..' });
+  const result = await registryClusterLink.handler(client, { service_id: '..', confirm: true });
   assert.equal(result.isError, true);
   assert.equal(textOf(result), 'Error: Invalid service_id value');
   assert.deepEqual(calls, []);
@@ -516,8 +515,8 @@ test('registry_kubernetes_manifest: rejects an out-of-enum scope/expiry before a
 test('registry_kubernetes_manifest: sends Accept: application/json as an extra header', async () => {
   const calls: Array<{ path: string; headers?: Record<string, string> }> = [];
   const client = {
-    post: async (path: string, _body?: unknown, headers?: Record<string, string>) => {
-      calls.push({ path, headers });
+    post: async (path: string, _body?: unknown, opts?: { headers?: Record<string, string> }) => {
+      calls.push({ path, headers: opts?.headers });
       return MANIFEST_RESPONSE;
     },
   } as unknown as RareCloudClient;

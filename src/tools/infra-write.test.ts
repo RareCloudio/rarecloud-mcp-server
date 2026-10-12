@@ -66,12 +66,12 @@ type IdToolCase = {
 const ID_TOOLS: Record<string, IdToolCase> = {
   delete_volume: { tool: deleteVolume, gated: true, destructive: true, args: {} },
   attach_volume: { tool: attachVolume, gated: false, destructive: false, args: { serverId: 'srv-1' } },
-  detach_volume: { tool: detachVolume, gated: false, destructive: false, args: { serverId: 'srv-1' } },
+  detach_volume: { tool: detachVolume, gated: true, destructive: true, args: { serverId: 'srv-1' } },
   delete_network: { tool: deleteNetwork, gated: true, destructive: true, args: {} },
-  attach_network_vm: { tool: attachNetworkVm, gated: false, destructive: false, args: { serverId: 'srv-1' } },
+  attach_network_vm: { tool: attachNetworkVm, gated: true, destructive: true, args: { serverId: 'srv-1' } },
   release_reserved_ip: { tool: releaseReservedIp, gated: true, destructive: true, args: {} },
   attach_reserved_ip: { tool: attachReservedIp, gated: false, destructive: false, args: { serverId: 'srv-1' } },
-  detach_reserved_ip: { tool: detachReservedIp, gated: false, destructive: false, args: {} },
+  detach_reserved_ip: { tool: detachReservedIp, gated: true, destructive: true, args: {} },
 };
 
 test('task5 registry: each id-tool has its name, closed schema, requires id, services:write in description', () => {
@@ -139,7 +139,7 @@ test('create_volume: name + closed schema (confirm — money-spend)', () => {
   assert.match(createVolume.description, /services:write/);
   assert.deepEqual(createVolume.inputSchema.required, ['sizeGb', 'confirm']);
   assert.equal(createVolume.inputSchema.additionalProperties, false);
-  assert.equal(createVolume.annotations, undefined);
+  assert.equal(createVolume.annotations.destructiveHint, false);
 });
 
 test('create_volume: POSTs {sizeGb} to /v1/volumes when confirmed (name omitted)', async () => {
@@ -223,7 +223,7 @@ test('attach_volume: missing serverId is rejected by zod before any request', as
 
 test('detach_volume: POSTs {serverId} to /v1/volumes/{id}/detach', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await detachVolume.handler(client, { id: 'vol-1', serverId: 'srv-1' });
+  const result = await detachVolume.handler(client, {confirm: true,  id: 'vol-1', serverId: 'srv-1' });
   assert.equal(result.isError, undefined);
   assert.deepEqual(calls, [{ method: 'POST', path: '/v1/volumes/vol-1/detach', body: { serverId: 'srv-1' } }]);
 });
@@ -235,7 +235,7 @@ test('create_network: name + closed schema (no confirm — not gated per brief)'
   assert.match(createNetwork.description, /services:write/);
   assert.deepEqual(createNetwork.inputSchema.required, ['name']);
   assert.ok(!('confirm' in createNetwork.inputSchema.properties));
-  assert.equal(createNetwork.annotations, undefined);
+  assert.equal(createNetwork.annotations.destructiveHint, false);
 });
 
 test('create_network: POSTs {name} to /v1/networks', async () => {
@@ -276,18 +276,18 @@ test('delete_network: DELETEs /v1/networks/{id} with no body when confirmed', as
   assert.deepEqual(calls, [{ method: 'DELETE', path: '/v1/networks/net-1' }]);
 });
 
-// --- attach_network_vm (POST {serverId}, no gate) -------------------------
+// --- attach_network_vm (POST {serverId}, disruptive) ----------------------
 
 test('attach_network_vm: POSTs {serverId} to /v1/networks/{id}/vms', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await attachNetworkVm.handler(client, { id: 'net-1', serverId: 'srv-1' });
+  const result = await attachNetworkVm.handler(client, { confirm: true, id: 'net-1', serverId: 'srv-1' });
   assert.equal(result.isError, undefined);
   assert.deepEqual(calls, [{ method: 'POST', path: '/v1/networks/net-1/vms', body: { serverId: 'srv-1' } }]);
 });
 
 test('attach_network_vm: missing serverId is rejected by zod before any request', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await attachNetworkVm.handler(client, { id: 'net-1' });
+  const result = await attachNetworkVm.handler(client, { confirm: true, id: 'net-1' });
   assert.equal(result.isError, true);
   assert.match(textOf(result), /^Error: Invalid input for attach_network_vm:/);
   assert.deepEqual(calls, []);
@@ -299,7 +299,7 @@ test('reserve_ip: name + closed schema (confirm — money-spend), serverId optio
   assert.equal(reserveIp.name, 'reserve_ip');
   assert.match(reserveIp.description, /services:write/);
   assert.deepEqual(reserveIp.inputSchema.required, ['confirm']);
-  assert.equal(reserveIp.annotations, undefined);
+  assert.equal(reserveIp.annotations.destructiveHint, false);
 });
 
 test('reserve_ip: POSTs an empty body to /v1/reserved-ips when confirmed (serverId omitted)', async () => {
@@ -350,23 +350,23 @@ test('attach_reserved_ip: missing serverId is rejected by zod before any request
   assert.deepEqual(calls, []);
 });
 
-// --- detach_reserved_ip (POST, NO body per openapi, no gate) --------------
+// --- detach_reserved_ip (POST, NO body per openapi, disruptive: gated) ----
 
-test('detach_reserved_ip: closed schema requires only id (no serverId field)', () => {
-  assert.deepEqual(detachReservedIp.inputSchema.required, ['id']);
-  assert.deepEqual(Object.keys(detachReservedIp.inputSchema.properties), ['id']);
+test('detach_reserved_ip: closed schema requires only id + confirm (no serverId field)', () => {
+  assert.deepEqual(detachReservedIp.inputSchema.required, ['id', 'confirm']);
+  assert.deepEqual(Object.keys(detachReservedIp.inputSchema.properties), ['id', 'confirm']);
 });
 
 test('detach_reserved_ip: POSTs /v1/reserved-ips/{id}/detach with NO body', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await detachReservedIp.handler(client, { id: 'ip-1' });
+  const result = await detachReservedIp.handler(client, {confirm: true,  id: 'ip-1' });
   assert.equal(result.isError, undefined);
   assert.deepEqual(calls, [{ method: 'POST', path: '/v1/reserved-ips/ip-1/detach', body: undefined }]);
 });
 
 test('detach_reserved_ip: an unknown property (e.g. serverId) is rejected by the strict schema', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await detachReservedIp.handler(client, { id: 'ip-1', serverId: 'srv-1' });
+  const result = await detachReservedIp.handler(client, {confirm: true,  id: 'ip-1', serverId: 'srv-1' });
   assert.equal(result.isError, true);
   assert.match(textOf(result), /^Error: Invalid input for detach_reserved_ip:/);
   assert.deepEqual(calls, []);

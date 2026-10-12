@@ -7,6 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   getService,
+  listServices,
   getServiceIso,
   listServiceSshKeyLibrary,
   getServiceAutorenew,
@@ -73,4 +74,23 @@ test('services: get_service — a ".." service_id is rejected before any request
   assert.equal(result.isError, true);
   assert.equal(textOf(result), 'Error: Invalid service_id value');
   assert.deepEqual(calls, [], 'no request may reach the client for a ".." service_id');
+});
+
+test('services: list_services puts a partial-results note first when the client reports one', async () => {
+  const client = {
+    async get(_p: string, _q: unknown, meta?: { partialResults?: string[] }) {
+      if (meta) meta.partialResults = ['cloud-vm', 'cloud-k8s'];
+      return [{ id: 'a' }];
+    },
+  } as unknown as RareCloudClient;
+  const r = await listServices.handler(client, {});
+  assert.equal(r.content.length, 2);
+  assert.equal((r.content[0] as { text: string }).text, 'Note: partial results, missing: cloud-vm, cloud-k8s');
+  assert.match((r.content[1] as { text: string }).text, /"id": "a"/);
+});
+
+test('services: list_services has no note when the list is complete', async () => {
+  const { client } = fakeClient(() => [{ id: 'a' }]);
+  const r = await listServices.handler(client, {});
+  assert.equal(r.content.length, 1);
 });

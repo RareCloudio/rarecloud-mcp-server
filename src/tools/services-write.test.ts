@@ -26,6 +26,8 @@ import {
   addServiceSshKey,
   addServiceSshKeyToLibrary,
   applyServiceSshKeyLibrary,
+  setServiceTags,
+  checkOrder,
 } from './services-write.js';
 import { APIError, type RareCloudClient } from '../client.js';
 import type { ToolCallResult, ToolDefinition } from './types.js';
@@ -64,7 +66,7 @@ test('set_service_hostname: name + closed schema (no confirm — plain write)', 
   assert.deepEqual(Object.keys(setServiceHostname.inputSchema.properties), ['service_id', 'hostname']);
   // A non-gated write must NOT advertise confirm, and carries no destructiveHint.
   assert.ok(!('confirm' in setServiceHostname.inputSchema.properties));
-  assert.equal(setServiceHostname.annotations, undefined);
+  assert.equal(setServiceHostname.annotations.destructiveHint, false);
 });
 
 test('set_service_hostname: encodes service_id into the path and POSTs the hostname body', async () => {
@@ -433,18 +435,18 @@ type Task3ToolCase = {
 
 const TASK3_TOOLS: Record<string, Task3ToolCase> = {
   start_service: { tool: startService, gated: false, destructive: false, args: {} },
-  stop_service: { tool: stopService, gated: false, destructive: false, args: {} },
-  reboot_service: { tool: rebootService, gated: false, destructive: false, args: {} },
+  stop_service: { tool: stopService, gated: true, destructive: true, args: {} },
+  reboot_service: { tool: rebootService, gated: true, destructive: true, args: {} },
   reinstall_service: { tool: reinstallService, gated: true, destructive: true, args: { imageId: 'ubuntu-24.04' } },
   reset_service_password: { tool: resetServicePassword, gated: true, destructive: true, args: { password: 'supersecret1' } },
-  add_service_ssh_key: { tool: addServiceSshKey, gated: false, destructive: false, args: { public_key: 'ssh-ed25519 AAAAtest' } },
+  add_service_ssh_key: { tool: addServiceSshKey, gated: true, destructive: false, args: { public_key: 'ssh-ed25519 AAAAtest' } },
   add_service_ssh_key_to_library: {
     tool: addServiceSshKeyToLibrary,
     gated: false,
     destructive: false,
     args: { name: 'laptop', key: 'ssh-ed25519 AAAAtest' },
   },
-  apply_service_ssh_key_library: { tool: applyServiceSshKeyLibrary, gated: false, destructive: false, args: {} },
+  apply_service_ssh_key_library: { tool: applyServiceSshKeyLibrary, gated: true, destructive: true, args: {} },
 };
 
 test('task3 registry: each tool has its expected name, closed schema, requires service_id, services:write in description', () => {
@@ -520,14 +522,14 @@ test('start_service: POSTs /actions/start with no body', async () => {
 
 test('stop_service: POSTs /actions/stop with no body', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await stopService.handler(client, { service_id: 's1' });
+  const result = await stopService.handler(client, {confirm: true,  service_id: 's1' });
   assert.equal(result.isError, undefined);
   assert.deepEqual(calls, [{ method: 'POST', path: '/v1/services/s1/actions/stop', body: undefined }]);
 });
 
 test('reboot_service: POSTs /actions/reboot with no body', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await rebootService.handler(client, { service_id: 's1' });
+  const result = await rebootService.handler(client, {confirm: true,  service_id: 's1' });
   assert.equal(result.isError, undefined);
   assert.deepEqual(calls, [{ method: 'POST', path: '/v1/services/s1/actions/reboot', body: undefined }]);
 });
@@ -579,9 +581,8 @@ test('reinstall_service: missing imageId is rejected by zod before any request',
 // the same treat-as-secret guidance as the other credential-returning tools
 // (get_proxy_auth, get_cluster_kubeconfig).
 test('reinstall_service: description flags the one-time consolePassword as a secret', () => {
-  assert.match(reinstallService.description, /secret/i);
   assert.match(reinstallService.description, /consolePassword/);
-  assert.match(reinstallService.description, /do not echo/i);
+  assert.match(reinstallService.description, /SECURITY: the result contains .*consolePassword.*, a live credential\. Treat it as a secret/);
   assert.match(reinstallService.description, /unless the user explicitly asks/i);
 });
 
@@ -628,7 +629,7 @@ test('reset_service_password: an invalid password value is never echoed in the e
 
 test('add_service_ssh_key: POSTs {public_key} to /ssh-keys (optional name/id omitted)', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await addServiceSshKey.handler(client, { service_id: 's1', public_key: 'ssh-ed25519 AAAAtest' });
+  const result = await addServiceSshKey.handler(client, {confirm: true,  service_id: 's1', public_key: 'ssh-ed25519 AAAAtest' });
   assert.equal(result.isError, undefined);
   assert.deepEqual(calls, [
     { method: 'POST', path: '/v1/services/s1/ssh-keys', body: { public_key: 'ssh-ed25519 AAAAtest' } },
@@ -637,7 +638,7 @@ test('add_service_ssh_key: POSTs {public_key} to /ssh-keys (optional name/id omi
 
 test('add_service_ssh_key: forwards optional name + id when supplied', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await addServiceSshKey.handler(client, {
+  const result = await addServiceSshKey.handler(client, {confirm: true, 
     service_id: 's1',
     public_key: 'ssh-ed25519 AAAAtest',
     name: 'laptop',
@@ -655,7 +656,7 @@ test('add_service_ssh_key: forwards optional name + id when supplied', async () 
 
 test('add_service_ssh_key: missing public_key is rejected by zod before any request', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await addServiceSshKey.handler(client, { service_id: 's1' });
+  const result = await addServiceSshKey.handler(client, {confirm: true,  service_id: 's1' });
   assert.equal(result.isError, true);
   assert.match(textOf(result), /^Error: Invalid input for add_service_ssh_key:/);
   assert.deepEqual(calls, []);
@@ -688,7 +689,7 @@ test('add_service_ssh_key_to_library: missing name/key is rejected by zod before
 
 test('apply_service_ssh_key_library: POSTs {keyIds} to /ssh-keys/library/apply when supplied', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await applyServiceSshKeyLibrary.handler(client, { service_id: 's1', keyIds: ['k1', 'k2'] });
+  const result = await applyServiceSshKeyLibrary.handler(client, {confirm: true,  service_id: 's1', keyIds: ['k1', 'k2'] });
   assert.equal(result.isError, undefined);
   assert.deepEqual(calls, [
     { method: 'POST', path: '/v1/services/s1/ssh-keys/library/apply', body: { keyIds: ['k1', 'k2'] } },
@@ -697,7 +698,238 @@ test('apply_service_ssh_key_library: POSTs {keyIds} to /ssh-keys/library/apply w
 
 test('apply_service_ssh_key_library: omits undefined keyIds (empty body) when not supplied', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await applyServiceSshKeyLibrary.handler(client, { service_id: 's1' });
+  const result = await applyServiceSshKeyLibrary.handler(client, {confirm: true,  service_id: 's1' });
   assert.equal(result.isError, undefined);
   assert.deepEqual(calls, [{ method: 'POST', path: '/v1/services/s1/ssh-keys/library/apply', body: {} }]);
+});
+
+// --- set_service_tags -------------------------------------------------------
+
+test('set_service_tags: PUTs the whole tag set to /v1/services/{id}/tags; plain, no confirm', async () => {
+  assert.equal(setServiceTags.name, 'set_service_tags');
+  assert.ok(!('confirm' in setServiceTags.inputSchema.properties));
+  assert.deepEqual(setServiceTags.inputSchema.required, ['service_id', 'tags']);
+  assert.match(setServiceTags.description, /Cloud VMs only/);
+  assert.match(setServiceTags.description, /\[\] removes them all/);
+  assert.match(setServiceTags.description, /At most 50 tags, each 1 to 60 characters/);
+  assert.match(setServiceTags.description, /"managed:", "k8s:" or "rarecloud"/);
+  const { client, calls } = fakeWriteClient();
+  const r = await setServiceTags.handler(client, { service_id: 'vm 1', tags: ['web', 'env:prod'] });
+  assert.equal(r.isError, undefined);
+  assert.deepEqual(calls, [{ method: 'PUT', path: '/v1/services/vm%201/tags', body: { tags: ['web', 'env:prod'] } }]);
+});
+
+test('set_service_tags: [] clears every tag', async () => {
+  const { client, calls } = fakeWriteClient();
+  await setServiceTags.handler(client, { service_id: 'vm-1', tags: [] });
+  assert.deepEqual(calls[0].body, { tags: [] });
+});
+
+test('set_service_tags: the API tag limits are enforced before any request', async () => {
+  const bad: unknown[][] = [
+    [''],
+    ['x'.repeat(61)],
+    ['a,b'],
+    ['a/b'],
+    ['tab\there'],
+    ['managed:kubernetes'],
+    ['K8S:cluster'],
+    ['RareCloud_user_id'],
+    Array.from({ length: 51 }, (_, i) => `t${i}`),
+  ];
+  for (const tags of bad) {
+    const { client, calls } = fakeWriteClient();
+    const r = await setServiceTags.handler(client, { service_id: 'vm-1', tags });
+    assert.equal(r.isError, true, JSON.stringify(tags).slice(0, 60));
+    assert.match((r.content[0] as { text: string }).text, /^Error: Invalid input for set_service_tags/);
+    assert.equal(calls.length, 0);
+  }
+  const { client, calls } = fakeWriteClient();
+  await setServiceTags.handler(client, { service_id: 'vm-1', tags: [...Array.from({ length: 50 }, (_, i) => `t${i}`)] });
+  assert.equal(calls.length, 1, '50 tags is the limit, not over it');
+});
+
+test('set_service_tags: the JSON schema mirrors the limits', () => {
+  const tags = setServiceTags.inputSchema.properties.tags as { maxItems: number; items: { minLength: number; maxLength: number; pattern: string } };
+  assert.equal(tags.maxItems, 50);
+  assert.equal(tags.items.minLength, 1);
+  assert.equal(tags.items.maxLength, 60);
+  const re = new RegExp(tags.items.pattern);
+  assert.equal(re.test('env:prod'), true);
+  assert.equal(re.test('a,b'), false);
+  assert.equal(re.test('a/b'), false);
+});
+
+test('set_service_tags: traversal service_id is rejected before any request', async () => {
+  const { client, calls } = fakeWriteClient();
+  const r = await setServiceTags.handler(client, { service_id: '..', tags: [] });
+  assert.equal(r.isError, true);
+  assert.equal(calls.length, 0);
+});
+
+test('deploy_service: cloud-vm tags follow the same limits (schema + validation)', async () => {
+  const tags = deployService.inputSchema.properties.tags as { maxItems: number; description: string };
+  assert.equal(tags.maxItems, 50);
+  assert.match(tags.description, /reserved for the platform/);
+  const { client, calls } = fakeWriteClient();
+  const r = await deployService.handler(client, { productId: 'sku', tags: ['managed:x'], confirm: true });
+  assert.equal(r.isError, true);
+  assert.equal(calls.length, 0);
+  await deployService.handler(client, { productId: 'sku', tags: ['web'], confirm: true });
+  assert.deepEqual((calls[0].body as { tags: string[] }).tags, ['web']);
+});
+
+// --- deploy_service: per-category requirements (mirrors POST /v1/services) ---
+//
+// The API creates a load balancer, a volume and a private network WITHOUT a
+// catalog SKU; everything else (and a body with no category) names one.
+
+const DEPLOY_MINIMAL: Array<[string, Record<string, unknown>]> = [
+  ['no category (inferred from the SKU)', { productId: 'sku-1' }],
+  ['cloud-vm', { category: 'cloud-vm', productId: 'c-2vcpu-4gb' }],
+  ['cloud-k8s', { category: 'cloud-k8s', plan: 'k8s-standard' }],
+  ['server', { category: 'server', productId: '12' }],
+  ['hosting', { category: 'hosting', productId: '30' }],
+  ['proxy', { category: 'proxy', productId: '40' }],
+  ['domain', { category: 'domain', productId: '50' }],
+  ['cloud-loadbalancer', { category: 'cloud-loadbalancer', memberServerIds: ['vm-1'] }],
+  ['cloud-loadbalancer (full)', { category: 'cloud-loadbalancer', name: 'web', region: 'ro-buc', port: 80, memberServerIds: ['vm-1'], healthCheck: true }],
+  ['cloud-volume', { category: 'cloud-volume', sizeGb: 20 }],
+  ['cloud-network (name)', { category: 'cloud-network', name: 'backend' }],
+  ['cloud-network (hostname alias)', { category: 'cloud-network', hostname: 'backend' }],
+];
+
+for (const [label, body] of DEPLOY_MINIMAL) {
+  test(`deploy_service: the minimal valid ${label} body is sent as is`, async () => {
+    const { client, calls } = fakeWriteClient();
+    const result = await deployService.handler(client, { ...body, confirm: true });
+    assert.equal(result.isError, undefined, textOf(result));
+    assert.deepEqual(calls, [{ method: 'POST', path: '/v1/services', body }]);
+  });
+}
+
+const DEPLOY_INVALID: Array<[string, Record<string, unknown>, RegExp]> = [
+  ['cloud-vm without productId/plan', { category: 'cloud-vm', region: 'ro-buc' }, /productId \(or its alias plan\) is required for category cloud-vm/],
+  ['cloud-k8s without productId/plan', { category: 'cloud-k8s' }, /productId \(or its alias plan\) is required for category cloud-k8s/],
+  ['server without productId/plan', { category: 'server' }, /productId \(or its alias plan\) is required for category server/],
+  ['hosting without productId/plan', { category: 'hosting' }, /productId \(or its alias plan\) is required for category hosting/],
+  ['proxy without productId/plan', { category: 'proxy' }, /productId \(or its alias plan\) is required for category proxy/],
+  ['domain without productId/plan', { category: 'domain' }, /productId \(or its alias plan\) is required for category domain/],
+  ['cloud-loadbalancer without memberServerIds', { category: 'cloud-loadbalancer', name: 'web', port: 80 }, /memberServerIds: .*at least one cloud VM.*cloud-loadbalancer/],
+  ['cloud-loadbalancer with empty memberServerIds', { category: 'cloud-loadbalancer', memberServerIds: [] }, /memberServerIds: .*at least one cloud VM/],
+  ['cloud-loadbalancer with port 0', { category: 'cloud-loadbalancer', memberServerIds: ['vm-1'], port: 0 }, /port:/],
+  ['cloud-loadbalancer with port 70000', { category: 'cloud-loadbalancer', memberServerIds: ['vm-1'], port: 70000 }, /port:/],
+  ['cloud-volume without sizeGb', { category: 'cloud-volume', name: 'data' }, /sizeGb: sizeGb is required for category cloud-volume/],
+  ['cloud-volume with sizeGb 0', { category: 'cloud-volume', sizeGb: 0 }, /sizeGb:/],
+  ['cloud-volume with sizeGb 4096', { category: 'cloud-volume', sizeGb: 4096 }, /sizeGb:/],
+  ['cloud-network without a name', { category: 'cloud-network' }, /name: a name \(or its alias hostname\) is required for category cloud-network/],
+  ['cloud-network with a name of only symbols', { category: 'cloud-network', name: '---' }, /name: .*letter or digit/],
+];
+
+for (const [label, body, message] of DEPLOY_INVALID) {
+  test(`deploy_service: ${label} is refused before any request`, async () => {
+    const { client, calls } = fakeWriteClient();
+    const result = await deployService.handler(client, { ...body, confirm: true });
+    assert.equal(result.isError, true);
+    assert.match(textOf(result), /^Error: Invalid input for deploy_service: /);
+    assert.match(textOf(result), message);
+    assert.deepEqual(calls, []);
+  });
+}
+
+test('deploy_service: the advertised schema describes the load balancer, volume and network fields', () => {
+  const p = deployService.inputSchema.properties as Record<string, { description?: string; minimum?: number; maximum?: number; minItems?: number }>;
+  assert.match(p.port.description ?? '', /cloud-loadbalancer/);
+  assert.equal(p.port.minimum, 1);
+  assert.equal(p.port.maximum, 65535);
+  assert.match(p.memberServerIds.description ?? '', /required for cloud-loadbalancer/);
+  assert.equal(p.memberServerIds.minItems, 1);
+  assert.match(p.healthCheck.description ?? '', /cloud-loadbalancer/);
+  assert.match(p.sizeGb.description ?? '', /required for cloud-volume/);
+  assert.equal(p.sizeGb.minimum, 1);
+  assert.equal(p.sizeGb.maximum, 2048);
+  assert.match(p.name.description ?? '', /required for cloud-network/);
+  assert.match(p.productId.description ?? '', /not used for cloud-loadbalancer, cloud-volume or cloud-network/);
+});
+
+test('deploy_service: the description points at check_order', () => {
+  assert.match(deployService.description, /Call check_order first to see whether the order will be accepted\./);
+});
+
+// --- check_order (read-only POST /v1/services/preflight) ---
+
+test('check_order: a read (read annotations), no confirm, no idempotency_key, scope services:write', () => {
+  assert.equal(checkOrder.name, 'check_order');
+  assert.deepEqual(checkOrder.annotations, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true });
+  assert.ok(!('confirm' in checkOrder.inputSchema.properties));
+  assert.ok(!('idempotency_key' in checkOrder.inputSchema.properties));
+  assert.deepEqual(checkOrder.inputSchema.required ?? [], []);
+  assert.equal(checkOrder.inputSchema.additionalProperties, false);
+  assert.match(checkOrder.description, /Requires scope services:write\./);
+  assert.match(checkOrder.description, /without creating or reserving anything/);
+  assert.match(checkOrder.description, /an agent cannot pay/);
+  assert.match(checkOrder.description, /checked_at_order/);
+  assert.match(checkOrder.description, /advice, not a reservation/);
+  assert.ok(!checkOrder.description.includes('Safety:'));
+  assert.ok(!checkOrder.description.includes('—'));
+});
+
+test('check_order: advertises the same fields as deploy_service, minus confirm and idempotency_key', () => {
+  const deployKeys = Object.keys(deployService.inputSchema.properties).filter((k) => k !== 'confirm' && k !== 'idempotency_key').sort();
+  assert.deepEqual(Object.keys(checkOrder.inputSchema.properties).sort(), deployKeys);
+});
+
+test('check_order: POSTs the validated body to /v1/services/preflight and returns the answer', async () => {
+  const answer = { allowed: false, reason: 'insufficient_balance', neededCents: 1200, availableCents: 200, missingCents: 1000, currency: 'EUR', addFundsUrl: 'https://console.rarecloud.io/billing/add-funds?amount=10', message: 'Add funds.' };
+  const calls: Array<{ path: string; body: unknown; opts: unknown }> = [];
+  const client = {
+    async post(path: string, body: unknown, opts?: unknown) {
+      calls.push({ path, body, opts });
+      return answer;
+    },
+  } as unknown as RareCloudClient;
+  const body = { category: 'cloud-vm', productId: 'c-2vcpu-4gb', region: 'ro-buc' };
+  const result = await checkOrder.handler(client, body);
+  assert.equal(result.isError, undefined);
+  assert.deepEqual(JSON.parse(textOf(result)), answer);
+  assert.deepEqual(calls, [{ path: '/v1/services/preflight', body, opts: undefined }]);
+});
+
+for (const [label, body] of DEPLOY_MINIMAL) {
+  test(`check_order: the minimal valid ${label} body is checked`, async () => {
+    const { client, calls } = fakeWriteClient(() => ({ allowed: true, reason: 'ok' }));
+    const result = await checkOrder.handler(client, { ...body });
+    assert.equal(result.isError, undefined, textOf(result));
+    assert.deepEqual(calls, [{ method: 'POST', path: '/v1/services/preflight', body }]);
+  });
+}
+
+for (const [label, body, message] of DEPLOY_INVALID) {
+  test(`check_order: ${label} is refused before any request`, async () => {
+    const { client, calls } = fakeWriteClient();
+    const result = await checkOrder.handler(client, { ...body });
+    assert.equal(result.isError, true);
+    assert.match(textOf(result), /^Error: Invalid input for check_order: /);
+    assert.match(textOf(result), message);
+    assert.deepEqual(calls, []);
+  });
+}
+
+test('check_order: confirm and idempotency_key are unknown inputs, refused with no request', async () => {
+  for (const extra of [{ confirm: true }, { idempotency_key: 'k-1' }]) {
+    const { client, calls } = fakeWriteClient();
+    const result = await checkOrder.handler(client, { productId: 'sku-1', ...extra });
+    assert.equal(result.isError, true);
+    assert.match(textOf(result), /^Error: Invalid input for check_order: /);
+    assert.deepEqual(calls, []);
+  }
+});
+
+test('check_order: an API error becomes an error result', async () => {
+  const { client } = fakeWriteClient(() => {
+    throw new APIError({ code: 'FORBIDDEN', message: 'services:write scope required' });
+  });
+  const result = await checkOrder.handler(client, { productId: 'sku-1' });
+  assert.equal(result.isError, true);
+  assert.equal(textOf(result), 'Error: [FORBIDDEN] services:write scope required');
 });

@@ -68,11 +68,11 @@ const ID_TOOLS: Record<string, IdToolCase> = {
   renew_proxy: { tool: renewProxy, gated: true, destructive: false, args: {} },
   set_proxy_auto_renew: { tool: setProxyAutoRenew, gated: false, destructive: false, args: { enabled: true } },
   cancel_proxy: { tool: cancelProxy, gated: true, destructive: true, args: {} },
-  set_proxy_auth_method: { tool: setProxyAuthMethod, gated: false, destructive: false, args: { method: 'password' } },
+  set_proxy_auth_method: { tool: setProxyAuthMethod, gated: true, destructive: true, args: { method: 'password' } },
   set_proxy_credentials: {
     tool: setProxyCredentials,
-    gated: false,
-    destructive: false,
+    gated: true,
+    destructive: true,
     args: { username: 'proxyuser', password: 'proxypass1' },
   },
   add_proxy_whitelisted_ip: { tool: addProxyWhitelistedIp, gated: false, destructive: false, args: { ip: '203.0.113.5' } },
@@ -82,7 +82,7 @@ const ID_TOOLS: Record<string, IdToolCase> = {
     destructive: true,
     args: { ip: '203.0.113.5' },
   },
-  request_proxy_replacement: { tool: requestProxyReplacement, gated: false, destructive: false, args: {} },
+  request_proxy_replacement: { tool: requestProxyReplacement, gated: true, destructive: true, args: {} },
   create_proxy_request: {
     tool: createProxyRequest,
     gated: false,
@@ -162,7 +162,7 @@ test('order_proxy: name + closed schema (confirm — money-spend, no destructive
   assert.match(orderProxy.description, /no proxy-specific scope/);
   assert.deepEqual(orderProxy.inputSchema.required, ['confirm']);
   assert.equal(orderProxy.inputSchema.additionalProperties, false);
-  assert.equal(orderProxy.annotations, undefined);
+  assert.equal(orderProxy.annotations.destructiveHint, false);
 });
 
 test('order_proxy: ISP branch POSTs the full body to /v1/proxies when confirmed', async () => {
@@ -393,14 +393,14 @@ test('cancel_proxy: forwards cancel:false (undo) when supplied', async () => {
 
 test('set_proxy_auth_method: PATCHes {method} to /v1/proxies/{id}/auth', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await setProxyAuthMethod.handler(client, { id: 'proxy-1', method: 'ip' });
+  const result = await setProxyAuthMethod.handler(client, {confirm: true,  id: 'proxy-1', method: 'ip' });
   assert.equal(result.isError, undefined);
   assert.deepEqual(calls, [{ method: 'PATCH', path: '/v1/proxies/proxy-1/auth', body: { method: 'ip' } }]);
 });
 
 test('set_proxy_auth_method: rejects an unknown method before any request', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await setProxyAuthMethod.handler(client, { id: 'proxy-1', method: 'oauth' });
+  const result = await setProxyAuthMethod.handler(client, {confirm: true,  id: 'proxy-1', method: 'oauth' });
   assert.equal(result.isError, true);
   assert.match(textOf(result), /^Error: Invalid input for set_proxy_auth_method:/);
   assert.deepEqual(calls, []);
@@ -416,7 +416,7 @@ test('set_proxy_auth_method: schema mirrors the method enum', () => {
 
 test('set_proxy_credentials: PUTs {username, password} to /v1/proxies/{id}/auth/credentials', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await setProxyCredentials.handler(client, { id: 'proxy-1', username: 'proxyuser', password: 'proxypass1' });
+  const result = await setProxyCredentials.handler(client, {confirm: true,  id: 'proxy-1', username: 'proxyuser', password: 'proxypass1' });
   assert.equal(result.isError, undefined);
   assert.deepEqual(calls, [
     { method: 'PUT', path: '/v1/proxies/proxy-1/auth/credentials', body: { username: 'proxyuser', password: 'proxypass1' } },
@@ -424,13 +424,13 @@ test('set_proxy_credentials: PUTs {username, password} to /v1/proxies/{id}/auth/
 });
 
 test('set_proxy_credentials: description flags username/password as secrets, never echoed/logged', () => {
-  assert.match(setProxyCredentials.description, /secret/i);
-  assert.match(setProxyCredentials.description, /never echo/i);
+  assert.match(setProxyCredentials.description, /SECURITY: treat the username and password you pass in as a secret/);
+  assert.match(setProxyCredentials.description, /never echo the value back/i);
 });
 
 test('set_proxy_credentials: rejects an empty username/password before any request (deviation: openapi silent on min, route enforces min(1))', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await setProxyCredentials.handler(client, { id: 'proxy-1', username: '', password: 'proxypass1' });
+  const result = await setProxyCredentials.handler(client, {confirm: true,  id: 'proxy-1', username: '', password: 'proxypass1' });
   assert.equal(result.isError, true);
   assert.match(textOf(result), /^Error: Invalid input for set_proxy_credentials:/);
   assert.deepEqual(calls, []);
@@ -439,7 +439,7 @@ test('set_proxy_credentials: rejects an empty username/password before any reque
 test('set_proxy_credentials: rejects a username/password over 64 chars before any request', async () => {
   const { client, calls } = fakeWriteClient();
   const tooLong = 'x'.repeat(65);
-  const result = await setProxyCredentials.handler(client, { id: 'proxy-1', username: tooLong, password: 'proxypass1' });
+  const result = await setProxyCredentials.handler(client, {confirm: true,  id: 'proxy-1', username: tooLong, password: 'proxypass1' });
   assert.equal(result.isError, true);
   assert.deepEqual(calls, []);
 });
@@ -451,7 +451,7 @@ test('set_proxy_credentials: rejects a username/password over 64 chars before an
 test('set_proxy_credentials: an invalid password value is never echoed in the error, and no request is issued', async () => {
   const { client, calls } = fakeWriteClient();
   const badPassword = 'x'.repeat(65);
-  const result = await setProxyCredentials.handler(client, { id: 'proxy-1', username: 'proxyuser', password: badPassword });
+  const result = await setProxyCredentials.handler(client, {confirm: true,  id: 'proxy-1', username: 'proxyuser', password: badPassword });
   assert.equal(result.isError, true);
   assert.ok(
     !textOf(result).includes(badPassword),
@@ -526,7 +526,7 @@ test('remove_proxy_whitelisted_ip: traversal guard on the ip path segment too', 
 
 test('request_proxy_replacement: POSTs to /v1/proxies/{id}/replacements with no body', async () => {
   const { client, calls } = fakeWriteClient();
-  const result = await requestProxyReplacement.handler(client, { id: 'proxy-1' });
+  const result = await requestProxyReplacement.handler(client, {confirm: true,  id: 'proxy-1' });
   assert.equal(result.isError, undefined);
   assert.deepEqual(calls, [{ method: 'POST', path: '/v1/proxies/proxy-1/replacements', body: undefined }]);
 });

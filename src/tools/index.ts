@@ -123,7 +123,10 @@ import {
   addServiceSshKey,
   addServiceSshKeyToLibrary,
   applyServiceSshKeyLibrary,
+  setServiceTags,
+  checkOrder,
 } from './services-write.js';
+import { listApiAccess } from './api-access.js';
 import {
   setClusterScale,
   addClusterPool,
@@ -176,6 +179,24 @@ import {
   manageAccountContact,
   createAffiliateLink,
 } from './account-write.js';
+import {
+  getObjectStorage,
+  listObjectStorageRegions,
+  getObjectStorageUsage,
+  listBuckets,
+  getBucket,
+  getBucketUsage,
+  listObjectStorageKeys,
+} from './object-storage.js';
+import {
+  enableObjectStorage,
+  disableObjectStorage,
+  createBucket,
+  updateBucket,
+  deleteBucket,
+  createObjectStorageKey,
+  deleteObjectStorageKey,
+} from './object-storage-write.js';
 import { setBillingAlert, deleteBillingAlert, redeemVoucher } from './billing-write.js';
 import { createTicket, replyTicket, closeTicket } from './tickets-write.js';
 import {
@@ -226,6 +247,7 @@ export const TOOLS: ToolDefinition[] = [
   getServiceIso,
   listServiceSshKeyLibrary,
   getServiceAutorenew,
+  checkOrder, // read-only POST /v1/services/preflight: would deploy_service be accepted?
   // Orders ("what have I purchased?")
   listOrders,
   getOrder,
@@ -256,6 +278,7 @@ export const TOOLS: ToolDefinition[] = [
   getAccountActivity,
   listAccountEmails,
   listAccountContacts,
+  listApiAccess,
   // Cloud infrastructure ("what storage / networks / LBs / IPs / firewalls do I have?")
   listVolumes,
   getVolume,
@@ -267,6 +290,14 @@ export const TOOLS: ToolDefinition[] = [
   listReservedIps,
   listFirewalls,
   getFirewall,
+  // Object Storage ("what buckets / keys do I have, and what do they cost?")
+  getObjectStorage,
+  listObjectStorageRegions,
+  getObjectStorageUsage,
+  listBuckets,
+  getBucket,
+  getBucketUsage,
+  listObjectStorageKeys,
   // Domains ("what domains do I own + is this name available?")
   listDomains,
   getDomain,
@@ -327,6 +358,7 @@ export const TOOLS: ToolDefinition[] = [
   addServiceSshKey,
   addServiceSshKeyToLibrary,
   applyServiceSshKeyLibrary,
+  setServiceTags,
   // Managed Kubernetes — writes
   setClusterScale,
   addClusterPool,
@@ -359,6 +391,14 @@ export const TOOLS: ToolDefinition[] = [
   deleteLoadBalancer,
   addLoadBalancerMember,
   removeLoadBalancerMember,
+  // Object Storage writes (service / buckets / access keys)
+  enableObjectStorage,
+  disableObjectStorage,
+  createBucket,
+  updateBucket,
+  deleteBucket,
+  createObjectStorageKey,
+  deleteObjectStorageKey,
   // Domains — writes (register / transfer / renew / nameservers / contacts / dns / manage)
   registerDomain,
   transferDomain,

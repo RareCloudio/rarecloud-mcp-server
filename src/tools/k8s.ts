@@ -1,8 +1,7 @@
 // Managed Kubernetes tools — wrap the cloud-k8s subset of /v1/services/{id}.
-// Read-only for Parity Phase A: cluster scale, node pools, the short-lived
-// admin kubeconfig, and the long-lived kubeconfig credentials (list +
-// re-download). Creating/revoking long-lived credentials and setting scale
-// are writes, deferred to Phase B.
+// The read half: cluster scale, node pools, the short-lived admin kubeconfig,
+// and the long-lived kubeconfig credentials (list + re-download). The writes
+// (scale, pools, HA, mint/revoke credentials) live in k8s-write.ts.
 //
 // Two of these tools return a LIVE credential. The API delivers it inside a
 // JSON envelope ({ kubeconfig: "<YAML>", ... }) — verified against
@@ -13,7 +12,7 @@
 
 import { APIError } from '../client.js';
 import { type ToolDefinition, textResult, errorResult } from './types.js';
-import { readTool, encodeSegment } from './factories.js';
+import { readTool, encodeSegment, defineReadTool } from './factories.js';
 
 // service_id-scoped detail reads that return JSON as-is.
 const serviceIdSchema = {
@@ -27,21 +26,21 @@ const serviceIdSchema = {
 
 export const getClusterScale = readTool({
   name: 'get_cluster_scale',
-  description: 'Get the current scale of a managed Kubernetes cluster: its worker node pools plus any add-ons (autoscaler bounds, HA control plane, etc.). Use to answer "how big is my cluster right now?" or to read current sizing before planning a resize. Read-only; changing the scale is a write and is not exposed as an MCP tool. The service_id comes from list_services (a cloud-k8s service).',
+  description: 'Get the current scale of a managed Kubernetes cluster: its worker node pools plus any add-ons (autoscaler bounds, HA control plane, etc.). Use to answer "how big is my cluster right now?" or to read current sizing before planning a resize. Read-only; change it with set_cluster_scale. The service_id comes from list_services (a cloud-k8s service).',
   inputSchema: serviceIdSchema,
   buildPath: (args) => `/v1/services/${encodeSegment(args.service_id, 'service_id')}/scale`,
 });
 
 export const listClusterPools = readTool({
   name: 'list_cluster_pools',
-  description: 'List the worker node pools of a managed Kubernetes cluster — each pool\'s name, machine type/flavor, node count, and autoscaling min/max. Use to inspect how the cluster\'s compute is organized before a scale change, or to find a pool by name. Read-only; adding/editing/removing pools are writes and are not exposed as MCP tools. The service_id comes from list_services (a cloud-k8s service).',
+  description: 'List the worker node pools of a managed Kubernetes cluster: each pool\'s name, machine type/flavor, node count, and autoscaling min/max. Use to inspect how the cluster\'s compute is organized before a scale change, or to find a pool by name. Read-only; change pools with add_cluster_pool, update_cluster_pool, rename_cluster_pool and delete_cluster_pool. The service_id comes from list_services (a cloud-k8s service).',
   inputSchema: serviceIdSchema,
   buildPath: (args) => `/v1/services/${encodeSegment(args.service_id, 'service_id')}/pools`,
 });
 
 export const listClusterKubeconfigs = readTool({
   name: 'list_cluster_kubeconfigs',
-  description: 'List the LONG-LIVED kubeconfig credentials issued for a managed Kubernetes cluster — metadata only (id, name, role admin|view, createdAt, expiresAt, revokedAt, lastDownloadedAt, status active|expired|revoking|revoked). Each is a revocable, per-credential ServiceAccount meant for standing automation (CI, GitOps). The token itself is NEVER returned here — re-download an active one with download_cluster_kubeconfig. Use to see which credentials exist, which are still active, and to find a credential_id. The service_id comes from list_services (a cloud-k8s service).',
+  description: 'List the LONG-LIVED kubeconfig credentials issued for a managed Kubernetes cluster: metadata only (id, name, role admin|view, createdAt, expiresAt, revokedAt, lastDownloadedAt, status active|expired|revoking|revoked). Each is a revocable, per-credential ServiceAccount meant for standing automation (CI, GitOps). The token itself is NEVER returned here: re-download an active one with download_cluster_kubeconfig. Use to see which credentials exist, which are still active, and to find a credential_id. The service_id comes from list_services (a cloud-k8s service).',
   inputSchema: serviceIdSchema,
   buildPath: (args) => `/v1/services/${encodeSegment(args.service_id, 'service_id')}/kubeconfigs`,
 });
@@ -65,10 +64,10 @@ function kubeconfigYaml(data: unknown): string | null {
   return typeof yaml === 'string' && yaml.length > 0 ? yaml : null;
 }
 
-export const getClusterKubeconfig: ToolDefinition = {
+export const getClusterKubeconfig: ToolDefinition = defineReadTool({
   name: 'get_cluster_kubeconfig',
   description:
-    'Fetch a SHORT-LIVED admin kubeconfig for a managed Kubernetes cluster — a freshly-minted cluster-admin credential that expires within hours and leaves NO standing credential behind. Prefer this for one-off, interactive kubectl access. For standing automation that must keep working, use a long-lived credential instead (list_cluster_kubeconfigs + download_cluster_kubeconfig). SECURITY: the result is a LIVE CREDENTIAL — a kubeconfig YAML embedding a bearer token that grants cluster-admin. Treat it as a secret: do NOT echo it back to the user or repeat its contents unless the user explicitly asks to see it; pass it straight to the tool that consumes it. Returns the raw kubeconfig YAML as a text block. The service_id comes from list_services (a cloud-k8s service).',
+    'Fetch a SHORT-LIVED admin kubeconfig for a managed Kubernetes cluster: a freshly-minted cluster-admin credential that expires within hours and leaves NO standing credential behind. Prefer this for one-off, interactive kubectl access. For standing automation that must keep working, use a long-lived credential instead (list_cluster_kubeconfigs + download_cluster_kubeconfig). Returns the raw kubeconfig YAML as a text block. The service_id comes from list_services (a cloud-k8s service).',
   inputSchema: serviceIdSchema,
   async handler(client, args) {
     try {
@@ -80,12 +79,12 @@ export const getClusterKubeconfig: ToolDefinition = {
       return errorResult(e instanceof APIError ? e.message : (e as Error).message);
     }
   },
-};
+}, { returnsSecret: 'a kubeconfig YAML embedding a bearer token that grants cluster-admin' });
 
-export const downloadClusterKubeconfig: ToolDefinition = {
+export const downloadClusterKubeconfig: ToolDefinition = defineReadTool({
   name: 'download_cluster_kubeconfig',
   description:
-    'Re-download a LONG-LIVED kubeconfig credential for a managed Kubernetes cluster by its credential id — a revocable, per-credential ServiceAccount kubeconfig for standing automation that must keep working (unlike the short-lived admin config from get_cluster_kubeconfig). Works for ACTIVE credentials only; revoked or expired credentials return an error. SECURITY: the result is a LIVE CREDENTIAL — a kubeconfig YAML embedding a bearer token. Treat it as a secret: do NOT echo it back to the user or repeat its contents unless the user explicitly asks to see it; pass it straight to the tool that consumes it. Returns the raw kubeconfig YAML as a text block. service_id and credential_id both come from list_cluster_kubeconfigs.',
+    'Re-download a LONG-LIVED kubeconfig credential for a managed Kubernetes cluster by its credential id: a revocable, per-credential ServiceAccount kubeconfig for standing automation that must keep working (unlike the short-lived admin config from get_cluster_kubeconfig). Works for ACTIVE credentials only; revoked or expired credentials return an error. Returns the raw kubeconfig YAML as a text block. service_id comes from list_services (a cloud-k8s service); credential_id comes from list_cluster_kubeconfigs.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -108,4 +107,4 @@ export const downloadClusterKubeconfig: ToolDefinition = {
       return errorResult(e instanceof APIError ? e.message : (e as Error).message);
     }
   },
-};
+}, { returnsSecret: 'a kubeconfig YAML embedding a bearer token' });

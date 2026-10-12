@@ -3,9 +3,9 @@
 
 import { APIError } from '../client.js';
 import { type ToolDefinition, jsonResult, errorResult } from './types.js';
-import { readList, readTool, encodeSegment } from './factories.js';
+import { readList, readTool, encodeSegment, defineReadTool } from './factories.js';
 
-export const getAccount: ToolDefinition = {
+export const getAccount: ToolDefinition = defineReadTool({
   name: 'get_account',
   description: 'Get the authenticated user\'s profile: email, name, country, billing currency, account creation date. Use for "what account am I on?" or to confirm identity before suggesting cross-account actions.',
   inputSchema: {
@@ -21,9 +21,9 @@ export const getAccount: ToolDefinition = {
       return errorResult(e instanceof APIError ? e.message : (e as Error).message);
     }
   },
-};
+});
 
-export const listSshKeys: ToolDefinition = {
+export const listSshKeys: ToolDefinition = defineReadTool({
   name: 'list_ssh_keys',
   description: 'List the SSH keys on a specific server (legacy VPS). SSH keys are per-server in the API, not account-wide. Pass a service_id from list_services.',
   inputSchema: {
@@ -47,9 +47,9 @@ export const listSshKeys: ToolDefinition = {
       return errorResult(e instanceof APIError ? e.message : (e as Error).message);
     }
   },
-};
+});
 
-export const getAccountLimits: ToolDefinition = {
+export const getAccountLimits: ToolDefinition = defineReadTool({
   name: 'get_account_limits',
   description: 'Get account resource limits and current usage (servers / vCPUs / snapshots / IPs / volumes / DNS zones / etc). Use before recommending a deploy to make sure the user has headroom.',
   inputSchema: {
@@ -65,12 +65,12 @@ export const getAccountLimits: ToolDefinition = {
       return errorResult(e instanceof APIError ? e.message : (e as Error).message);
     }
   },
-};
+});
 
 export const listAccountClients = readList(
   'list_account_clients',
   '/v1/account/clients',
-  'List the users linked to this client account — accepted members AND pending invitations. Each entry has a status (active / invited / disabled); the account owner is flagged isOwner. Use for "who has access to my account?" or to find a linked user before discussing collaborators.',
+  'List the users linked to this client account: accepted members AND pending invitations. Each entry has a status (active / invited / disabled); the account owner is flagged isOwner. Use for "who has access to my account?" or to find a linked user before discussing collaborators.',
 );
 
 export const getAffiliate = readList(
@@ -82,13 +82,13 @@ export const getAffiliate = readList(
 export const getTwoFactorStatus = readList(
   'get_two_factor_status',
   '/v1/account/two-factor',
-  'Get the authenticated user\'s two-factor (TOTP) status — whether 2FA is enabled on the account. Use to check the account\'s security posture before advising on hardening.',
+  'Get the authenticated user\'s two-factor (TOTP) status: whether 2FA is enabled on the account. Use to check the account\'s security posture before advising on hardening.',
 );
 
 export const listAccountSshKeys = readList(
   'list_account_ssh_keys',
   '/v1/account/ssh-keys',
-  'List the account-wide SSH public keys registered on the profile — the keys offered at deploy time when creating a new server. Account-scoped, NOT per-server: for the keys already installed on one running server use list_ssh_keys (service_id) instead.',
+  'List the account-wide SSH public keys registered on the profile: the keys offered at deploy time when creating a new server. Account-scoped, NOT per-server: for the keys already installed on one running server use list_ssh_keys (service_id) instead.',
 );
 
 export const getAccountActivity = readTool({
@@ -98,7 +98,7 @@ export const getAccountActivity = readTool({
     type: 'object',
     properties: {
       limit: { type: 'integer', minimum: 1, maximum: 200, description: 'Max entries to return (1–200, default 50).' },
-      before: { type: 'string', description: 'Pagination cursor — return entries older than this (from a previous page).' },
+      before: { type: 'string', description: 'Pagination cursor: return entries older than this (from a previous page).' },
     },
     additionalProperties: false,
   },
@@ -117,7 +117,7 @@ export const listAccountEmails = readTool({
   inputSchema: {
     type: 'object',
     properties: {
-      id: { type: 'string', description: 'Fetch one email by id (returns its HTML body). Omit to list.' },
+      id: { type: 'string', description: 'Fetch one email by its id from a previous list_account_emails call (returns its HTML body). Omit to list.' },
       offset: { type: 'integer', minimum: 0, description: 'Pagination offset into the list (default 0).' },
     },
     additionalProperties: false,
@@ -134,5 +134,5 @@ export const listAccountEmails = readTool({
 export const listAccountContacts = readList(
   'list_account_contacts',
   '/v1/account/contacts',
-  'List the account\'s billing / technical contacts — additional email-copy recipients with no login of their own. Use for "who else receives my invoices and notices?".',
+  'List the account\'s billing / technical contacts: additional email-copy recipients with no login of their own. Use for "who else receives my invoices and notices?".',
 );

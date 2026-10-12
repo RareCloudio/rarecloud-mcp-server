@@ -3,13 +3,15 @@
 // derived-token + plan-and-approve flow described in
 // docs/ideas/2026-05-22-agent-ai-architecture.md.
 
-import { APIError } from '../client.js';
+import { APIError, type ResponseMeta } from '../client.js';
 import { type ToolDefinition, jsonResult, errorResult } from './types.js';
-import { readTool, encodeSegment } from './factories.js';
+import { readTool, encodeSegment, defineReadTool } from './factories.js';
 
-export const listServices: ToolDefinition = {
+export const listServices: ToolDefinition = defineReadTool({
   name: 'list_services',
-  description: 'List all services in the authenticated account: VPS servers, cloud VMs, proxies, hosting, domains. Returns each service\'s id, kind, name, status, IPv4, region, specs, billing cycle. Use to answer "what do I have running?" or to find a service ID for follow-up calls.',
+  description: 'List all services in the authenticated account: VPS servers, cloud VMs, proxies, hosting, domains. Returns each service\'s id, kind, name, status, IPv4, region, specs, billing cycle, and apiAccess ("full", or "read_only" when the user made it read-only for agents and API tokens: no tool can change it, see list_api_access; missing means "full"). Use to answer "what do I have running?" or to find a service ID for follow-up calls.' +
+    ' If the response carries an X-Partial-Results header, the list is incomplete: the named categories (for example cloud-vm) could not be loaded right now; those resources still exist and are not deleted, so retry in a minute instead of treating them as gone.' +
+    ' status is one of: pending/provisioning (being built), active, suspended (unpaid: billing suspended it), hibernated (stopped on purpose, not unpaid), deleting, terminating, error (statusReason says why). For a cloud VM, powerStatus tells whether it is running or stopped.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -23,19 +25,29 @@ export const listServices: ToolDefinition = {
   async handler(client, args) {
     try {
       // The /v1/services route filters by `category` (not `kind`).
+      const meta: ResponseMeta = {};
       const data = await client.get('/v1/services', {
         category: args.category as string | undefined,
-      });
-      return jsonResult(data);
+      }, meta);
+      const result = jsonResult(data);
+      if (!meta.partialResults) return result;
+      return {
+        ...result,
+        content: [
+          { type: 'text', text: `Note: partial results, missing: ${meta.partialResults.join(', ')}` },
+          ...result.content,
+        ],
+      };
     } catch (e) {
       return errorResult(e instanceof APIError ? e.message : (e as Error).message);
     }
   },
-};
+});
 
-export const getService: ToolDefinition = {
+export const getService: ToolDefinition = defineReadTool({
   name: 'get_service',
-  description: 'Get full details for a single service by ID: status, network config, billing state, current-month usage. Use when you need more than the list_services summary (e.g. to inspect logs, current cost, attached resources).',
+  description: 'Get full details for a single service by ID: status, network config, billing state, current-month usage. For a cloud VM it also returns tags (change them with set_service_tags) and, while egress metering is on, bandwidthUsage {usedGb, includedGb, periodStart, measuredThrough} (outbound traffic this period against the included allowance). It also carries apiAccess ("full", or "read_only" when the user made the service read-only for agents and API tokens: no tool can change it; ask the user to turn API access on in the console if a change is really wanted); missing means "full". Use when you need more than the list_services summary (e.g. to inspect logs, current cost, attached resources).' +
+    ' status is one of: pending/provisioning (being built), active, suspended (unpaid: billing suspended it), hibernated (stopped on purpose, not unpaid), deleting, terminating, error (statusReason says why). For a cloud VM, powerStatus tells whether it is running or stopped.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -56,9 +68,9 @@ export const getService: ToolDefinition = {
       return errorResult(e instanceof APIError ? e.message : (e as Error).message);
     }
   },
-};
+});
 
-export const getServiceMetrics: ToolDefinition = {
+export const getServiceMetrics: ToolDefinition = defineReadTool({
   name: 'get_service_metrics',
   description: 'Get resource metrics (CPU / RAM / disk / bandwidth time series) for a single service. Use to answer "is my server busy?" or "how much bandwidth have I used?".',
   inputSchema: {
@@ -88,9 +100,9 @@ export const getServiceMetrics: ToolDefinition = {
       return errorResult(e instanceof APIError ? e.message : (e as Error).message);
     }
   },
-};
+});
 
-export const listBackups: ToolDefinition = {
+export const listBackups: ToolDefinition = defineReadTool({
   name: 'list_backups',
   description: 'List existing backups for a single legacy VPS server. Use to check whether a recent backup exists before a risky change, or to find a backup ID for restore.',
   inputSchema: {
@@ -114,11 +126,11 @@ export const listBackups: ToolDefinition = {
       return errorResult(e instanceof APIError ? e.message : (e as Error).message);
     }
   },
-};
+});
 
-export const getProvisioningState: ToolDefinition = {
+export const getProvisioningState: ToolDefinition = defineReadTool({
   name: 'get_provisioning_state',
-  description: 'Setup state of a pending service: whether its order is paid, whether the VM exists yet, and whether provisioning looks stuck (paid but unprovisioned past the grace period). Use after a deploy to watch it land, or to diagnose a service that stays pending.',
+  description: 'Setup state of a pending service: whether its order is paid, whether the VM exists yet, and whether provisioning looks stuck (paid but unprovisioned past the grace period). Works for legacy VPS ids and cloud VM ids (UUID). Use after a deploy to watch it land, or to diagnose a service that stays pending. The service_id comes from list_services.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -139,11 +151,11 @@ export const getProvisioningState: ToolDefinition = {
       return errorResult(e instanceof APIError ? e.message : (e as Error).message);
     }
   },
-};
+});
 
-export const listOsTemplates: ToolDefinition = {
+export const listOsTemplates: ToolDefinition = defineReadTool({
   name: 'list_os_templates',
-  description: 'Operating systems a legacy VPS can be reinstalled with (Virtualizor templates). Read-only; the reinstall itself is a destructive write and is not exposed as an MCP tool.',
+  description: 'Operating systems a service can be reinstalled with: Virtualizor templates for a legacy VPS, or the curated reinstall images for a cloud VM. Use to pick the imageId for reinstall_service (an irreversible, confirm-gated tool that wipes the disk). Read-only. The service_id comes from list_services.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -164,11 +176,11 @@ export const listOsTemplates: ToolDefinition = {
       return errorResult(e instanceof APIError ? e.message : (e as Error).message);
     }
   },
-};
+});
 
-export const listUpgradeOptions: ToolDefinition = {
+export const listUpgradeOptions: ToolDefinition = defineReadTool({
   name: 'list_upgrade_options',
-  description: 'Plans (and billing cycles with prices) a service could be upgraded/downgraded to, from its product group. Read-only; the actual upgrade creates an invoice and is not exposed as an MCP tool.',
+  description: 'Plans (and billing cycles with prices) a service could be upgraded/downgraded to, from its product group. Read-only; use it to preview the price before upgrade_service (which places a charged order and is confirm-gated). The service_id comes from list_services.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -189,7 +201,7 @@ export const listUpgradeOptions: ToolDefinition = {
       return errorResult(e instanceof APIError ? e.message : (e as Error).message);
     }
   },
-};
+});
 
 // service_id-scoped detail reads. Each hits a fixed sub-path under the service.
 const serviceIdSchema = {
@@ -203,21 +215,21 @@ const serviceIdSchema = {
 
 export const getServiceIso = readTool({
   name: 'get_service_iso',
-  description: 'Get the mounted-ISO status for a legacy VPS: whether a rescue/install ISO is currently attached and, if so, which one. Use to check a server\'s boot media before a reinstall or rescue. Read-only; mount/unmount are writes and are not exposed as MCP tools. The service_id comes from list_services.',
+  description: 'Get the mounted-ISO status for a legacy VPS: whether a rescue/install ISO is currently attached and, if so, which one. Use to check a server\'s boot media before a reinstall or rescue. Read-only; change it with mount_service_iso / unmount_service_iso. The service_id comes from list_services.',
   inputSchema: serviceIdSchema,
   buildPath: (args) => `/v1/services/${encodeSegment(args.service_id, 'service_id')}/iso`,
 });
 
 export const listServiceSshKeyLibrary = readTool({
   name: 'list_service_ssh_key_library',
-  description: 'List the SSH keys registered in a legacy VPS\'s key library (Virtualizor) — each with id, name, publicKey, and a server-computed fingerprint. These are the keys selectable when reinstalling this server. Distinct from list_ssh_keys, which returns the keys already installed on the running server. The service_id comes from list_services.',
+  description: 'List the SSH keys registered in a legacy VPS\'s key library (Virtualizor): each with id, name, publicKey, and a server-computed fingerprint. These are the keys selectable when reinstalling this server. Distinct from list_ssh_keys, which returns the keys already installed on the running server. The service_id comes from list_services.',
   inputSchema: serviceIdSchema,
   buildPath: (args) => `/v1/services/${encodeSegment(args.service_id, 'service_id')}/ssh-keys/library`,
 });
 
 export const getServiceAutorenew = readTool({
   name: 'get_service_autorenew',
-  description: 'Get whether a service auto-renews from account balance ({enabled}). Auto-renew defaults on: at the due date the renewal invoice is paid automatically from promo bonus first, then real credit — enabled:false is the per-service opt-out (bonus still applies). Use to confirm a service won\'t lapse, or explain an unexpected renewal charge. The service_id comes from list_services.',
+  description: 'Get whether a service auto-renews from account balance ({enabled}). Auto-renew defaults on: at the due date the renewal invoice is paid automatically from promo bonus first, then real credit: enabled:false is the per-service opt-out (bonus still applies). Use to confirm a service won\'t lapse, or explain an unexpected renewal charge. The service_id comes from list_services.',
   inputSchema: serviceIdSchema,
   buildPath: (args) => `/v1/services/${encodeSegment(args.service_id, 'service_id')}/autorenew`,
 });
