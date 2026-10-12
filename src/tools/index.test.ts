@@ -10,7 +10,7 @@ import { isIdempotentPostPath } from '../idempotency.js';
 
 // Bump this in the same commit that adds/removes tools. A mismatch means the
 // registry changed without the test acknowledging it.
-const EXPECTED_TOOL_COUNT = 192;
+const EXPECTED_TOOL_COUNT = 193;
 
 test('registry: tool count matches the expected total', () => {
   assert.equal(TOOLS.length, EXPECTED_TOOL_COUNT);
@@ -198,6 +198,7 @@ test('exclusion guard: the services:write surface is EXACTLY the safe set (IaaS 
     'registry_credentials_revoke',
     'registry_enable',
     'registry_kubernetes_manifest',
+    'registry_manifest_delete',
     'registry_repository_delete',
     'registry_set_tier',
     'registry_tag_delete',
@@ -324,7 +325,7 @@ test('registry policy (CR-12): robot/infra credential-minting tools ARE register
   assert.ok(byName.has('registry_credentials_revoke'), 'registry_credentials_revoke must be registered');
 });
 
-test('registry policy (CR-12): the full registry surface is EXACTLY 19 tools, all named registry_*', () => {
+test('registry policy (CR-12): the full registry surface is EXACTLY 20 tools, all named registry_*', () => {
   const registryTools = TOOLS.filter((t) => t.name.startsWith('registry_')).map((t) => t.name).sort();
   assert.deepEqual(registryTools, [
     'registry_close',
@@ -339,6 +340,7 @@ test('registry policy (CR-12): the full registry surface is EXACTLY 19 tools, al
     'registry_get',
     'registry_handle_suggest',
     'registry_kubernetes_manifest',
+    'registry_manifest_delete',
     'registry_repositories_list',
     'registry_repository_delete',
     'registry_repository_get',
@@ -429,6 +431,7 @@ const GATED_TOOLS: Record<string, Exclude<Kind, 'plain'>> = {
   registry_credentials_revoke: 'destructive',
   registry_repository_delete: 'destructive',
   registry_tag_delete: 'destructive',
+  registry_manifest_delete: 'destructive',
   registry_cluster_link: 'sensitive',
   registry_cluster_unlink: 'destructive',
   registry_cluster_rotate: 'disruptive',
@@ -481,10 +484,10 @@ function reasonOf(description: string): string {
   return m[1];
 }
 
-test('safety: every tool (all 192) carries annotations; reads are readOnly, writes are not', () => {
+test('safety: every tool (all 193) carries annotations; reads are readOnly, writes are not', () => {
   assert.equal(readTools().length + writeTools().length, TOOLS.length, 'every tool sets readOnlyHint');
   assert.equal(readTools().length, 94);
-  assert.equal(writeTools().length, 98);
+  assert.equal(writeTools().length, 99);
   for (const t of readTools()) {
     assert.deepEqual(
       t.annotations,
@@ -494,12 +497,12 @@ test('safety: every tool (all 192) carries annotations; reads are readOnly, writ
   }
 });
 
-test('safety: the gated set (74) and the plain set (24) are exactly the pinned ones', () => {
+test('safety: the gated set (75) and the plain set (24) are exactly the pinned ones', () => {
   const gated = writeTools().filter((t) => 'confirm' in t.inputSchema.properties).map((t) => t.name).sort();
   const plain = writeTools().filter((t) => !('confirm' in t.inputSchema.properties)).map((t) => t.name).sort();
   assert.deepEqual(gated, Object.keys(GATED_TOOLS).sort());
   assert.deepEqual(plain, [...PLAIN_TOOLS].sort());
-  assert.equal(gated.length, 74);
+  assert.equal(gated.length, 75);
   assert.equal(plain.length, 24);
 });
 
@@ -624,6 +627,7 @@ const GATED_ARGS: Record<string, Record<string, unknown>> = {
   registry_credentials_revoke: { id: '11111111-1111-1111-1111-111111111111' },
   registry_repository_delete: { repo: 'app' },
   registry_tag_delete: { repo: 'app', tag: '1.0' },
+  registry_manifest_delete: { repo: 'app', digest: `sha256:${'a'.repeat(64)}` },
   registry_cluster_link: { ...SVC },
   registry_cluster_unlink: { ...SVC },
   registry_cluster_rotate: { ...SVC },

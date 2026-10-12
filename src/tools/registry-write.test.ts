@@ -17,6 +17,7 @@ import {
   registryCredentialsRevoke,
   registryRepositoryDelete,
   registryTagDelete,
+  registryManifestDelete,
   registryClusterLink,
   registryClusterUnlink,
   registryClusterRotate,
@@ -67,6 +68,7 @@ const TOOLS: Record<string, Case> = {
   registry_credentials_revoke: { tool: registryCredentialsRevoke, gated: true, destructive: true, args: { id: '11111111-1111-1111-1111-111111111111' } },
   registry_repository_delete: { tool: registryRepositoryDelete, gated: true, destructive: true, args: { repo: 'app' } },
   registry_tag_delete: { tool: registryTagDelete, gated: true, destructive: true, args: { repo: 'app', tag: '1.0' } },
+  registry_manifest_delete: { tool: registryManifestDelete, gated: true, destructive: true, args: { repo: 'app', digest: `sha256:${'a'.repeat(64)}` } },
   registry_cluster_link: { tool: registryClusterLink, gated: true, destructive: false, args: { service_id: 'svc-1' } },
   registry_cluster_unlink: { tool: registryClusterUnlink, gated: true, destructive: true, args: { service_id: 'svc-1' } },
   registry_cluster_rotate: { tool: registryClusterRotate, gated: true, destructive: true, args: { service_id: 'svc-1' } },
@@ -372,6 +374,118 @@ test('registry_tag_delete: a ".." tag is rejected by zod (TAG_RE) before any req
   assert.deepEqual(calls, []);
 });
 
+test('registry_tag_delete: description says a missing tag is a 404 and points at the digest delete', () => {
+  assert.match(registryTagDelete.description, /404 if the tag does not exist/);
+  assert.match(registryTagDelete.description, /about 8 days/);
+  assert.match(registryTagDelete.description, /registry_manifest_delete/);
+});
+
+// --- registry_repository_delete contract notes ------------------------------
+
+test('registry_repository_delete: description says an empty repository answers deleted 0, not 404', () => {
+  assert.match(registryRepositoryDelete.description, /answers deleted 0, not an error/);
+  assert.match(registryRepositoryDelete.description, /pendingGc is always true/);
+  assert.match(registryRepositoryDelete.description, /404 only when the registry no longer holds the repository/);
+  assert.doesNotMatch(registryRepositoryDelete.description, /Fails with a not-found if the repository has no tags/);
+});
+
+// --- registry_manifest_delete (DELETE /registry/repositories/{repo}/manifests/{digest}) --
+
+const DIGEST = `sha256:${'0123456789abcdef'.repeat(4)}`;
+
+test('registry_manifest_delete: DELETEs .../manifests/{digest} with no confirm query by default', async () => {
+  const { client, calls } = fakeWriteClient(() => ({ deleted: 1, tags: ['1.0'] }));
+  const result = await registryManifestDelete.handler(client, { repo: 'app', digest: DIGEST, confirm: true });
+  assert.equal(result.isError, undefined);
+  assert.deepEqual(calls, [{ method: 'DELETE', path: `/v1/registry/repositories/app/manifests/sha256%3A${DIGEST.slice(7)}` }]);
+});
+
+test('registry_manifest_delete: confirm_multiple_tags:true adds the API\'s ?confirm=true', async () => {
+  const { client, calls } = fakeWriteClient(() => ({ deleted: 1, tags: ['1.0', 'latest'] }));
+  await registryManifestDelete.handler(client, { repo: 'team/app', digest: DIGEST, confirm_multiple_tags: true, confirm: true });
+  assert.deepEqual(calls, [
+    { method: 'DELETE', path: `/v1/registry/repositories/team%2Fapp/manifests/sha256%3A${DIGEST.slice(7)}?confirm=true` },
+  ]);
+});
+
+test('registry_manifest_delete: confirm_multiple_tags:false sends no confirm query', async () => {
+  const { client, calls } = fakeWriteClient();
+  await registryManifestDelete.handler(client, { repo: 'app', digest: DIGEST, confirm_multiple_tags: false, confirm: true });
+  assert.ok(!calls[0].path.includes('?'), calls[0].path);
+});
+
+test('registry_manifest_delete: the tool gate (confirm) does not by itself send the API confirm', async () => {
+  // confirm:true approves the delete; only confirm_multiple_tags opts into the
+  // API's multi-tag confirmation, so the 409 still protects tags the user never saw.
+  const { client, calls } = fakeWriteClient();
+  await registryManifestDelete.handler(client, { repo: 'app', digest: DIGEST, confirm: true });
+  assert.ok(!calls[0].path.includes('confirm'), calls[0].path);
+});
+
+test('registry_manifest_delete: rejects a malformed digest before any request', async () => {
+  const { client, calls } = fakeWriteClient();
+  for (const bad of ['sha256:abc', `sha512:${'a'.repeat(64)}`, `sha256:${'A'.repeat(64)}`, '..', '']) {
+    const result = await registryManifestDelete.handler(client, { repo: 'app', digest: bad, confirm: true });
+    assert.equal(result.isError, true, `digest=${JSON.stringify(bad)} must be rejected`);
+    assert.match(textOf(result), /^Error: Invalid input for registry_manifest_delete:/);
+  }
+  assert.deepEqual(calls, []);
+});
+
+test('registry_manifest_delete: a ".." repo is rejected by encodeSegment before any request', async () => {
+  const { client, calls } = fakeWriteClient();
+  const result = await registryManifestDelete.handler(client, { repo: '..', digest: DIGEST, confirm: true });
+  assert.equal(result.isError, true);
+  assert.equal(textOf(result), 'Error: Invalid repo value');
+  assert.deepEqual(calls, []);
+});
+
+test('registry_manifest_delete: JSON inputSchema mirrors the digest pattern and keeps confirm_multiple_tags optional', () => {
+  const props = registryManifestDelete.inputSchema.properties as Record<string, { pattern?: string; type?: string }>;
+  assert.equal(props.digest.pattern, '^sha256:[a-f0-9]{64}$');
+  assert.equal(props.confirm_multiple_tags.type, 'boolean');
+  assert.deepEqual([...(registryManifestDelete.inputSchema.required ?? [])].sort(), ['confirm', 'digest', 'repo']);
+});
+
+test('registry_manifest_delete: description covers the 409 without confirm and the 404 for a missing digest', () => {
+  assert.match(registryManifestDelete.description, /MORE than one tag points at the digest/);
+  assert.match(registryManifestDelete.description, /409 CONFLICT/);
+  assert.match(registryManifestDelete.description, /confirm_multiple_tags is true \(sent as the API's confirm=true\)/);
+  assert.match(registryManifestDelete.description, /404 when no manifest with this digest exists/);
+});
+
+test('registry_manifest_delete: a real 409 from the API surfaces as an error result', async () => {
+  const { client } = fakeWriteClient(() => {
+    throw new APIError({ code: 'CONFLICT', message: 'This digest is referenced by 2 tags. Pass confirm=true to delete it anyway.' });
+  });
+  const result = await registryManifestDelete.handler(client, { repo: 'app', digest: DIGEST, confirm: true });
+  assert.equal(result.isError, true);
+  assert.match(textOf(result), /^Error: \[CONFLICT\] This digest is referenced by 2 tags/);
+});
+
+// --- error-contract notes on the other writes --------------------------------
+
+test('registry_enable: description covers the velocity limit, the established-account 400 and the 201/200 split', () => {
+  assert.match(registryEnable.description, /429 RATE_LIMITED after 3 enable attempts per account \(10 per network\)/);
+  assert.match(registryEnable.description, /not yet established/);
+  assert.match(registryEnable.description, /answers 201/);
+});
+
+test('registry writes: every write says a pre-launch 503 changes nothing', () => {
+  for (const [name, c] of Object.entries(TOOLS)) {
+    assert.match(c.tool.description, /503 BACKEND_UNAVAILABLE/, `${name} must mention the pre-launch 503`);
+  }
+});
+
+test('registry_credentials_create: description says revoked names are never reused', () => {
+  assert.match(registryCredentialsCreate.description, /revoked ones included \(names are never reused\)/);
+});
+
+test('registry_cluster_rotate: description says a 503 leaves the old credential active', () => {
+  assert.match(registryClusterRotate.description, /503 cluster_unreachable or kubeconfig_unavailable/);
+  assert.match(registryClusterRotate.description, /OLD credential untouched and still active/);
+});
+
 // --- registry_cluster_link (POST /registry/clusters/{serviceId}, sensitive) --
 
 const LINK_RESPONSE = {
@@ -584,6 +698,20 @@ test('registry_credentials_revoke: a real 204 No Content response is a success, 
       confirm: true,
     });
     assert.equal(result.isError, undefined, textOf(result));
+  } finally {
+    stub.restore();
+  }
+});
+
+test('registry_manifest_delete: a real 202 JSON response comes back as the parsed result', async () => {
+  const stub = stubRealFetch(
+    new Response(JSON.stringify({ ok: true, data: { deleted: 1, tags: ['1.0'] } }), { status: 202 }),
+  );
+  try {
+    const client = new RareCloudClient({ endpoint: 'https://example.com', token: 't' });
+    const result = await registryManifestDelete.handler(client, { repo: 'app', digest: DIGEST, confirm: true });
+    assert.equal(result.isError, undefined, textOf(result));
+    assert.deepEqual(JSON.parse(textOf(result)), { deleted: 1, tags: ['1.0'] });
   } finally {
     stub.restore();
   }

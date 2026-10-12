@@ -37,12 +37,11 @@ function textOf(result: ToolCallResult): string {
   return (block as { type: 'text'; text: string }).text;
 }
 
-// --- fixed-path list tools (registry_get / registry_tiers / registry_credentials_list / registry_clusters_list) ---
+// --- fixed-path list tools (registry_get / registry_tiers / registry_clusters_list) ---
 
 const FIXED_PATH_TOOLS: Array<{ tool: ToolDefinition; path: string }> = [
   { tool: registryGet, path: '/v1/registry' },
   { tool: registryTiers, path: '/v1/registry/tiers' },
-  { tool: registryCredentialsList, path: '/v1/registry/credentials' },
   { tool: registryClustersList, path: '/v1/registry/clusters' },
 ];
 
@@ -106,6 +105,53 @@ test('registry_tiers: names registry_tiers and returns the items array verbatim'
   const { client } = fakeClient(() => payload);
   const result = await registryTiers.handler(client, {});
   assert.deepEqual(JSON.parse(textOf(result)), payload);
+});
+
+test('registry_get: description says usage is the hourly sample and explains the repository cap', () => {
+  assert.match(registryGet.description, /HOURLY metering sample/);
+  assert.match(registryGet.description, /repo_limit/);
+  assert.match(registryGet.description, /NEW repository is refused while pushes to existing ones keep working/);
+  assert.match(registryGet.description, /push\.repoCount\), not usage\.repoCount/);
+});
+
+// --- registry_credentials_list (optional `status` filter) -------------------
+
+test('registry_credentials_list: schema advertises an optional status enum ["active"], closed', () => {
+  assert.equal(registryCredentialsList.name, 'registry_credentials_list');
+  assert.equal(registryCredentialsList.inputSchema.additionalProperties, false);
+  assert.equal(registryCredentialsList.inputSchema.required, undefined);
+  const props = registryCredentialsList.inputSchema.properties as Record<string, { enum?: string[] }>;
+  assert.deepEqual(Object.keys(props), ['status']);
+  assert.deepEqual(props.status.enum, ['active']);
+  assert.doesNotMatch(registryCredentialsList.description, /services:(read|write)/, 'must not name a scope');
+});
+
+test('registry_credentials_list: no status -> bare path (every credential, revoked included)', async () => {
+  const { client, calls } = fakeClient(() => ({ items: [] }));
+  const result = await registryCredentialsList.handler(client, {});
+  assert.deepEqual(calls, ['/v1/registry/credentials']);
+  assert.equal(result.isError, undefined);
+});
+
+test('registry_credentials_list: status "active" is forwarded as ?status=active', async () => {
+  const { client, calls } = fakeClient(() => ({ items: [] }));
+  await registryCredentialsList.handler(client, { status: 'active' });
+  assert.deepEqual(calls, ['/v1/registry/credentials?status=active']);
+});
+
+test('registry_credentials_list: an empty-string status is dropped, not sent literally', async () => {
+  const { client, calls } = fakeClient(() => ({ items: [] }));
+  await registryCredentialsList.handler(client, { status: '' });
+  assert.deepEqual(calls, ['/v1/registry/credentials']);
+});
+
+test('registry_credentials_list: maps APIError to errorResult', async () => {
+  const { client } = fakeClient(() => {
+    throw new APIError({ code: 'INVALID_PARAM', message: 'status must be active.' });
+  });
+  const result = await registryCredentialsList.handler(client, { status: 'active' });
+  assert.equal(result.isError, true);
+  assert.equal(textOf(result), 'Error: [INVALID_PARAM] status must be active.');
 });
 
 // --- registry_handle_suggest (optional `base` query) ------------------------
@@ -261,4 +307,23 @@ test('registry_repository_vulnerabilities: surfaces unavailable:true (scan disab
   const result = await registryRepositoryVulnerabilities.handler(client, { repo: 'app', tag: '1.0' });
   assert.equal(result.isError, undefined);
   assert.deepEqual(JSON.parse(textOf(result)), { items: [], unavailable: true });
+});
+
+// --- contract notes the descriptions must carry ------------------------------
+
+test('registry_repositories_list: name (not path) is the repo argument; lastPush is the build time', () => {
+  assert.match(registryRepositoriesList.description, /`name` never carries the handle/);
+  assert.match(registryRepositoriesList.description, /`path` is the full `<handle>\/<name>`/);
+  assert.match(registryRepositoriesList.description, /lastPush is a deprecated name/);
+  assert.match(registryRepositoriesList.description, /BUILD time/);
+});
+
+test('registry_repository_get: createdAt is the build time and pushedAt a deprecated alias of it', () => {
+  assert.match(registryRepositoryGet.description, /createdAt is when the image was BUILT/);
+  assert.match(registryRepositoryGet.description, /pushedAt is a deprecated alias that always equals createdAt/);
+  assert.match(registryRepositoryGet.description, /registry_manifest_delete/);
+});
+
+test('registry_clusters_list: mentions credentialName (never the secret)', () => {
+  assert.match(registryClustersList.description, /credentialName/);
 });

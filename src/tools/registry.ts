@@ -73,11 +73,24 @@ import { readList, readTool, encodeSegment } from './factories.js';
 export const registryGet = readList(
   'registry_get',
   '/v1/registry',
-  'Get the authenticated account\'s container registry: handle, hostname, tier, status, live usage sample ' +
-    '(logicalBytes/repoCount/sampledAt, null until first measured), current quota/burst ceiling, whether a ' +
-    '`docker push` is currently allowed right now (and why not, if not), and how many owned Kubernetes ' +
-    'clusters are linked (vs linkable). 404 if the registry has not been enabled yet; use registry_enable ' +
-    'first. Use for "is my registry set up?", "how much am I storing?", or "can I still push?".',
+  'Get the authenticated account\'s container registry: handle, hostname, tier, status (active, suspended: ' +
+    'pushes blocked and pulls still work, closed), usage, quota, push and clusters. usage is the latest ' +
+    'HOURLY metering sample, not a live reading: {logicalBytes, repoCount, sampledAt} in decimal bytes ' +
+    '(GB = logicalBytes / 1e9), null until the account is first measured. quota is {quotaGb, ' +
+    'burstCeilingGb, overageCentsPerGbMonth} for the current tier; storage above quotaGb is billed as ' +
+    'overage, and a push is refused at the burst ceiling. push is {allowed, reason, repoCount}: whether ' +
+    'a `docker push` would be allowed right now and why. reason ok: under quota; burst: over quota, ' +
+    'allowed, overage accrues; over_ceiling: refused; balance_under_72h: refused, the spendable balance ' +
+    'does not cover 72 hours of the account\'s current accrual; meter_stale_24h: refused, no fresh sample ' +
+    'for 24 hours; no_sample: brand-new account, allowed; unavailable: the policy read failed, pushes to ' +
+    'existing repositories are allowed; repo_limit: the account is at its tier\'s repository cap, so a push ' +
+    'to a NEW repository is refused while pushes to existing ones keep working. The cap counts the ' +
+    'account\'s repository index (push.repoCount), not usage.repoCount: a repository counts from the moment ' +
+    'push to it is granted, keeps counting with no tags, and a repository deleted through the API keeps ' +
+    'counting until the registry garbage-collects it (about 8 days; pushing that name again meanwhile ' +
+    'reuses its slot). clusters is {linked, linkable} (null if that read failed). 404 if the registry has ' +
+    'not been enabled yet; use registry_enable first. Use for "is my registry set up?", "how much am I ' +
+    'storing?", or "can I still push?".',
 );
 
 export const registryTiers = readList(
@@ -86,8 +99,8 @@ export const registryTiers = readList(
   'List the container registry\'s billing tiers: for each tier, its included storage quota (decimal GB), ' +
     'burst ceiling (quota multiplied by the tier\'s burst multiplier; the free tier never bursts), monthly ' +
     'price in EUR/USD cents, overage price per GB-month above quota, and whether the tier is currently ' +
-    'available to select. No input. Use before registry_enable to choose a starting tier, or before ' +
-    'registry_set_tier to compare options.',
+    'generally available (`available`; before launch every tier is false). No input. Use before ' +
+    'registry_enable to choose a starting tier, or before registry_set_tier to compare options.',
 );
 
 export const registryHandleSuggest = readTool({
@@ -97,7 +110,8 @@ export const registryHandleSuggest = readTool({
     'customer has typed so far). Each suggestion always matches the handle shape (3 to 30 lowercase letters ' +
     'or digits), is never a reserved word, and is never already taken by another account. Omit `base` for ' +
     'unrelated suggestions; may return fewer than 3 in rare cases, never zero unless the namespace around ' +
-    '`base` is extremely crowded. Use before registry_enable to help a customer pick a handle.',
+    '`base` is extremely crowded. Use before registry_enable to help a customer pick a handle. Called too ' +
+    'often it answers RATE_LIMITED; wait and retry.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -118,23 +132,46 @@ export const registryHandleSuggest = readTool({
   },
 });
 
-export const registryCredentialsList = readList(
-  'registry_credentials_list',
-  '/v1/registry/credentials',
-  'List the account\'s container registry robot credentials (for `docker login` / pull / push): id, name, ' +
-    'scope, username (`<handle>+<name>`), expiresAt, createdAt, lastUsedAt, revokedAt. NEVER includes a ' +
-    'secret. A credential\'s secret is only ever shown once, at creation (registry_credentials_create). Use ' +
-    'to find a credential id for registry_credentials_revoke, or to audit what exists.',
-);
+export const registryCredentialsList = readTool({
+  name: 'registry_credentials_list',
+  description:
+    'List the account\'s container registry robot credentials (for `docker login` / pull / push), oldest ' +
+    'first: id, name, scope, username (`<handle>+<name>`), expiresAt, createdAt, lastUsedAt, revokedAt. ' +
+    'NEVER includes a secret; a credential\'s secret is only ever shown once, at creation ' +
+    '(registry_credentials_create). Without a filter every credential is listed, revoked and expired ones ' +
+    'included (the audit trail); status "active" lists only usable ones (neither revoked nor expired). A ' +
+    'revoked credential keeps its name, so creating a new one with that name fails with a conflict. Use to ' +
+    'find a credential id for registry_credentials_revoke, or to audit what exists. 404 if the registry is ' +
+    'not enabled.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      status: {
+        type: 'string',
+        enum: ['active'],
+        description: 'Optional filter: "active" lists only credentials that are neither revoked nor expired. Omit to list all.',
+      },
+    },
+    additionalProperties: false,
+  },
+  buildPath: (args) =>
+    args.status !== undefined && args.status !== ''
+      ? `/v1/registry/credentials?${new URLSearchParams({ status: String(args.status) }).toString()}`
+      : '/v1/registry/credentials',
+});
 
 export const registryRepositoriesList = readTool({
   name: 'registry_repositories_list',
   description:
     'List the repositories under the account\'s own registry handle: name, path, sizeBytes, lastPush, ' +
-    'newestTag. The `path` returned here NEVER carries the handle; pass it straight to ' +
-    'registry_repository_get / registry_repository_delete / registry_tag_delete / ' +
-    'registry_repository_vulnerabilities as `repo`. Page with limit (1-100, default 50) and cursor (from a ' +
-    'previous page\'s nextCursor). 404 if the registry is not enabled yet.',
+    'newestTag. `name` never carries the handle; pass it straight to registry_repository_get / ' +
+    'registry_repository_delete / registry_tag_delete / registry_manifest_delete / ' +
+    'registry_repository_vulnerabilities as `repo`. `path` is the full `<handle>/<name>` (combine it with ' +
+    'the hostname from registry_get for the pull/push address). lastPush is a deprecated name: its value is ' +
+    'the newest image\'s BUILD time (the OCI image config `created` time), not a push time (the registry ' +
+    'exposes none); call it the build time. Page with limit (1-100, default 50) and cursor (from a previous ' +
+    'page\'s nextCursor). 404 if the registry is not enabled yet; 503 if the registry backend is briefly ' +
+    'unavailable (retry).',
   inputSchema: {
     type: 'object',
     properties: {
@@ -155,8 +192,13 @@ export const registryRepositoriesList = readTool({
 export const registryRepositoryGet = readTool({
   name: 'registry_repository_get',
   description:
-    'Get one repository\'s full tag list, each tag with its own CVE severity counts (critical/high/medium/' +
-    'low/unknown, plus an `unavailable` flag if the scan itself could not be read). repo is relative to the ' +
+    'Get one repository\'s full tag list. Each tag has tag, digest (sha256:..., pass it to ' +
+    'registry_manifest_delete to delete the image itself; tags sharing a digest are the same image), ' +
+    'sizeBytes, createdAt, pushedAt, platforms and cve. createdAt is when the image was BUILT (its OCI ' +
+    'config `created` time), not when it was pushed: an upstream image pushed today often shows a date ' +
+    'weeks or months old. pushedAt is a deprecated alias that always equals createdAt; read createdAt. ' +
+    'cve holds severity counts (critical/high/medium/low/unknown, from at most 500 findings; ' +
+    '`unavailable: true` means the scan could not be read and the zeros mean nothing). repo is relative to the ' +
     'account\'s own handle and may contain `/` (e.g. `team/app`); it is always resolved under that handle, ' +
     'never anyone else\'s. A malformed or foreign-shaped value 404s the same way whether or not it exists ' +
     'elsewhere, so a namespace probe learns nothing. An empty tags array means the repository does not ' +
@@ -180,8 +222,8 @@ export const registryRepositoryVulnerabilities = readTool({
     'id, severity, title, affected packages. `unavailable: true` means the scan extension itself is ' +
     'disabled or unreachable: items is empty, NOT a real "no findings" answer; do not report a clean scan ' +
     'in that case. An unknown tag also returns an empty items list (no separate "tag not found" signal). ' +
-    'Page with limit (1-100, default 50) and cursor (from a previous page\'s nextCursor). repo + tag come ' +
-    'from registry_repository_get.',
+    'Page with limit (1-100, default 50) and cursor (from a previous page\'s nextCursor). 404 if the ' +
+    'registry is not enabled or repo is malformed. repo + tag come from registry_repository_get.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -209,8 +251,9 @@ export const registryClustersList = readList(
   'registry_clusters_list',
   '/v1/registry/clusters',
   'List the Kubernetes clusters linked to the account\'s container registry: serviceId, clusterName, ' +
-    'status (linking/active/rotating/unlinking/error), installedAt, syncerImage, syncerReady, ' +
-    'syncerCheckedAt, lastError. A link whose cluster can no longer be found reports status "error" with ' +
+    'status (linking/active/rotating/unlinking/error), installedAt, syncerImage, syncerReady (probed about ' +
+    'hourly; an "active" link can still report false), syncerCheckedAt, lastError, credentialName (the pull ' +
+    'credential\'s name, e.g. k8s-<serviceId>, never the secret). A link whose cluster can no longer be found reports status "error" with ' +
     'lastError "cluster not found" rather than disappearing silently. Use to find a service_id for ' +
     'registry_cluster_unlink / registry_cluster_rotate, or to check whether linking finished (status ' +
     '"linking" means it is still in progress).',
