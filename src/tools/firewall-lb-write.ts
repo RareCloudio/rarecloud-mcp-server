@@ -82,8 +82,10 @@ export const createFirewall: ToolDefinition = writeTool({
 export const deleteFirewall: ToolDefinition = writeTool({
   name: 'delete_firewall',
   description:
-    `Delete a cloud firewall. Requires scope services:write. Refused server-side while it is still ` +
-    `attached to any VM (detach first with detach_firewall). id comes from list_firewalls.`,
+    `Delete a cloud firewall. Requires scope services:write. Refused with 409 CONFLICT for the default ` +
+    `firewall, for the account's Private network firewall (isPrivateNetwork true in list_firewalls; remove ` +
+    `its rules instead to restrict private traffic), and while the firewall is still attached to any VM ` +
+    `(detach first with detach_firewall). id comes from list_firewalls.`,
   method: 'DELETE',
   safety: {
     kind: 'destructive',
@@ -105,9 +107,16 @@ export const addFirewallRule: ToolDefinition = writeTool({
     `Add an inbound/outbound rule to a cloud firewall. Requires scope services:write. id is the firewall ` +
     `id from list_firewalls / get_firewall. direction and protocol are required; ` +
     `portRangeMin/portRangeMax (1-65535) narrow the rule to specific ports (omit both to match all ` +
-    `ports); remoteCidr restricts the rule to a CIDR block (e.g. '0.0.0.0/0'); description is an optional ` +
-    `label (max 255 chars). The server enforces portRangeMin <= portRangeMax; a rule violating that ` +
-    `ordering is rejected with a 400.`,
+    `ports); remoteCidr is the source (inbound) or destination (outbound) range, default 0.0.0.0/0; ` +
+    `description is an optional label (max 255 chars) and must not start with "rarecloud:" (reserved for ` +
+    `the rules the platform manages; 400). On the account's Private network firewall (isPrivateNetwork ` +
+    `true in list_firewalls) an INBOUND rule must have a remoteCidr inside 10.0.0.0/8, 172.16.0.0/12, ` +
+    `192.168.0.0/16 or 100.64.0.0/10: a missing, public or 0.0.0.0/0 source answers 400 INVALID_PARAM, ` +
+    `because traffic to a Reserved IP arrives on the private interface and a public source would open the ` +
+    `port to the internet (use another firewall for public traffic); outbound rules there are not ` +
+    `restricted. A rule you add always names a range; a rule that admits a firewall's members ` +
+    `(remoteFirewallId) cannot be created. The server enforces portRangeMin <= portRangeMax; a rule ` +
+    `violating that ordering is rejected with a 400.`,
   method: 'POST',
   idempotent: true,
   safety: { kind: 'plain' },
@@ -158,7 +167,10 @@ export const deleteFirewallRule: ToolDefinition = writeTool({
   name: 'delete_firewall_rule',
   description:
     `Remove a rule from a cloud firewall. Requires scope services:write. id comes from list_firewalls; ` +
-    `ruleId comes from get_firewall.`,
+    `ruleId comes from get_firewall. Rules on the account's Private network firewall can be removed to ` +
+    `restrict private traffic, the managed one (remoteFirewallId) included, and the platform never re-adds ` +
+    `a rule you removed, except a load balancer's "rarecloud: load balancer ..." rule, which its next ` +
+    `member add or build ensures again.`,
   method: 'DELETE',
   safety: {
     kind: 'destructive',
@@ -180,9 +192,11 @@ export const deleteFirewallRule: ToolDefinition = writeTool({
 export const attachFirewall: ToolDefinition = writeTool({
   name: 'attach_firewall',
   description:
-    `Attach a cloud firewall to a cloud VM. Requires scope services:write. id comes from list_firewalls; ` +
-    `serverId is the cloud VM to attach to (the same value as the cloud VM service_id from ` +
-    `list_services).`,
+    `Attach a cloud firewall to every interface of a cloud VM, the public one included. Requires scope ` +
+    `services:write. id comes from list_firewalls; serverId is the cloud VM to attach to (the same value ` +
+    `as the cloud VM service_id from list_services). The account's Private network firewall ` +
+    `(isPrivateNetwork true) cannot be attached: 409 CONFLICT, because the platform applies it to private ` +
+    `interfaces by itself; edit its rules instead.`,
   method: 'POST',
   safety: { kind: 'plain' },
   input: z.object({ id: z.string().min(1), serverId: z.string().min(1) }).strict(),
@@ -202,9 +216,11 @@ export const attachFirewall: ToolDefinition = writeTool({
 export const detachFirewall: ToolDefinition = writeTool({
   name: 'detach_firewall',
   description:
-    `Detach a cloud firewall from a cloud VM. Requires scope services:write. id comes from ` +
-    `list_firewalls; serverId is the cloud VM to detach from (the same value as the cloud VM service_id ` +
-    `from list_services).`,
+    `Detach a cloud firewall from every interface of a cloud VM. Requires scope services:write. id comes ` +
+    `from list_firewalls; serverId is the cloud VM to detach from (the same value as the cloud VM ` +
+    `service_id from list_services). The account's Private network firewall (isPrivateNetwork true) cannot ` +
+    `be detached: 409 CONFLICT; edit its rules instead. Detaching another firewall never removes the ` +
+    `Private network firewall from a private interface.`,
   method: 'POST',
   safety: {
     kind: 'disruptive',
@@ -239,6 +255,13 @@ export const createLoadBalancer: ToolDefinition = writeTool({
     `minutes. Poll get_load_balancer until status is "active". If status becomes "error", statusReason ` +
     `says why; the load balancer is not deleted automatically, call delete_load_balancer. Do not call ` +
     `create again to retry: that builds a second, billed load balancer. ` +
+    `At most 50 distinct VMs per create (duplicates are ignored); add more later with ` +
+    `add_load_balancer_member. Each VM joins on its private IPv4 on the load balancer's subnet when it has ` +
+    `one there, otherwise on its first fixed IPv4 (its public IP for a VM with only a public interface). ` +
+    `While the members are added the platform puts one rule for this load balancer on the account's ` +
+    `Private network firewall (TCP, port, from the VIP's subnet), so private members are reachable on that ` +
+    `port without opening it publicly; a member on a public IP needs the port opened with an inbound rule ` +
+    `(add_firewall_rule) on a firewall attached to it. ` +
     `Manage it afterward with add_load_balancer_member / remove_load_balancer_member.`,
   method: 'POST',
   idempotent: true,
@@ -250,7 +273,7 @@ export const createLoadBalancer: ToolDefinition = writeTool({
     .object({
       name: z.string().min(1).max(253),
       port: z.number().int().min(1).max(65535),
-      memberServerIds: z.array(z.string()).min(1),
+      memberServerIds: z.array(z.string()).min(1).max(50),
       healthCheck: z.boolean().optional(),
     })
     .strict(),
@@ -263,7 +286,8 @@ export const createLoadBalancer: ToolDefinition = writeTool({
         type: 'array',
         items: { type: 'string' },
         minItems: 1,
-        description: 'Cloud VMs to balance across (each the same value as the cloud VM service_id from list_services).',
+        maxItems: 50,
+        description: 'Cloud VMs to balance across, 1 to 50 (each the same value as the cloud VM service_id from list_services).',
       },
       healthCheck: { type: 'boolean', description: 'TCP health monitor (default true).' },
     },
@@ -309,7 +333,17 @@ export const addLoadBalancerMember: ToolDefinition = writeTool({
   description:
     `Add a VM as a member of a load balancer pool. Requires scope services:write. id comes from ` +
     `list_load_balancers; serverId is the cloud VM to add (the same value as the cloud VM service_id from ` +
-    `list_services); port is the member port (1-65535).`,
+    `list_services); port is the member port (1-65535). The member joins on the VM's private IPv4 on the ` +
+    `load balancer's subnet when it has one there, otherwise on its first fixed IPv4 (usually its public ` +
+    `IP); a private member is reachable through the platform's rule on the Private network firewall, a ` +
+    `public one only on ports its firewalls open. Idempotent: a VM already a member on this port returns ` +
+    `that member and adds nothing. 409 CONFLICT, nothing added: the load balancer is still being set up ` +
+    `(retry once get_load_balancer reports status "active"), it is being deleted, the VM is managed by your ` +
+    `Kubernetes cluster, or Octavia refused the add. 503 BACKEND_UNAVAILABLE WITH Retry-After, nothing ` +
+    `added: another change to this load balancer is in progress, its members, its state or the VM's ` +
+    `network ports could not be read, or its rule on the Private network firewall could not be ensured; ` +
+    `retry after Retry-After seconds with the same idempotency_key. 503 WITHOUT Retry-After ("Load ` +
+    `balancer provisioning timed out."): the member may already have been added; a retry returns it.`,
   method: 'POST',
   idempotent: true,
   safety: { kind: 'plain' },
@@ -332,7 +366,12 @@ export const removeLoadBalancerMember: ToolDefinition = writeTool({
   name: 'remove_load_balancer_member',
   description:
     `Remove a member from a load balancer pool. Requires scope services:write. id comes from ` +
-    `list_load_balancers; memberId comes from list_load_balancer_members.`,
+    `list_load_balancers; memberId comes from list_load_balancer_members. 409 CONFLICT, nothing removed: ` +
+    `the load balancer is still being set up (retry once it is "active") or is being deleted. 503 ` +
+    `BACKEND_UNAVAILABLE WITH Retry-After, nothing removed: another change to this load balancer is in ` +
+    `progress or its state could not be read; retry after Retry-After seconds. 503 WITHOUT Retry-After ` +
+    `("Load balancer provisioning timed out."): the member may already have been removed; check with ` +
+    `list_load_balancer_members.`,
   method: 'DELETE',
   safety: {
     kind: 'destructive',

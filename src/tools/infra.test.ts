@@ -110,3 +110,25 @@ test('infra: list_load_balancer_members — APIError maps to errorResult', async
   assert.equal(result.isError, true);
   assert.equal(textOf(result), 'Error: [NOT_FOUND] no such load balancer');
 });
+
+// --- Private network firewall fields (API #920) ------------------------------
+
+test('infra: list_firewalls names isPrivateNetwork and says it cannot be attached, detached or deleted', () => {
+  const d = listFirewalls.description;
+  assert.match(d, /isPrivateNetwork/);
+  assert.match(d, /PRIVATE interface/);
+  assert.match(d, /cannot be\s+attached, detached or deleted \(409\)/);
+  assert.doesNotMatch(d, /\bstatus\b/, 'firewalls carry no status field');
+});
+
+test('infra: get_firewall explains remoteFirewallId and the managed rule', () => {
+  const d = getFirewall.description;
+  assert.match(d, /remoteFirewallId/);
+  assert.match(d, /equal to the firewall's\s+own id/);
+  assert.match(d, /never created/);
+  assert.match(d, /"rarecloud:"/);
+});
+
+test('infra: list_load_balancer_members does not claim every member is on a private IP', () => {
+  assert.match(listLoadBalancerMembers.description, /otherwise its first fixed IPv4/);
+});

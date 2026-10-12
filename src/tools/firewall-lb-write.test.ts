@@ -573,3 +573,95 @@ test('remove_load_balancer_member: DELETEs /v1/load-balancers/{id}/members/{memb
   assert.equal(result.isError, undefined);
   assert.deepEqual(calls, [{ method: 'DELETE', path: '/v1/load-balancers/lb-1/members/mem%201%2F2' }]);
 });
+
+// --- Private network firewall + load balancer member contract (API #920) ----
+//
+// The API gained an account-level Private network firewall (isPrivateNetwork)
+// that cannot be attached, detached or deleted (409), refuses a non-private
+// inbound source (400), and load balancers keep one managed rule on it. Member
+// add/remove answer 409 while the load balancer is being set up or deleted, and
+// 503 with or without Retry-After. The descriptions are what an agent reads
+// before it acts, so the key facts are pinned here.
+
+test('delete/attach/detach_firewall: say the Private network firewall answers 409', () => {
+  for (const tool of [deleteFirewall, attachFirewall, detachFirewall]) {
+    assert.match(tool.description, /Private network firewall/, tool.name);
+    assert.match(tool.description, /409 CONFLICT/, tool.name);
+    assert.match(tool.description, /isPrivateNetwork true/, tool.name);
+  }
+  assert.match(attachFirewall.description, /every interface of a cloud VM, the public one included/);
+  assert.match(detachFirewall.description, /never removes the Private network firewall from a private interface/);
+});
+
+test('add_firewall_rule: says an inbound rule on the Private network firewall needs a private source (400)', () => {
+  const d = addFirewallRule.description;
+  assert.match(d, /INBOUND rule must have a remoteCidr inside 10\.0\.0\.0\/8, 172\.16\.0\.0\/12, 192\.168\.0\.0\/16 or 100\.64\.0\.0\/10/);
+  assert.match(d, /a missing, public or 0\.0\.0\.0\/0 source answers 400 INVALID_PARAM/);
+  assert.match(d, /outbound rules there are not/);
+  assert.match(d, /must not start with "rarecloud:"/);
+  assert.match(d, /\(remoteFirewallId\) cannot be created/);
+});
+
+test('add_firewall_rule: a 400 from the Private network firewall surfaces as an error result', async () => {
+  const msg =
+    'Rules on the private network firewall must have a private source range, for example 10.0.0.0/16. ' +
+    'Use your other firewalls for public traffic.';
+  const { client } = fakeWriteClient(() => {
+    throw new APIError({ code: 'INVALID_PARAM', message: msg });
+  });
+  const result = await addFirewallRule.handler(client, { id: 'fw-private', direction: 'inbound', protocol: 'tcp' });
+  assert.equal(result.isError, true);
+  assert.equal(textOf(result), `Error: [INVALID_PARAM] ${msg}`);
+});
+
+test('attach_firewall: a 409 for the Private network firewall surfaces as an error result', async () => {
+  const msg = 'The private network firewall is applied automatically to private interfaces only; edit its rules instead.';
+  const { client } = fakeWriteClient(() => {
+    throw new APIError({ code: 'CONFLICT', message: msg });
+  });
+  const result = await attachFirewall.handler(client, { id: 'fw-private', serverId: 'vm-1' });
+  assert.equal(result.isError, true);
+  assert.equal(textOf(result), `Error: [CONFLICT] ${msg}`);
+});
+
+test('delete_firewall_rule: says removed rules stay removed except the load balancer rule', () => {
+  assert.match(deleteFirewallRule.description, /never re-adds a rule you removed/);
+  assert.match(deleteFirewallRule.description, /rarecloud: load balancer/);
+});
+
+test('create_load_balancer: memberServerIds is capped at 50 in both layers', async () => {
+  const props = createLoadBalancer.inputSchema.properties as Record<string, { maxItems?: number }>;
+  assert.equal(props.memberServerIds.maxItems, 50);
+  const { client, calls } = fakeWriteClient();
+  const ids = Array.from({ length: 51 }, (_, i) => `vm-${i}`);
+  const result = await createLoadBalancer.handler(client, { name: 'lb', port: 80, memberServerIds: ids, confirm: true });
+  assert.equal(result.isError, true);
+  assert.match(textOf(result), /^Error: Invalid input for create_load_balancer:/);
+  assert.deepEqual(calls, []);
+  const ok = await createLoadBalancer.handler(client, { name: 'lb', port: 80, memberServerIds: ids.slice(0, 50), confirm: true });
+  assert.equal(ok.isError, undefined);
+  assert.equal(calls.length, 1);
+});
+
+test('create_load_balancer: describes the managed rule on the Private network firewall', () => {
+  assert.match(createLoadBalancer.description, /one rule for this load balancer on the account's\s+Private network firewall/);
+  assert.match(createLoadBalancer.description, /At most 50 distinct VMs per create/);
+});
+
+test('add_load_balancer_member: describes the 409 and both 503 cases', () => {
+  const d = addLoadBalancerMember.description;
+  assert.match(d, /409 CONFLICT, nothing added: the load balancer is still being set up/);
+  assert.match(d, /it is being deleted/);
+  assert.match(d, /503 BACKEND_UNAVAILABLE WITH Retry-After, nothing\s+added/);
+  assert.match(d, /rule on the Private network firewall could not be ensured/);
+  assert.match(d, /same idempotency_key/);
+  assert.match(d, /503 WITHOUT Retry-After \("Load\s+balancer provisioning timed out\."\): the member may already have been added/);
+  assert.match(d, /Idempotent: a VM already a member on this port returns/);
+});
+
+test('remove_load_balancer_member: describes the 409 and both 503 cases', () => {
+  const d = removeLoadBalancerMember.description;
+  assert.match(d, /409 CONFLICT, nothing removed/);
+  assert.match(d, /503\s+BACKEND_UNAVAILABLE WITH Retry-After, nothing removed/);
+  assert.match(d, /503 WITHOUT Retry-After/);
+});
