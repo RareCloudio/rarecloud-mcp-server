@@ -264,3 +264,71 @@ test('client: get exposes the X-Partial-Results header through meta', async () =
     globalThis.fetch = original;
   }
 });
+
+// getText(): the plain-text endpoints (sandbox logs). A 2xx body is returned
+// verbatim (never JSON-parsed); a failure still carries the JSON envelope and
+// becomes the usual APIError with its HTTP status.
+function stubRawFetch(status: number, text: string) {
+  const calls: CapturedRequest[] = [];
+  const original = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    calls.push({ url: String(input), method: init?.method, headers: (init?.headers ?? {}) as Record<string, string> });
+    return { status, headers: new Headers(), async text() { return text; } } as unknown as Response;
+  }) as typeof fetch;
+  return { calls, restore: () => { globalThis.fetch = original; } };
+}
+
+test('getText() GETs with the bearer token and returns a 2xx body verbatim', async () => {
+  const stub = stubRawFetch(200, '{"looks":"like json"}\nline 2\n');
+  try {
+    const client = new RareCloudClient({ endpoint: 'https://example.com', token: 'svc-1' });
+    const text = await client.getText('/v1/sandboxes/sbx-1/logs?tail=5');
+    assert.equal(text, '{"looks":"like json"}\nline 2\n');
+    assert.equal(stub.calls[0].url, 'https://example.com/v1/sandboxes/sbx-1/logs?tail=5');
+    assert.equal(stub.calls[0].method, 'GET');
+    assert.equal(stub.calls[0].headers.Authorization, 'Bearer svc-1');
+  } finally {
+    stub.restore();
+  }
+});
+
+test('getText() returns an empty 200 body as an empty string', async () => {
+  const stub = stubRawFetch(200, '');
+  try {
+    const client = new RareCloudClient({ endpoint: 'https://example.com', token: 't' });
+    assert.equal(await client.getText('/v1/sandboxes/sbx-1/logs'), '');
+  } finally {
+    stub.restore();
+  }
+});
+
+test('getText() turns an error envelope into an APIError with code, message and status', async () => {
+  const stub = stubRawFetch(503, JSON.stringify({ ok: false, error: { code: 'BACKEND_UNAVAILABLE', message: 'Logs are not available yet.' } }));
+  try {
+    const client = new RareCloudClient({ endpoint: 'https://example.com', token: 't' });
+    await assert.rejects(client.getText('/v1/sandboxes/sbx-1/logs'), (e: unknown) => {
+      assert.ok(e instanceof APIError);
+      assert.equal(e.code, 'BACKEND_UNAVAILABLE');
+      assert.equal(e.status, 503);
+      assert.equal(e.message, '[BACKEND_UNAVAILABLE] Logs are not available yet.');
+      return true;
+    });
+  } finally {
+    stub.restore();
+  }
+});
+
+test('getText() maps a non-JSON error page to INVALID_RESPONSE with the status', async () => {
+  const stub = stubRawFetch(502, '<html>bad gateway</html>');
+  try {
+    const client = new RareCloudClient({ endpoint: 'https://example.com', token: 't' });
+    await assert.rejects(client.getText('/v1/x'), (e: unknown) => {
+      assert.ok(e instanceof APIError);
+      assert.equal(e.code, 'INVALID_RESPONSE');
+      assert.equal(e.status, 502);
+      return true;
+    });
+  } finally {
+    stub.restore();
+  }
+});

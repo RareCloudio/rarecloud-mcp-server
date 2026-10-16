@@ -4,6 +4,9 @@ All notable changes to `@rarecloudio/mcp-server` are recorded here.
 
 ## Unreleased
 
+Totals with every entry below: 222 tools, 110 reads, 112 writes (85 gated,
+27 plain), 46 take `idempotency_key`.
+
 ### Added: Container Registry tools
 
 20 tools for the private OCI registry (`/v1/registry*`), all under
@@ -34,8 +37,6 @@ BACKEND_UNAVAILABLE` and changes nothing; each write's description says so.
   `INVALID_RESPONSE`, and `post()` takes an optional `headers` overlay (used to
   ask the Kubernetes manifest endpoint for JSON).
 
-193 tools: 94 reads, 99 writes (75 gated, 24 plain).
-
 ### Changed: Private network firewall and load balancer members
 
 - `list_firewalls` / `get_firewall` describe `isPrivateNetwork` and
@@ -48,6 +49,70 @@ BACKEND_UNAVAILABLE` and changes nothing; each write's description says so.
   describes the managed rule on the Private network firewall.
 - `add_load_balancer_member` / `remove_load_balancer_member` describe the 409
   while a load balancer is being set up or deleted and the two kinds of 503.
+
+### Added: proxy extras (6 tools)
+
+Six proxy tools:
+
+- Reads (scope `services:read`): `get_proxy_bandwidth`
+  (`GET /v1/proxies/{id}/bandwidth`, GB Residential only),
+  `list_proxy_replacement_locations`
+  (`GET /v1/proxies/{id}/replacements/locations`, ISP only),
+  `get_proxy_auto_rotation` (`GET /v1/proxies/{id}/auto-rotation`, mobile
+  only), and `check_proxy` (`POST /v1/proxies/{id}/check`). `check_proxy` is a
+  POST but a read tool: the API scopes it `services:read`, exempts it from
+  Idempotency-Key as a read-only check. Its description says it sends a small
+  amount of traffic through each proxy and refreshes the location the API
+  shows for the service.
+- Writes (scope `services:write`, both **disruptive** and gated, mobile only):
+  `set_proxy_auto_rotation` (`PUT /v1/proxies/{id}/auto-rotation`, `enabled`
+  plus `intervalMinutes` 5 to 1440, both required) and `rotate_proxy`
+  (`POST /v1/proxies/{id}/rotate`, no body, no `idempotency_key` because the
+  API exempts the route).
+- `request_proxy_replacement` takes optional `locationId` (min 1 char) and
+  `locationLabel` (1 to 120 chars), as the API route accepts them: pick a
+  location from `list_proxy_replacement_locations` to move the new IP there.
+  Without them the request has no body, as before.
+
+### Added: AI Sandboxes tools
+
+Ten tools for AI Sandboxes (`/v1/sandboxes`), five of them reads:
+
+- Reads (scope `services:read`): `list_sandboxes` (`GET /v1/sandboxes`),
+  `get_sandbox` (`GET /v1/sandboxes/{id}`), `list_sandbox_templates`
+  (`GET /v1/sandboxes/templates`, size and hourly price), `read_sandbox_file`
+  (`GET /v1/sandboxes/{id}/files?path=`), and `get_sandbox_logs`
+  (`GET /v1/sandboxes/{id}/logs?tail=`, plain text returned verbatim; a 503
+  passes the API message through and says logs are not available yet, a 404
+  says the logs are gone).
+- Writes (scope `services:write`): `create_sandbox` (`POST /v1/sandboxes`,
+  **spends**, gated, takes `idempotency_key`; template, image, timeoutMs, name,
+  env, labels, networkBlocked and run mode with entrypoint/command; env values
+  are marked as secret input, refused entries are named by position, and an
+  `env` field is stripped from the result), `delete_sandbox`
+  (`DELETE /v1/sandboxes/{id}`, **destructive**, gated), and the plain
+  `run_sandbox_code` (`POST /run_code`), `run_sandbox_command`
+  (`POST /commands`) and `write_sandbox_file` (`PUT /files`).
+- No tool for `POST /v1/sandboxes/{id}/ports/{port}`: the API answers 501 by
+  product decision.
+- `RareCloudClient.getText` reads a plain-text endpoint; an error still maps to
+  the usual `APIError` with its HTTP status.
+
+### Added: snapshots, quotas and reverse DNS (13 tools)
+
+- VM snapshots: `list_snapshots`, `list_service_snapshots`, `get_snapshot`
+  (reads); `create_snapshot` (spends, takes `idempotency_key`),
+  `delete_snapshot` and `restore_snapshot` (destructive; restore replaces the
+  root disk). The descriptions tell an agent to snapshot before
+  `reinstall_service` or `resize_service` and that `restore_snapshot` is the
+  undo; those two tools now say so too.
+- Quotas: `get_quota_limits` (`GET /v1/limits`, effective limits with live
+  usage), `estimate_limits` (read, `POST /v1/limits/estimate`, creates and
+  reserves nothing), `list_quota_requests`, and `request_quota_increase`
+  (sensitive like `create_ticket`: a large request opens a support ticket in
+  the user's name and replaces any pending one; takes `idempotency_key`).
+- Reverse DNS: `get_service_rdns`; `set_service_rdns` and
+  `delete_service_rdns` (disruptive, like `set_domain_dns`).
 
 ## 0.3.0 (2026-10-08)
 

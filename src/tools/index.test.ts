@@ -10,7 +10,7 @@ import { isIdempotentPostPath } from '../idempotency.js';
 
 // Bump this in the same commit that adds/removes tools. A mismatch means the
 // registry changed without the test acknowledging it.
-const EXPECTED_TOOL_COUNT = 193;
+const EXPECTED_TOOL_COUNT = 222;
 
 test('registry: tool count matches the expected total', () => {
   assert.equal(TOOLS.length, EXPECTED_TOOL_COUNT);
@@ -133,19 +133,20 @@ test('exclusion guard: the account/billing/tickets write surface is EXACTLY the 
 // remaining write-scope surfaces (services:write, domains:write) as exact
 // sorted sets too — same rationale as the account/billing/tickets pin above.
 // services:write is the big one: it covers services-write.ts + k8s-write.ts +
-// infra-write.ts + firewall-lb-write.ts + object-storage-write.ts + proxies-write.ts (67 tools) — the
-// README's "services:write covers IaaS AND proxies" note names this exact
+// infra-write.ts + firewall-lb-write.ts + object-storage-write.ts + proxies-write.ts +
+// sandboxes-write.ts + snapshots-write.ts + limits-write.ts + rdns-write.ts, plus the
+// read-only check_order (82 tools); the README's "services:write covers IaaS AND proxies" note names this exact
 // sharing. domains:write is domains-write.ts (7 tools).
 //
-// Plan 4 Task 5 EXTENSION: registry-write.ts's tools also carry
-// services:write. There is no separate registry scope, the same sharing
+// Plan 4 Task 5 EXTENSION: registry-write.ts's 12 tools also carry
+// services:write (94 in the pinned set below). There is no separate registry scope, the same sharing
 // services:write already does for k8s/infra/object storage/proxies above. See
 // the CR-12 policy-ruling test further below for why registry robot
 // credentials get a tool at all despite superficially looking like the
 // "credential" operations the identity exclusion above forbids.
 // ---------------------------------------------------------------------------
 
-test('exclusion guard: the services:write surface is EXACTLY the safe set (IaaS + k8s + object storage + proxies)', () => {
+test('exclusion guard: the services:write surface is EXACTLY the safe set (IaaS + k8s + object storage + proxies + sandboxes + snapshots + quotas + rDNS + registry)', () => {
   assert.deepEqual(withScope('services:write'), [
     'add_cluster_pool',
     'add_firewall_rule',
@@ -171,7 +172,9 @@ test('exclusion guard: the services:write surface is EXACTLY the safe set (IaaS 
     'create_proxy_request',
     'create_registry_credential',
     'create_registry_kubernetes_manifest',
+    'create_sandbox',
     'create_service_backup',
+    'create_snapshot',
     'create_volume',
     'delete_bucket',
     'delete_cluster_pool',
@@ -184,6 +187,9 @@ test('exclusion guard: the services:write surface is EXACTLY the safe set (IaaS 
     'delete_registry_manifest',
     'delete_registry_repository',
     'delete_registry_tag',
+    'delete_sandbox',
+    'delete_service_rdns',
+    'delete_snapshot',
     'delete_volume',
     'deploy_service',
     'destroy_service',
@@ -206,20 +212,27 @@ test('exclusion guard: the services:write surface is EXACTLY the safe set (IaaS 
     'renew_proxy',
     'renew_service',
     'request_proxy_replacement',
+    'request_quota_increase',
     'reserve_ip',
     'reset_service_password',
     'resize_service',
+    'restore_snapshot',
     'revoke_cluster_kubeconfig',
     'revoke_registry_credential',
+    'rotate_proxy',
     'rotate_registry_cluster_link',
+    'run_sandbox_code',
+    'run_sandbox_command',
     'set_cluster_scale',
     'set_proxy_auth_method',
     'set_proxy_auto_renew',
+    'set_proxy_auto_rotation',
     'set_proxy_credentials',
     'set_registry_tier',
     'set_service_autorenew',
     'set_service_hostname',
     'set_service_password',
+    'set_service_rdns',
     'set_service_tags',
     'start_service',
     'stop_service',
@@ -228,6 +241,7 @@ test('exclusion guard: the services:write surface is EXACTLY the safe set (IaaS 
     'update_bucket',
     'update_cluster_pool',
     'upgrade_service',
+    'write_sandbox_file',
   ]);
 });
 
@@ -367,10 +381,15 @@ const GATED_TOOLS: Record<string, Exclude<Kind, 'plain'>> = {
   attach_network_vm: 'disruptive',
   cancel_proxy: 'destructive',
   cancel_service: 'destructive',
+  close_registry: 'destructive',
   create_bucket: 'spends',
   create_cluster_kubeconfig: 'sensitive',
   create_load_balancer: 'spends',
   create_object_storage_key: 'sensitive',
+  create_registry_credential: 'sensitive',
+  create_registry_kubernetes_manifest: 'sensitive',
+  create_sandbox: 'spends',
+  create_snapshot: 'spends',
   create_ticket: 'sensitive',
   create_volume: 'spends',
   delete_account_ssh_key: 'destructive',
@@ -383,6 +402,12 @@ const GATED_TOOLS: Record<string, Exclude<Kind, 'plain'>> = {
   delete_network: 'destructive',
   delete_object_storage_key: 'destructive',
   delete_proxy_request: 'destructive',
+  delete_registry_manifest: 'destructive',
+  delete_registry_repository: 'destructive',
+  delete_registry_tag: 'destructive',
+  delete_sandbox: 'destructive',
+  delete_service_rdns: 'disruptive',
+  delete_snapshot: 'destructive',
   delete_volume: 'destructive',
   deploy_service: 'spends',
   destroy_service: 'destructive',
@@ -392,6 +417,8 @@ const GATED_TOOLS: Record<string, Exclude<Kind, 'plain'>> = {
   disable_object_storage: 'destructive',
   enable_cluster_ha: 'spends',
   enable_object_storage: 'spends',
+  enable_registry: 'spends',
+  link_registry_cluster: 'sensitive',
   manage_account_contact: 'sensitive',
   manage_domain: 'sensitive',
   order_proxy: 'spends',
@@ -407,35 +434,32 @@ const GATED_TOOLS: Record<string, Exclude<Kind, 'plain'>> = {
   renew_service: 'spends',
   reply_ticket: 'sensitive',
   request_proxy_replacement: 'disruptive',
+  request_quota_increase: 'sensitive',
   reserve_ip: 'spends',
   reset_service_password: 'disruptive',
   resize_service: 'spends',
+  restore_snapshot: 'destructive',
   revoke_cluster_kubeconfig: 'destructive',
+  revoke_registry_credential: 'destructive',
+  rotate_proxy: 'disruptive',
+  rotate_registry_cluster_link: 'disruptive',
   set_cluster_scale: 'disruptive',
   set_domain_contacts: 'sensitive',
   set_domain_dns: 'disruptive',
   set_domain_nameservers: 'disruptive',
   set_proxy_auth_method: 'disruptive',
+  set_proxy_auto_rotation: 'disruptive',
   set_proxy_credentials: 'disruptive',
+  set_registry_tier: 'spends',
   set_service_password: 'disruptive',
+  set_service_rdns: 'disruptive',
   stop_service: 'disruptive',
   transfer_domain: 'spends',
+  unlink_registry_cluster: 'destructive',
   update_account: 'sensitive',
   update_bucket: 'sensitive',
   update_cluster_pool: 'disruptive',
   upgrade_service: 'spends',
-  enable_registry: 'spends',
-  set_registry_tier: 'spends',
-  close_registry: 'destructive',
-  create_registry_credential: 'sensitive',
-  revoke_registry_credential: 'destructive',
-  delete_registry_repository: 'destructive',
-  delete_registry_tag: 'destructive',
-  delete_registry_manifest: 'destructive',
-  link_registry_cluster: 'sensitive',
-  unlink_registry_cluster: 'destructive',
-  rotate_registry_cluster_link: 'disruptive',
-  create_registry_kubernetes_manifest: 'sensitive',
 };
 
 const PLAIN_TOOLS = [
@@ -456,6 +480,8 @@ const PLAIN_TOOLS = [
   'mount_service_iso',
   'redeem_voucher',
   'resend_email_verification',
+  'run_sandbox_code',
+  'run_sandbox_command',
   'set_billing_alert',
   'set_proxy_auto_renew',
   'set_service_autorenew',
@@ -463,6 +489,7 @@ const PLAIN_TOOLS = [
   'set_service_tags',
   'start_service',
   'unmount_service_iso',
+  'write_sandbox_file',
 ];
 
 const SAFETY_TAG: Record<Kind, string> = {
@@ -484,10 +511,10 @@ function reasonOf(description: string): string {
   return m[1];
 }
 
-test('safety: every tool (all 193) carries annotations; reads are readOnly, writes are not', () => {
+test('safety: every tool (all 222) carries annotations; reads are readOnly, writes are not', () => {
   assert.equal(readTools().length + writeTools().length, TOOLS.length, 'every tool sets readOnlyHint');
-  assert.equal(readTools().length, 94);
-  assert.equal(writeTools().length, 99);
+  assert.equal(readTools().length, 110);
+  assert.equal(writeTools().length, 112);
   for (const t of readTools()) {
     assert.deepEqual(
       t.annotations,
@@ -497,13 +524,13 @@ test('safety: every tool (all 193) carries annotations; reads are readOnly, writ
   }
 });
 
-test('safety: the gated set (75) and the plain set (24) are exactly the pinned ones', () => {
+test('safety: the gated set (85) and the plain set (27) are exactly the pinned ones', () => {
   const gated = writeTools().filter((t) => 'confirm' in t.inputSchema.properties).map((t) => t.name).sort();
   const plain = writeTools().filter((t) => !('confirm' in t.inputSchema.properties)).map((t) => t.name).sort();
   assert.deepEqual(gated, Object.keys(GATED_TOOLS).sort());
   assert.deepEqual(plain, [...PLAIN_TOOLS].sort());
-  assert.equal(gated.length, 75);
-  assert.equal(plain.length, 24);
+  assert.equal(gated.length, 85);
+  assert.equal(plain.length, 27);
 });
 
 test('safety: each write tool carries its kind (Safety tag + destructiveHint + openWorldHint)', () => {
@@ -563,10 +590,15 @@ const GATED_ARGS: Record<string, Record<string, unknown>> = {
   attach_network_vm: { ...ID, serverId: 'vm-1' },
   cancel_proxy: { ...ID },
   cancel_service: { ...SVC },
+  close_registry: { handle: 'acme' },
   create_bucket: { name: 'assets', region: 'eu-central-1' },
   create_cluster_kubeconfig: { ...SVC, name: 'ci', role: 'view' },
   create_load_balancer: { name: 'lb', port: 80, memberServerIds: ['vm-1'] },
   create_object_storage_key: { name: 'ci', buckets: '*', access: 'read' },
+  create_registry_credential: { name: 'ci', scope: 'pull' },
+  create_registry_kubernetes_manifest: {},
+  create_sandbox: {},
+  create_snapshot: { ...SVC, name: 'before-upgrade' },
   create_ticket: { subject: 's', department: '1', priority: 'low', body: 'b' },
   create_volume: { sizeGb: 10 },
   delete_account_ssh_key: { ...ID },
@@ -579,6 +611,12 @@ const GATED_ARGS: Record<string, Record<string, unknown>> = {
   delete_network: { ...ID },
   delete_object_storage_key: { ...ID },
   delete_proxy_request: { ...ID, reqId: 'q-1' },
+  delete_registry_manifest: { repo: 'app', digest: `sha256:${'a'.repeat(64)}` },
+  delete_registry_repository: { repo: 'app' },
+  delete_registry_tag: { repo: 'app', tag: '1.0' },
+  delete_sandbox: { id: 'sbx-1' },
+  delete_service_rdns: { ...SVC },
+  delete_snapshot: { ...ID },
   delete_volume: { ...ID },
   deploy_service: { productId: 'sku-1' },
   destroy_service: { ...SVC },
@@ -588,6 +626,8 @@ const GATED_ARGS: Record<string, Record<string, unknown>> = {
   disable_object_storage: {},
   enable_cluster_ha: { ...SVC },
   enable_object_storage: {},
+  enable_registry: { handle: 'acme', tier: 'free' },
+  link_registry_cluster: { ...SVC },
   manage_account_contact: { action: 'delete', id: 1 },
   manage_domain: { ...ID, action: 'epp' },
   order_proxy: { kind: 'residential-gb', gb: 1 },
@@ -603,35 +643,32 @@ const GATED_ARGS: Record<string, Record<string, unknown>> = {
   renew_service: { ...SVC },
   reply_ticket: { ...ID, body: 'b' },
   request_proxy_replacement: { ...ID },
+  request_quota_increase: { requested: { cores: 16 }, reason: 'scaling the prod cluster' },
   reserve_ip: {},
   reset_service_password: { ...SVC, password: 'supersecret1' },
   resize_service: { ...SVC, flavor: 'c-2vcpu-4gb' },
+  restore_snapshot: { ...SVC, snapshotId: '0b6f1c2e-6d1a-4f43-9c3e-2a7d9e8f1b20' },
   revoke_cluster_kubeconfig: { ...SVC, credential_id: 'c-1' },
+  revoke_registry_credential: { id: '11111111-1111-1111-1111-111111111111' },
+  rotate_proxy: { ...ID },
+  rotate_registry_cluster_link: { ...SVC },
   set_cluster_scale: { ...SVC, minimum: 1, maximum: 2 },
   set_domain_contacts: { ...ID, contact: { city: 'X' } },
   set_domain_dns: { ...ID, records: [] },
   set_domain_nameservers: { ...ID, nameservers: ['ns1.example.com', 'ns2.example.com'] },
   set_proxy_auth_method: { ...ID, method: 'password' },
+  set_proxy_auto_rotation: { ...ID, enabled: true, intervalMinutes: 30 },
   set_proxy_credentials: { ...ID, username: 'u', password: 'p' },
+  set_registry_tier: { tier: 'starter' },
   set_service_password: { ...SVC, password: 'supersecret1' },
+  set_service_rdns: { ...SVC, hostname: 'mail.example.com' },
   stop_service: { ...SVC },
   transfer_domain: { domain: 'example.com', epp: 'code' },
+  unlink_registry_cluster: { ...SVC },
   update_account: { city: 'X' },
   update_bucket: { ...ID, public: true },
   update_cluster_pool: { ...SVC, pool: 'workers', maximum: 3 },
   upgrade_service: { ...SVC, newProductId: 'p2', cycle: 'monthly' },
-  enable_registry: { handle: 'acme', tier: 'free' },
-  set_registry_tier: { tier: 'starter' },
-  close_registry: { handle: 'acme' },
-  create_registry_credential: { name: 'ci', scope: 'pull' },
-  revoke_registry_credential: { id: '11111111-1111-1111-1111-111111111111' },
-  delete_registry_repository: { repo: 'app' },
-  delete_registry_tag: { repo: 'app', tag: '1.0' },
-  delete_registry_manifest: { repo: 'app', digest: `sha256:${'a'.repeat(64)}` },
-  link_registry_cluster: { ...SVC },
-  unlink_registry_cluster: { ...SVC },
-  rotate_registry_cluster_link: { ...SVC },
-  create_registry_kubernetes_manifest: {},
 };
 
 function recordingClient(): { client: RareCloudClient; calls: string[] } {
@@ -669,6 +706,8 @@ test('safety: every gated tool refuses without confirm, names its reason, and ma
 const RETURNS_SECRET = [
   'create_cluster_kubeconfig',
   'create_object_storage_key',
+  'create_registry_credential',
+  'create_registry_kubernetes_manifest',
   'deploy_service',
   'download_cluster_kubeconfig',
   'get_cluster_kubeconfig',
@@ -676,8 +715,6 @@ const RETURNS_SECRET = [
   'get_proxy_list',
   'get_proxy_request_list',
   'order_proxy',
-  'create_registry_credential',
-  'create_registry_kubernetes_manifest',
   'reinstall_service',
 ];
 
@@ -690,7 +727,7 @@ test('safety: exactly the credential-returning tools carry the standard SECURITY
 });
 
 test('safety: tools that take a secret as input carry the never-echo sentence', () => {
-  for (const name of ['set_service_password', 'reset_service_password', 'set_proxy_credentials']) {
+  for (const name of ['set_service_password', 'reset_service_password', 'set_proxy_credentials', 'create_sandbox']) {
     assert.match(findTool(name)!.description, /SECURITY: treat .* you pass in as a secret \(a live credential\): never echo the value back/, name);
   }
 });
@@ -744,6 +781,8 @@ const PLAIN_ARGS: Record<string, Record<string, unknown>> = {
   mount_service_iso: { ...SVC, iso_url: 'https://example.com/a.iso' },
   redeem_voucher: { code: 'CODE' },
   resend_email_verification: {},
+  run_sandbox_code: { id: 'sbx-1', language: 'python', code: 'print(1)' },
+  run_sandbox_command: { id: 'sbx-1', cmd: 'ls' },
   set_billing_alert: { thresholdCents: 1000 },
   set_proxy_auto_renew: { ...ID, enabled: true },
   set_service_autorenew: { ...SVC, enabled: true },
@@ -751,6 +790,7 @@ const PLAIN_ARGS: Record<string, Record<string, unknown>> = {
   set_service_tags: { ...SVC, tags: ['web'] },
   start_service: { ...SVC },
   unmount_service_iso: { ...SVC },
+  write_sandbox_file: { id: 'sbx-1', path: '/tmp/a.txt', content: 'x' },
 };
 
 // The tools that take idempotency_key, pinned by name (the README lists them).
@@ -770,26 +810,29 @@ const IDEMPOTENT_TOOLS = [
   'create_network',
   'create_object_storage_key',
   'create_proxy_request',
+  'create_registry_credential',
+  'create_sandbox',
   'create_service_backup',
+  'create_snapshot',
   'create_ticket',
   'create_volume',
   'deploy_service',
   'enable_cluster_ha',
   'enable_object_storage',
+  'enable_registry',
+  'link_registry_cluster',
   'manage_account_contact',
   'order_proxy',
   'reboot_service',
   'redeem_voucher',
   'register_domain',
-  'link_registry_cluster',
-  'create_registry_credential',
-  'enable_registry',
   'reinstall_service',
   'renew_domain',
   'renew_proxy',
   'renew_service',
   'reply_ticket',
   'request_proxy_replacement',
+  'request_quota_increase',
   'reserve_ip',
   'reset_service_password',
   'resize_service',

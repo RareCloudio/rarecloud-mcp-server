@@ -6,7 +6,7 @@
 // `encodeSegment` path encoding, and the APIError -> errorResult mapping
 // stay uniform with infra-write.ts / services-write.ts / domains-write.ts.
 //
-// SCOPE: all 11 tools are services:write — there is NO proxy-specific
+// SCOPE: all 13 tools are services:write — there is NO proxy-specific
 // scope. Every description says so explicitly: an agent holding
 // services:write can manage proxies AND production VMs/clusters/etc (same
 // scope, no finer split), so a caller granting services:write to an agent
@@ -372,6 +372,10 @@ export const removeProxyWhitelistedIp: ToolDefinition = writeTool({
 });
 
 // --- request_proxy_replacement (POST /v1/proxies/{id}/replacements, disruptive) ---
+// Optional body, from the route's ReplacementInput: locationId (string, min 1)
+// moves the new IP to a location from GET /replacements/locations;
+// locationLabel (string, 1-120) updates the displayed location. Neither given:
+// no body, a same-location replacement (the original behaviour).
 
 export const requestProxyReplacement: ToolDefinition = writeTool({
   name: 'request_proxy_replacement',
@@ -379,21 +383,49 @@ export const requestProxyReplacement: ToolDefinition = writeTool({
     `Request an IP replacement for a proxy service, consuming the included monthly allowance (1/month). ` +
     `Requires scope services:write (${SCOPE_NOTE}). ISP proxy services only. Opens a support ticket that ` +
     `fulfils the swap; check get_proxy_replacements first to confirm an allowance is available this month ` +
-    `(the request is refused server-side once the allowance is used). id comes from list_proxies.`,
+    `(the request is refused server-side once the allowance is used). To move the new IP to another ` +
+    `location, pick one from list_proxy_replacement_locations and pass its id as locationId (and its label ` +
+    `as locationLabel so the shown location follows); omit both to replace in the same location. id comes ` +
+    `from list_proxies.`,
   method: 'POST',
   idempotent: true,
   safety: {
     kind: 'disruptive',
     reason: "uses this month's included replacement and swaps an IP out; clients pinned to the old IP stop working once it is replaced",
   },
-  input: z.object({ id: z.string().min(1) }).strict(),
+  input: z
+    .object({
+      id: z.string().min(1),
+      locationId: z.string().min(1).optional(),
+      locationLabel: z.string().min(1).max(120).optional(),
+    })
+    .strict(),
   inputSchema: {
     type: 'object',
-    properties: { id: { type: 'string', minLength: 1, description: 'Proxy service id from list_proxies (ISP only).' } },
+    properties: {
+      id: { type: 'string', minLength: 1, description: 'Proxy service id from list_proxies (ISP only).' },
+      locationId: {
+        type: 'string',
+        minLength: 1,
+        description: 'Optional target location id from list_proxy_replacement_locations; omit to replace in place.',
+      },
+      locationLabel: {
+        type: 'string',
+        minLength: 1,
+        maxLength: 120,
+        description: 'Optional label of that location (1-120 chars), from list_proxy_replacement_locations; becomes the displayed location.',
+      },
+    },
     required: ['id'],
     additionalProperties: false,
   },
   buildPath: (a) => `/v1/proxies/${encodeSegment(a.id, 'id')}/replacements`,
+  buildBody: (a) => {
+    const body: Record<string, unknown> = {};
+    if (a.locationId !== undefined) body.locationId = a.locationId;
+    if (a.locationLabel !== undefined) body.locationLabel = a.locationLabel;
+    return Object.keys(body).length > 0 ? body : undefined;
+  },
 });
 
 // --- create_proxy_request (POST /v1/proxies/{id}/proxy-requests, plain) ----
@@ -462,4 +494,71 @@ export const deleteProxyRequest: ToolDefinition = writeTool({
     additionalProperties: false,
   },
   buildPath: (a) => `/v1/proxies/${encodeSegment(a.id, 'id')}/proxy-requests/${encodeSegment(a.reqId, 'reqId')}`,
+});
+
+// --- set_proxy_auto_rotation (PUT /v1/proxies/{id}/auto-rotation, disruptive) ---
+// Mobile only. Bounds from the route's MobileAutoRotationInput and openapi:
+// enabled boolean + intervalMinutes integer 5-1440, both required.
+
+export const setProxyAutoRotation: ToolDefinition = writeTool({
+  name: 'set_proxy_auto_rotation',
+  description:
+    `Turn a mobile proxy line's automatic IP rotation on or off and set how often it rotates. Requires scope ` +
+    `services:write (${SCOPE_NOTE}). Mobile proxy lines only (mobile-4g, mobile-vpn, mobile-multisim). Both ` +
+    `enabled and intervalMinutes (5 to 1440) are required, also when turning it off. See the current settings ` +
+    `with get_proxy_auto_rotation. id comes from list_proxies.`,
+  method: 'PUT',
+  safety: {
+    kind: 'disruptive',
+    reason: "changes when the line's exit IP rotates; clients that rely on keeping the same IP see it change on the new schedule",
+  },
+  input: z
+    .object({
+      id: z.string().min(1),
+      enabled: z.boolean(),
+      intervalMinutes: z.number().int().min(5).max(1440),
+    })
+    .strict(),
+  inputSchema: {
+    type: 'object',
+    properties: {
+      id: { type: 'string', minLength: 1, description: 'Mobile proxy service id from list_proxies.' },
+      enabled: { type: 'boolean', description: 'true turns automatic rotation on; false turns it off.' },
+      intervalMinutes: {
+        type: 'integer',
+        minimum: 5,
+        maximum: 1440,
+        description: 'Minutes between automatic rotations (5 to 1440).',
+      },
+    },
+    required: ['id', 'enabled', 'intervalMinutes'],
+    additionalProperties: false,
+  },
+  buildPath: (a) => `/v1/proxies/${encodeSegment(a.id, 'id')}/auto-rotation`,
+  buildBody: (a) => ({ enabled: a.enabled, intervalMinutes: a.intervalMinutes }),
+});
+
+// --- rotate_proxy (POST /v1/proxies/{id}/rotate, disruptive) ---------------
+// Mobile only. No body. The API exempts this route from Idempotency-Key (it
+// creates and charges nothing), so no idempotency_key.
+
+export const rotateProxy: ToolDefinition = writeTool({
+  name: 'rotate_proxy',
+  description:
+    `Rotate the exit IP of a mobile proxy line now. Requires scope services:write (${SCOPE_NOTE}). Mobile proxy ` +
+    `lines only (mobile-4g, mobile-vpn, mobile-multisim); ISP and GB Residential services return an error. ` +
+    `Nothing is charged. Answers { rotated: true } once the rotation has started. id comes from list_proxies.`,
+  method: 'POST',
+  safety: {
+    kind: 'disruptive',
+    reason: "changes the line's exit IP at once; open connections drop and clients pinned to the old IP lose it",
+  },
+  input: z.object({ id: z.string().min(1) }).strict(),
+  inputSchema: {
+    type: 'object',
+    properties: { id: { type: 'string', minLength: 1, description: 'Mobile proxy service id from list_proxies.' } },
+    required: ['id'],
+    additionalProperties: false,
+  },
+  buildPath: (a) => `/v1/proxies/${encodeSegment(a.id, 'id')}/rotate`,
 });

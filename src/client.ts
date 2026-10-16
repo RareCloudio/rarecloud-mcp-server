@@ -139,6 +139,41 @@ export class RareCloudClient {
     return r.data;
   }
 
+  /**
+   * GET for a plain-text endpoint (sandbox logs): a 2xx body is returned verbatim,
+   * never JSON-parsed. A failure still carries the JSON envelope and throws the
+   * same APIError (code, message, status) as every other call.
+   */
+  async getText(path: string, query?: Record<string, string | number | undefined>): Promise<string> {
+    const url = this.url(path, query);
+    let resp: Response;
+    let text: string;
+    try {
+      resp = await fetch(url, { method: 'GET', headers: this.baseHeaders() });
+      text = await resp.text();
+    } catch (e) {
+      throw new APIError({ code: 'NETWORK_ERROR', message: (e as Error).message }, { transport: true });
+    }
+    if (resp.status >= 200 && resp.status < 300) return text;
+    let env: Envelope<unknown> | null = null;
+    try {
+      env = JSON.parse(text) as Envelope<unknown>;
+    } catch {
+      /* not an envelope: reported below */
+    }
+    if (env?.error) {
+      const ra = Number.parseInt(resp.headers?.get?.('Retry-After') ?? '', 10);
+      throw new APIError(env.error, {
+        status: resp.status,
+        retryAfterSeconds: Number.isFinite(ra) && ra >= 0 ? ra : undefined,
+      });
+    }
+    throw new APIError(
+      { code: 'INVALID_RESPONSE', message: `Non-JSON response (HTTP ${resp.status}): ${text.slice(0, 200)}` },
+      { status: resp.status, transport: GATEWAY_STATUSES.has(resp.status) },
+    );
+  }
+
   async post<T = unknown>(path: string, body?: unknown, opts: PostOptions = {}): Promise<T> {
     if (opts.idempotent && isIdempotentPostPath(path)) {
       return this.postIdempotent<T>(path, body, opts.idempotent);
@@ -205,17 +240,20 @@ export class RareCloudClient {
     return url.toString();
   }
 
+  private baseHeaders(): Record<string, string> {
+    return {
+      Authorization: `Bearer ${this.config.token}`,
+      'User-Agent': this.config.userAgent ?? `rarecloud-mcp/${SERVER_VERSION}`,
+    };
+  }
+
   private async do<T>(
     method: string,
     url: string,
     body?: unknown,
     extraHeaders: Record<string, string> = {},
   ): Promise<DoResult<T>> {
-    const headers: Record<string, string> = {
-      Authorization: `Bearer ${this.config.token}`,
-      'User-Agent': this.config.userAgent ?? `rarecloud-mcp/${SERVER_VERSION}`,
-      ...extraHeaders,
-    };
+    const headers: Record<string, string> = { ...this.baseHeaders(), ...extraHeaders };
     if (body !== undefined) headers['Content-Type'] = 'application/json';
 
     let resp: Response;
