@@ -202,6 +202,20 @@ import {
   createProxyRequest,
   deleteProxyRequest,
 } from './proxies-write.js';
+import {
+  listSandboxes,
+  getSandbox,
+  listSandboxTemplates,
+  readSandboxFile,
+  getSandboxLogs,
+} from './sandboxes.js';
+import {
+  createSandbox,
+  deleteSandbox,
+  runSandboxCode,
+  runSandboxCommand,
+  writeSandboxFile,
+} from './sandboxes-write.js';
 
 export const TOOLS: ToolDefinition[] = [
   // Catalog (un-authed surface, "what can I deploy?")
@@ -301,6 +315,12 @@ export const TOOLS: ToolDefinition[] = [
   listProxyRequests,
   getProxyRequestList,
   getProxyReplacements,
+  // AI Sandboxes ("what sandboxes are running, what do templates cost, read a file or the logs")
+  listSandboxes,
+  getSandbox,
+  listSandboxTemplates,
+  readSandboxFile,
+  getSandboxLogs,
 
   // --- WRITE / ACTION TOOLS (Parity Phase B) ---
   // Services — writes
@@ -402,6 +422,12 @@ export const TOOLS: ToolDefinition[] = [
   requestProxyReplacement,
   createProxyRequest,
   deleteProxyRequest,
+  // AI Sandboxes: writes (create / delete / run code / run a command / write a file; no port exposure)
+  createSandbox,
+  deleteSandbox,
+  runSandboxCode,
+  runSandboxCommand,
+  writeSandboxFile,
 ];
 
 export function findTool(name: string): ToolDefinition | undefined {
