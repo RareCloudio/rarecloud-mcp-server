@@ -2,6 +2,26 @@
 
 All notable changes to `@rarecloudio/mcp-server` are recorded here.
 
+## Unreleased
+
+### Added: snapshots, quotas and reverse DNS (13 tools)
+
+- VM snapshots: `list_snapshots`, `list_service_snapshots`, `get_snapshot`
+  (reads); `create_snapshot` (spends, takes `idempotency_key`),
+  `delete_snapshot` and `restore_snapshot` (destructive; restore replaces the
+  root disk). The descriptions tell an agent to snapshot before
+  `reinstall_service` or `resize_service` and that `restore_snapshot` is the
+  undo; those two tools now say so too.
+- Quotas: `get_quota_limits` (`GET /v1/limits`, effective limits with live
+  usage), `estimate_limits` (read, `POST /v1/limits/estimate`, creates and
+  reserves nothing), `list_quota_requests`, and `request_quota_increase`
+  (sensitive like `create_ticket`: a large request opens a support ticket in
+  the user's name and replaces any pending one; takes `idempotency_key`).
+- Reverse DNS: `get_service_rdns`; `set_service_rdns` and
+  `delete_service_rdns` (disruptive, like `set_domain_dns`).
+- 186 tools: 93 reads, 93 writes (69 gated, 24 plain), 42 take
+  `idempotency_key`.
+
 ## 0.3.0 (2026-10-08)
 
 ### Changed

@@ -315,7 +315,8 @@ export const resizeService: ToolDefinition = writeTool({
   description:
     `Resize a cloud VM service to a new flavor (target plan PUBLIC SKU, e.g. c-4vcpu-8gb, from ` +
     `list_catalog_products). Requires scope services:write. Runs asynchronously ` +
-    `(returns 202). service_id comes from list_services.`,
+    `(returns 202). service_id comes from list_services. Take a snapshot first with create_snapshot so ` +
+    `restore_snapshot can undo it.`,
   method: 'POST',
   idempotent: true,
   safety: {
@@ -622,7 +623,8 @@ export const reinstallService: ToolDefinition = writeTool({
     `an OS template/image slug from list_os_templates (for this service) or list_images. password and ` +
     `sshPublicKey are optional (sshPublicKey only applies to a cloud VM). For a cloud VM reinstalled ` +
     `without a password, the result includes a one-time consolePassword. service_id comes from ` +
-    `list_services.`,
+    `list_services. For a cloud VM, take a snapshot first with create_snapshot: restore_snapshot is the ` +
+    `undo.`,
   method: 'POST',
   idempotent: true,
   safety: {

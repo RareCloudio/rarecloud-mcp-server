@@ -10,7 +10,7 @@ import { isIdempotentPostPath } from '../idempotency.js';
 
 // Bump this in the same commit that adds/removes tools. A mismatch means the
 // registry changed without the test acknowledging it.
-const EXPECTED_TOOL_COUNT = 173;
+const EXPECTED_TOOL_COUNT = 186;
 
 test('registry: tool count matches the expected total', () => {
   assert.equal(TOOLS.length, EXPECTED_TOOL_COUNT);
@@ -162,6 +162,7 @@ test('exclusion guard: the services:write surface is EXACTLY the safe set (IaaS 
     'create_object_storage_key',
     'create_proxy_request',
     'create_service_backup',
+    'create_snapshot',
     'create_volume',
     'delete_bucket',
     'delete_cluster_pool',
@@ -171,6 +172,8 @@ test('exclusion guard: the services:write surface is EXACTLY the safe set (IaaS 
     'delete_network',
     'delete_object_storage_key',
     'delete_proxy_request',
+    'delete_service_rdns',
+    'delete_snapshot',
     'delete_volume',
     'deploy_service',
     'destroy_service',
@@ -191,9 +194,11 @@ test('exclusion guard: the services:write surface is EXACTLY the safe set (IaaS 
     'renew_proxy',
     'renew_service',
     'request_proxy_replacement',
+    'request_quota_increase',
     'reserve_ip',
     'reset_service_password',
     'resize_service',
+    'restore_snapshot',
     'revoke_cluster_kubeconfig',
     'set_cluster_scale',
     'set_proxy_auth_method',
@@ -202,6 +207,7 @@ test('exclusion guard: the services:write surface is EXACTLY the safe set (IaaS 
     'set_service_autorenew',
     'set_service_hostname',
     'set_service_password',
+    'set_service_rdns',
     'set_service_tags',
     'start_service',
     'stop_service',
@@ -284,6 +290,7 @@ const GATED_TOOLS: Record<string, Exclude<Kind, 'plain'>> = {
   create_cluster_kubeconfig: 'sensitive',
   create_load_balancer: 'spends',
   create_object_storage_key: 'sensitive',
+  create_snapshot: 'spends',
   create_ticket: 'sensitive',
   create_volume: 'spends',
   delete_account_ssh_key: 'destructive',
@@ -296,6 +303,8 @@ const GATED_TOOLS: Record<string, Exclude<Kind, 'plain'>> = {
   delete_network: 'destructive',
   delete_object_storage_key: 'destructive',
   delete_proxy_request: 'destructive',
+  delete_service_rdns: 'disruptive',
+  delete_snapshot: 'destructive',
   delete_volume: 'destructive',
   deploy_service: 'spends',
   destroy_service: 'destructive',
@@ -320,9 +329,11 @@ const GATED_TOOLS: Record<string, Exclude<Kind, 'plain'>> = {
   renew_service: 'spends',
   reply_ticket: 'sensitive',
   request_proxy_replacement: 'disruptive',
+  request_quota_increase: 'sensitive',
   reserve_ip: 'spends',
   reset_service_password: 'disruptive',
   resize_service: 'spends',
+  restore_snapshot: 'destructive',
   revoke_cluster_kubeconfig: 'destructive',
   set_cluster_scale: 'disruptive',
   set_domain_contacts: 'sensitive',
@@ -331,6 +342,7 @@ const GATED_TOOLS: Record<string, Exclude<Kind, 'plain'>> = {
   set_proxy_auth_method: 'disruptive',
   set_proxy_credentials: 'disruptive',
   set_service_password: 'disruptive',
+  set_service_rdns: 'disruptive',
   stop_service: 'disruptive',
   transfer_domain: 'spends',
   update_account: 'sensitive',
@@ -385,10 +397,10 @@ function reasonOf(description: string): string {
   return m[1];
 }
 
-test('safety: every tool (all 173) carries annotations; reads are readOnly, writes are not', () => {
+test('safety: every tool (all 186) carries annotations; reads are readOnly, writes are not', () => {
   assert.equal(readTools().length + writeTools().length, TOOLS.length, 'every tool sets readOnlyHint');
-  assert.equal(readTools().length, 86);
-  assert.equal(writeTools().length, 87);
+  assert.equal(readTools().length, 93);
+  assert.equal(writeTools().length, 93);
   for (const t of readTools()) {
     assert.deepEqual(
       t.annotations,
@@ -398,12 +410,12 @@ test('safety: every tool (all 173) carries annotations; reads are readOnly, writ
   }
 });
 
-test('safety: the gated set (63) and the plain set (24) are exactly the pinned ones', () => {
+test('safety: the gated set (69) and the plain set (24) are exactly the pinned ones', () => {
   const gated = writeTools().filter((t) => 'confirm' in t.inputSchema.properties).map((t) => t.name).sort();
   const plain = writeTools().filter((t) => !('confirm' in t.inputSchema.properties)).map((t) => t.name).sort();
   assert.deepEqual(gated, Object.keys(GATED_TOOLS).sort());
   assert.deepEqual(plain, [...PLAIN_TOOLS].sort());
-  assert.equal(gated.length, 63);
+  assert.equal(gated.length, 69);
   assert.equal(plain.length, 24);
 });
 
@@ -468,6 +480,7 @@ const GATED_ARGS: Record<string, Record<string, unknown>> = {
   create_cluster_kubeconfig: { ...SVC, name: 'ci', role: 'view' },
   create_load_balancer: { name: 'lb', port: 80, memberServerIds: ['vm-1'] },
   create_object_storage_key: { name: 'ci', buckets: '*', access: 'read' },
+  create_snapshot: { ...SVC, name: 'before-upgrade' },
   create_ticket: { subject: 's', department: '1', priority: 'low', body: 'b' },
   create_volume: { sizeGb: 10 },
   delete_account_ssh_key: { ...ID },
@@ -480,6 +493,8 @@ const GATED_ARGS: Record<string, Record<string, unknown>> = {
   delete_network: { ...ID },
   delete_object_storage_key: { ...ID },
   delete_proxy_request: { ...ID, reqId: 'q-1' },
+  delete_service_rdns: { ...SVC },
+  delete_snapshot: { ...ID },
   delete_volume: { ...ID },
   deploy_service: { productId: 'sku-1' },
   destroy_service: { ...SVC },
@@ -504,9 +519,11 @@ const GATED_ARGS: Record<string, Record<string, unknown>> = {
   renew_service: { ...SVC },
   reply_ticket: { ...ID, body: 'b' },
   request_proxy_replacement: { ...ID },
+  request_quota_increase: { requested: { cores: 16 }, reason: 'scaling the prod cluster' },
   reserve_ip: {},
   reset_service_password: { ...SVC, password: 'supersecret1' },
   resize_service: { ...SVC, flavor: 'c-2vcpu-4gb' },
+  restore_snapshot: { ...SVC, snapshotId: '0b6f1c2e-6d1a-4f43-9c3e-2a7d9e8f1b20' },
   revoke_cluster_kubeconfig: { ...SVC, credential_id: 'c-1' },
   set_cluster_scale: { ...SVC, minimum: 1, maximum: 2 },
   set_domain_contacts: { ...ID, contact: { city: 'X' } },
@@ -515,6 +532,7 @@ const GATED_ARGS: Record<string, Record<string, unknown>> = {
   set_proxy_auth_method: { ...ID, method: 'password' },
   set_proxy_credentials: { ...ID, username: 'u', password: 'p' },
   set_service_password: { ...SVC, password: 'supersecret1' },
+  set_service_rdns: { ...SVC, hostname: 'mail.example.com' },
   stop_service: { ...SVC },
   transfer_domain: { domain: 'example.com', epp: 'code' },
   update_account: { city: 'X' },
@@ -658,6 +676,7 @@ const IDEMPOTENT_TOOLS = [
   'create_object_storage_key',
   'create_proxy_request',
   'create_service_backup',
+  'create_snapshot',
   'create_ticket',
   'create_volume',
   'deploy_service',
@@ -674,6 +693,7 @@ const IDEMPOTENT_TOOLS = [
   'renew_service',
   'reply_ticket',
   'request_proxy_replacement',
+  'request_quota_increase',
   'reserve_ip',
   'reset_service_password',
   'resize_service',
