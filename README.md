@@ -99,7 +99,7 @@ Exposes **202 tools** wrapping the RareCloud REST API: **102 read tools** (inspe
 | | `get_proxy_replacements` | IP-replacement allowance + history for a proxy service |
 | | `list_proxy_replacement_locations` | Locations a replacement IP can be placed in (ISP only) |
 | | `get_proxy_bandwidth` | Bandwidth usage of a GB Residential bucket: total, used, available |
-| | `check_proxy` | Live check of every proxy of a service: up/down, exit IP, ISP, geo, latency (a POST that changes nothing on the service) |
+| | `check_proxy` | Live check of every proxy of a service: up/down, exit IP, ISP, geo, latency (a POST: sends a small amount of traffic through each proxy and refreshes the shown location) |
 | | `get_proxy_auto_rotation` | Auto-rotation settings of a mobile proxy line |
 | AI Sandboxes | `list_sandboxes` | Sandboxes: id, name, status, template, image, labels, env names (never values), run mode, expiry |
 | | `get_sandbox` | One sandbox: status (and why it is pending), image, labels, env names, run mode, `expiresAt` |
@@ -207,7 +207,7 @@ The **Safety** column is each tool's kind (see [Safety model](#safety-model)). *
 | | `set_proxy_credentials` | **disruptive** | Set a proxy service's username/password |
 | | `add_proxy_whitelisted_ip` | plain | Add an IP to a proxy service's whitelist |
 | | `remove_proxy_whitelisted_ip` | **destructive** | Remove an IP from a proxy service's whitelist |
-| | `request_proxy_replacement` | **disruptive** | Request an IP replacement, consuming the monthly allowance |
+| | `request_proxy_replacement` | **disruptive** | Request an IP replacement, consuming the monthly allowance; optional `locationId` / `locationLabel` from `list_proxy_replacement_locations` move the new IP |
 | | `create_proxy_request` | plain | Create a proxy-request on a GB Residential bucket |
 | | `delete_proxy_request` | **destructive** | Delete a proxy-request from a GB Residential bucket |
 | | `set_proxy_auto_rotation` | **disruptive** | Turn a mobile line's automatic IP rotation on/off and set its interval |

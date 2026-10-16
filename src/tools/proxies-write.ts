@@ -372,6 +372,10 @@ export const removeProxyWhitelistedIp: ToolDefinition = writeTool({
 });
 
 // --- request_proxy_replacement (POST /v1/proxies/{id}/replacements, disruptive) ---
+// Optional body, from the route's ReplacementInput: locationId (string, min 1)
+// moves the new IP to a location from GET /replacements/locations;
+// locationLabel (string, 1-120) updates the displayed location. Neither given:
+// no body, a same-location replacement (the original behaviour).
 
 export const requestProxyReplacement: ToolDefinition = writeTool({
   name: 'request_proxy_replacement',
@@ -379,21 +383,49 @@ export const requestProxyReplacement: ToolDefinition = writeTool({
     `Request an IP replacement for a proxy service, consuming the included monthly allowance (1/month). ` +
     `Requires scope services:write (${SCOPE_NOTE}). ISP proxy services only. Opens a support ticket that ` +
     `fulfils the swap; check get_proxy_replacements first to confirm an allowance is available this month ` +
-    `(the request is refused server-side once the allowance is used). id comes from list_proxies.`,
+    `(the request is refused server-side once the allowance is used). To move the new IP to another ` +
+    `location, pick one from list_proxy_replacement_locations and pass its id as locationId (and its label ` +
+    `as locationLabel so the shown location follows); omit both to replace in the same location. id comes ` +
+    `from list_proxies.`,
   method: 'POST',
   idempotent: true,
   safety: {
     kind: 'disruptive',
     reason: "uses this month's included replacement and swaps an IP out; clients pinned to the old IP stop working once it is replaced",
   },
-  input: z.object({ id: z.string().min(1) }).strict(),
+  input: z
+    .object({
+      id: z.string().min(1),
+      locationId: z.string().min(1).optional(),
+      locationLabel: z.string().min(1).max(120).optional(),
+    })
+    .strict(),
   inputSchema: {
     type: 'object',
-    properties: { id: { type: 'string', minLength: 1, description: 'Proxy service id from list_proxies (ISP only).' } },
+    properties: {
+      id: { type: 'string', minLength: 1, description: 'Proxy service id from list_proxies (ISP only).' },
+      locationId: {
+        type: 'string',
+        minLength: 1,
+        description: 'Optional target location id from list_proxy_replacement_locations; omit to replace in place.',
+      },
+      locationLabel: {
+        type: 'string',
+        minLength: 1,
+        maxLength: 120,
+        description: 'Optional label of that location (1-120 chars), from list_proxy_replacement_locations; becomes the displayed location.',
+      },
+    },
     required: ['id'],
     additionalProperties: false,
   },
   buildPath: (a) => `/v1/proxies/${encodeSegment(a.id, 'id')}/replacements`,
+  buildBody: (a) => {
+    const body: Record<string, unknown> = {};
+    if (a.locationId !== undefined) body.locationId = a.locationId;
+    if (a.locationLabel !== undefined) body.locationLabel = a.locationLabel;
+    return Object.keys(body).length > 0 ? body : undefined;
+  },
 });
 
 // --- create_proxy_request (POST /v1/proxies/{id}/proxy-requests, plain) ----

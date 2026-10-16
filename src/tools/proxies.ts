@@ -154,8 +154,9 @@ export const checkProxy: ToolDefinition = defineReadTool({
     'Run a live check on every proxy of a service: the API routes a small request through each one and reports ' +
     'ip, port, up (true/false), the real exit IP, ISP, city, country, countryCode, latencyMs and routed. Use to ' +
     'confirm a proxy works or to see where it actually exits. Any proxy kind (ISP, GB Residential, mobile). ' +
-    'Rotating (GB Residential and mobile) proxies use a negligible amount of bandwidth for the check. Changes ' +
-    'nothing on the service apart from refreshing the location the API shows for it. The id comes from list_proxies.',
+    'Side effects: it sends a small amount of traffic through each proxy (on GB Residential and mobile this ' +
+    'uses a negligible amount of bandwidth), and it refreshes the location the API shows for the service from ' +
+    'the exit it finds. It changes nothing else. The id comes from list_proxies.',
   inputSchema: proxyIdSchema,
   async handler(client, args) {
     const parsed = checkProxyInput.safeParse(args);

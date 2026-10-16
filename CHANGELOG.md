@@ -15,13 +15,18 @@ Six proxy tools, 202 tools in total (102 reads, 100 writes, 73 gated):
   `get_proxy_auto_rotation` (`GET /v1/proxies/{id}/auto-rotation`, mobile
   only), and `check_proxy` (`POST /v1/proxies/{id}/check`). `check_proxy` is a
   POST but a read tool: the API scopes it `services:read`, exempts it from
-  Idempotency-Key as a read-only check, and it changes nothing on the service
-  beyond refreshing the location the API displays.
+  Idempotency-Key as a read-only check. Its description says it sends a small
+  amount of traffic through each proxy and refreshes the location the API
+  shows for the service.
 - Writes (scope `services:write`, both **disruptive** and gated, mobile only):
   `set_proxy_auto_rotation` (`PUT /v1/proxies/{id}/auto-rotation`, `enabled`
   plus `intervalMinutes` 5 to 1440, both required) and `rotate_proxy`
   (`POST /v1/proxies/{id}/rotate`, no body, no `idempotency_key` because the
   API exempts the route).
+- `request_proxy_replacement` takes optional `locationId` (min 1 char) and
+  `locationLabel` (1 to 120 chars), as the API route accepts them: pick a
+  location from `list_proxy_replacement_locations` to move the new IP there.
+  Without them the request has no body, as before.
 
 ### Added: AI Sandboxes tools
 

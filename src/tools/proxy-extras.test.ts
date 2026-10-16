@@ -103,6 +103,11 @@ test('check_proxy: sends no body (the route takes none)', async () => {
   assert.equal(calls[0].body, undefined);
 });
 
+test('check_proxy: description says plainly it sends traffic through the proxy and refreshes the shown location', () => {
+  assert.match(checkProxy.description, /sends a small amount of traffic through each proxy/);
+  assert.match(checkProxy.description, /refreshes the location the API shows/);
+});
+
 test('check_proxy: rejects unknown input with no request', async () => {
   const { client, calls } = fakeClient();
   const result = await checkProxy.handler(client, { id: PX, extra: 1 });
