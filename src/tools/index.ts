@@ -216,6 +216,12 @@ import {
   runSandboxCommand,
   writeSandboxFile,
 } from './sandboxes-write.js';
+import { listSnapshots, listServiceSnapshots, getSnapshot } from './snapshots.js';
+import { createSnapshot, deleteSnapshot, restoreSnapshot } from './snapshots-write.js';
+import { getQuotaLimits, estimateLimits, listQuotaRequests } from './limits.js';
+import { requestQuotaIncrease } from './limits-write.js';
+import { getServiceRdns } from './rdns.js';
+import { setServiceRdns, deleteServiceRdns } from './rdns-write.js';
 
 export const TOOLS: ToolDefinition[] = [
   // Catalog (un-authed surface, "what can I deploy?")
@@ -321,6 +327,16 @@ export const TOOLS: ToolDefinition[] = [
   listSandboxTemplates,
   readSandboxFile,
   getSandboxLogs,
+  // Snapshots ("what VM snapshots do I have?")
+  listSnapshots,
+  listServiceSnapshots,
+  getSnapshot,
+  // Quotas ("how much room is left, and can this cluster fit?")
+  getQuotaLimits,
+  estimateLimits, // read-only POST /v1/limits/estimate: creates and reserves nothing
+  listQuotaRequests,
+  // Reverse DNS
+  getServiceRdns,
 
   // --- WRITE / ACTION TOOLS (Parity Phase B) ---
   // Services — writes
@@ -428,6 +444,15 @@ export const TOOLS: ToolDefinition[] = [
   runSandboxCode,
   runSandboxCommand,
   writeSandboxFile,
+  // Snapshots: writes (take / delete / restore)
+  createSnapshot,
+  deleteSnapshot,
+  restoreSnapshot,
+  // Quotas: writes (ask for a quota increase)
+  requestQuotaIncrease,
+  // Reverse DNS: writes
+  setServiceRdns,
+  deleteServiceRdns,
 ];
 
 export function findTool(name: string): ToolDefinition | undefined {

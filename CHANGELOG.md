@@ -28,6 +28,24 @@ Ten tools for AI Sandboxes (`/v1/sandboxes`), 183 tools in total, 91 of them rea
 - `RareCloudClient.getText` reads a plain-text endpoint; an error still maps to
   the usual `APIError` with its HTTP status.
 
+### Added: snapshots, quotas and reverse DNS (13 tools)
+
+- VM snapshots: `list_snapshots`, `list_service_snapshots`, `get_snapshot`
+  (reads); `create_snapshot` (spends, takes `idempotency_key`),
+  `delete_snapshot` and `restore_snapshot` (destructive; restore replaces the
+  root disk). The descriptions tell an agent to snapshot before
+  `reinstall_service` or `resize_service` and that `restore_snapshot` is the
+  undo; those two tools now say so too.
+- Quotas: `get_quota_limits` (`GET /v1/limits`, effective limits with live
+  usage), `estimate_limits` (read, `POST /v1/limits/estimate`, creates and
+  reserves nothing), `list_quota_requests`, and `request_quota_increase`
+  (sensitive like `create_ticket`: a large request opens a support ticket in
+  the user's name and replaces any pending one; takes `idempotency_key`).
+- Reverse DNS: `get_service_rdns`; `set_service_rdns` and
+  `delete_service_rdns` (disruptive, like `set_domain_dns`).
+- With the AI Sandboxes tools above: 196 tools, 98 reads, 98 writes (71 gated,
+  27 plain), 43 take `idempotency_key`.
+
 ## 0.3.0 (2026-10-08)
 
 ### Changed
