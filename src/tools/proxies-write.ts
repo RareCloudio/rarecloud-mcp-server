@@ -6,7 +6,7 @@
 // `encodeSegment` path encoding, and the APIError -> errorResult mapping
 // stay uniform with infra-write.ts / services-write.ts / domains-write.ts.
 //
-// SCOPE: all 11 tools are services:write — there is NO proxy-specific
+// SCOPE: all 13 tools are services:write — there is NO proxy-specific
 // scope. Every description says so explicitly: an agent holding
 // services:write can manage proxies AND production VMs/clusters/etc (same
 // scope, no finer split), so a caller granting services:write to an agent
@@ -462,4 +462,71 @@ export const deleteProxyRequest: ToolDefinition = writeTool({
     additionalProperties: false,
   },
   buildPath: (a) => `/v1/proxies/${encodeSegment(a.id, 'id')}/proxy-requests/${encodeSegment(a.reqId, 'reqId')}`,
+});
+
+// --- set_proxy_auto_rotation (PUT /v1/proxies/{id}/auto-rotation, disruptive) ---
+// Mobile only. Bounds from the route's MobileAutoRotationInput and openapi:
+// enabled boolean + intervalMinutes integer 5-1440, both required.
+
+export const setProxyAutoRotation: ToolDefinition = writeTool({
+  name: 'set_proxy_auto_rotation',
+  description:
+    `Turn a mobile proxy line's automatic IP rotation on or off and set how often it rotates. Requires scope ` +
+    `services:write (${SCOPE_NOTE}). Mobile proxy lines only (mobile-4g, mobile-vpn, mobile-multisim). Both ` +
+    `enabled and intervalMinutes (5 to 1440) are required, also when turning it off. See the current settings ` +
+    `with get_proxy_auto_rotation. id comes from list_proxies.`,
+  method: 'PUT',
+  safety: {
+    kind: 'disruptive',
+    reason: "changes when the line's exit IP rotates; clients that rely on keeping the same IP see it change on the new schedule",
+  },
+  input: z
+    .object({
+      id: z.string().min(1),
+      enabled: z.boolean(),
+      intervalMinutes: z.number().int().min(5).max(1440),
+    })
+    .strict(),
+  inputSchema: {
+    type: 'object',
+    properties: {
+      id: { type: 'string', minLength: 1, description: 'Mobile proxy service id from list_proxies.' },
+      enabled: { type: 'boolean', description: 'true turns automatic rotation on; false turns it off.' },
+      intervalMinutes: {
+        type: 'integer',
+        minimum: 5,
+        maximum: 1440,
+        description: 'Minutes between automatic rotations (5 to 1440).',
+      },
+    },
+    required: ['id', 'enabled', 'intervalMinutes'],
+    additionalProperties: false,
+  },
+  buildPath: (a) => `/v1/proxies/${encodeSegment(a.id, 'id')}/auto-rotation`,
+  buildBody: (a) => ({ enabled: a.enabled, intervalMinutes: a.intervalMinutes }),
+});
+
+// --- rotate_proxy (POST /v1/proxies/{id}/rotate, disruptive) ---------------
+// Mobile only. No body. The API exempts this route from Idempotency-Key (it
+// creates and charges nothing), so no idempotency_key.
+
+export const rotateProxy: ToolDefinition = writeTool({
+  name: 'rotate_proxy',
+  description:
+    `Rotate the exit IP of a mobile proxy line now. Requires scope services:write (${SCOPE_NOTE}). Mobile proxy ` +
+    `lines only (mobile-4g, mobile-vpn, mobile-multisim); ISP and GB Residential services return an error. ` +
+    `Nothing is charged. Answers { rotated: true } once the rotation has started. id comes from list_proxies.`,
+  method: 'POST',
+  safety: {
+    kind: 'disruptive',
+    reason: "changes the line's exit IP at once; open connections drop and clients pinned to the old IP lose it",
+  },
+  input: z.object({ id: z.string().min(1) }).strict(),
+  inputSchema: {
+    type: 'object',
+    properties: { id: { type: 'string', minLength: 1, description: 'Mobile proxy service id from list_proxies.' } },
+    required: ['id'],
+    additionalProperties: false,
+  },
+  buildPath: (a) => `/v1/proxies/${encodeSegment(a.id, 'id')}/rotate`,
 });

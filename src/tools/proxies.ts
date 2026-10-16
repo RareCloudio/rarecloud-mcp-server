@@ -14,7 +14,10 @@
 // JSON, so these stay jsonResult reads, marked with the factory's standard
 // `returnsSecret` SECURITY sentence (same as the kubeconfig tools in k8s.ts).
 
-import { readList, readOne, readTool, encodeSegment } from './factories.js';
+import { z } from 'zod';
+import { APIError } from '../client.js';
+import { type ToolDefinition, jsonResult, errorResult } from './types.js';
+import { readList, readOne, readTool, defineReadTool, encodeSegment, formatZodError } from './factories.js';
 
 // Shared: an id-scoped detail read on /v1/proxies/{id}{suffix}.
 const proxyIdSchema = {
@@ -117,4 +120,72 @@ export const getProxyRequestList = readTool({
   },
   buildPath: (args) =>
     `/v1/proxies/${encodeSegment(args.id, 'id')}/proxy-requests/${encodeSegment(args.request_id, 'request_id')}/proxy-list`,
+});
+
+// --- proxy extras: bandwidth, live check, replacement locations, auto-rotation ---
+// Routes confirmed against api/src/routes/v1-proxies.ts and openapi.json:
+//   GET  /v1/proxies/{id}/bandwidth               (services:read; GB Residential only)
+//   POST /v1/proxies/{id}/check                   (services:read; any kind)
+//   GET  /v1/proxies/{id}/replacements/locations  (services:read; ISP only)
+//   GET  /v1/proxies/{id}/auto-rotation           (services:read; mobile only)
+
+export const getProxyBandwidth = readTool({
+  name: 'get_proxy_bandwidth',
+  description:
+    'Get the bandwidth usage of a GB Residential bandwidth bucket: unit (e.g. MB), total, used and available. ' +
+    'Use to see how much of a GB bucket is left before creating more proxy-requests or ordering a bigger bucket. ' +
+    'GB Residential only: ISP and mobile services return an INVALID_PARAM error. The id comes from list_proxies.',
+  inputSchema: proxyIdSchema,
+  buildPath: (args) => `/v1/proxies/${encodeSegment(args.id, 'id')}/bandwidth`,
+});
+
+// check_proxy: POST /v1/proxies/{id}/check. The API scopes it services:read and
+// documents it as a read-only connectivity check (it is exempt from
+// Idempotency-Key for that reason), so it is a READ tool: read annotations, no
+// confirm gate, no idempotency_key. Its only writes are the API refreshing its
+// own display cache (the service's shown location and the per-IP exit geo it
+// learns), and for rotating proxies it routes a few hundred bytes through each
+// proxy. Hand-written (defineReadTool) because readTool only issues GETs.
+const checkProxyInput = z.object({ id: z.string() }).strict();
+
+export const checkProxy: ToolDefinition = defineReadTool({
+  name: 'check_proxy',
+  description:
+    'Run a live check on every proxy of a service: the API routes a small request through each one and reports ' +
+    'ip, port, up (true/false), the real exit IP, ISP, city, country, countryCode, latencyMs and routed. Use to ' +
+    'confirm a proxy works or to see where it actually exits. Any proxy kind (ISP, GB Residential, mobile). ' +
+    'Rotating (GB Residential and mobile) proxies use a negligible amount of bandwidth for the check. Changes ' +
+    'nothing on the service apart from refreshing the location the API shows for it. The id comes from list_proxies.',
+  inputSchema: proxyIdSchema,
+  async handler(client, args) {
+    const parsed = checkProxyInput.safeParse(args);
+    if (!parsed.success) {
+      return errorResult(`Invalid input for check_proxy: ${formatZodError(parsed.error)}`);
+    }
+    try {
+      return jsonResult(await client.post(`/v1/proxies/${encodeSegment(parsed.data.id, 'id')}/check`));
+    } catch (e) {
+      return errorResult(e instanceof APIError ? e.message : (e as Error).message);
+    }
+  },
+});
+
+export const listProxyReplacementLocations = readTool({
+  name: 'list_proxy_replacement_locations',
+  description:
+    'List the locations (id + label) a new IP can be placed in when replacing an IP of an ISP proxy service. ' +
+    'This set comes from the proxy provider and differs from the order catalog locations in get_proxy_catalog. ' +
+    'ISP proxy services only. Check get_proxy_replacements first for the monthly allowance. The id comes from list_proxies.',
+  inputSchema: proxyIdSchema,
+  buildPath: (args) => `/v1/proxies/${encodeSegment(args.id, 'id')}/replacements/locations`,
+});
+
+export const getProxyAutoRotation = readTool({
+  name: 'get_proxy_auto_rotation',
+  description:
+    'Get the auto-rotation settings of a mobile proxy line: enabled and intervalMinutes (how often the exit IP ' +
+    'changes on its own). Mobile proxy lines only (mobile-4g, mobile-vpn, mobile-multisim); other kinds return an ' +
+    'error. Read-only; change it with set_proxy_auto_rotation, or rotate now with rotate_proxy. The id comes from list_proxies.',
+  inputSchema: proxyIdSchema,
+  buildPath: (args) => `/v1/proxies/${encodeSegment(args.id, 'id')}/auto-rotation`,
 });

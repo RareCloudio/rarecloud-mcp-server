@@ -91,6 +91,10 @@ import {
   listProxyRequests,
   getProxyRequestList,
   getProxyReplacements,
+  getProxyBandwidth,
+  checkProxy,
+  listProxyReplacementLocations,
+  getProxyAutoRotation,
 } from './proxies.js';
 import {
   setServiceHostname,
@@ -201,6 +205,8 @@ import {
   requestProxyReplacement,
   createProxyRequest,
   deleteProxyRequest,
+  setProxyAutoRotation,
+  rotateProxy,
 } from './proxies-write.js';
 import {
   listSandboxes,
@@ -321,6 +327,10 @@ export const TOOLS: ToolDefinition[] = [
   listProxyRequests,
   getProxyRequestList,
   getProxyReplacements,
+  getProxyBandwidth,
+  checkProxy,
+  listProxyReplacementLocations,
+  getProxyAutoRotation,
   // AI Sandboxes ("what sandboxes are running, what do templates cost, read a file or the logs")
   listSandboxes,
   getSandbox,
@@ -426,7 +436,7 @@ export const TOOLS: ToolDefinition[] = [
   createTicket,
   replyTicket,
   closeTicket,
-  // Proxies — writes (order / renew / auto-renew / cancel / auth / whitelist / replacement / GB proxy-requests)
+  // Proxies — writes (order / renew / auto-renew / cancel / auth / whitelist / replacement / GB proxy-requests / mobile rotation)
   orderProxy,
   renewProxy,
   setProxyAutoRenew,
@@ -438,6 +448,8 @@ export const TOOLS: ToolDefinition[] = [
   requestProxyReplacement,
   createProxyRequest,
   deleteProxyRequest,
+  setProxyAutoRotation,
+  rotateProxy,
   // AI Sandboxes: writes (create / delete / run code / run a command / write a file; no port exposure)
   createSandbox,
   deleteSandbox,

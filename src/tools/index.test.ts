@@ -10,7 +10,7 @@ import { isIdempotentPostPath } from '../idempotency.js';
 
 // Bump this in the same commit that adds/removes tools. A mismatch means the
 // registry changed without the test acknowledging it.
-const EXPECTED_TOOL_COUNT = 196;
+const EXPECTED_TOOL_COUNT = 202;
 
 test('registry: tool count matches the expected total', () => {
   assert.equal(TOOLS.length, EXPECTED_TOOL_COUNT);
@@ -134,7 +134,7 @@ test('exclusion guard: the account/billing/tickets write surface is EXACTLY the 
 // sorted sets too — same rationale as the account/billing/tickets pin above.
 // services:write is the big one: it covers services-write.ts + k8s-write.ts +
 // infra-write.ts + firewall-lb-write.ts + object-storage-write.ts + proxies-write.ts +
-// sandboxes-write.ts (72 tools); the README's "services:write covers IaaS AND proxies" note names this exact
+// sandboxes-write.ts (74 tools); the README's "services:write covers IaaS AND proxies" note names this exact
 // sharing. domains:write is domains-write.ts (7 tools).
 // ---------------------------------------------------------------------------
 
@@ -202,11 +202,13 @@ test('exclusion guard: the services:write surface is EXACTLY the safe set (IaaS 
     'resize_service',
     'restore_snapshot',
     'revoke_cluster_kubeconfig',
+    'rotate_proxy',
     'run_sandbox_code',
     'run_sandbox_command',
     'set_cluster_scale',
     'set_proxy_auth_method',
     'set_proxy_auto_renew',
+    'set_proxy_auto_rotation',
     'set_proxy_credentials',
     'set_service_autorenew',
     'set_service_hostname',
@@ -342,11 +344,13 @@ const GATED_TOOLS: Record<string, Exclude<Kind, 'plain'>> = {
   resize_service: 'spends',
   restore_snapshot: 'destructive',
   revoke_cluster_kubeconfig: 'destructive',
+  rotate_proxy: 'disruptive',
   set_cluster_scale: 'disruptive',
   set_domain_contacts: 'sensitive',
   set_domain_dns: 'disruptive',
   set_domain_nameservers: 'disruptive',
   set_proxy_auth_method: 'disruptive',
+  set_proxy_auto_rotation: 'disruptive',
   set_proxy_credentials: 'disruptive',
   set_service_password: 'disruptive',
   set_service_rdns: 'disruptive',
@@ -407,10 +411,10 @@ function reasonOf(description: string): string {
   return m[1];
 }
 
-test('safety: every tool (all 196) carries annotations; reads are readOnly, writes are not', () => {
+test('safety: every tool (all 202) carries annotations; reads are readOnly, writes are not', () => {
   assert.equal(readTools().length + writeTools().length, TOOLS.length, 'every tool sets readOnlyHint');
-  assert.equal(readTools().length, 98);
-  assert.equal(writeTools().length, 98);
+  assert.equal(readTools().length, 102);
+  assert.equal(writeTools().length, 100);
   for (const t of readTools()) {
     assert.deepEqual(
       t.annotations,
@@ -420,12 +424,12 @@ test('safety: every tool (all 196) carries annotations; reads are readOnly, writ
   }
 });
 
-test('safety: the gated set (71) and the plain set (27) are exactly the pinned ones', () => {
+test('safety: the gated set (73) and the plain set (27) are exactly the pinned ones', () => {
   const gated = writeTools().filter((t) => 'confirm' in t.inputSchema.properties).map((t) => t.name).sort();
   const plain = writeTools().filter((t) => !('confirm' in t.inputSchema.properties)).map((t) => t.name).sort();
   assert.deepEqual(gated, Object.keys(GATED_TOOLS).sort());
   assert.deepEqual(plain, [...PLAIN_TOOLS].sort());
-  assert.equal(gated.length, 71);
+  assert.equal(gated.length, 73);
   assert.equal(plain.length, 27);
 });
 
@@ -537,11 +541,13 @@ const GATED_ARGS: Record<string, Record<string, unknown>> = {
   resize_service: { ...SVC, flavor: 'c-2vcpu-4gb' },
   restore_snapshot: { ...SVC, snapshotId: '0b6f1c2e-6d1a-4f43-9c3e-2a7d9e8f1b20' },
   revoke_cluster_kubeconfig: { ...SVC, credential_id: 'c-1' },
+  rotate_proxy: { ...ID },
   set_cluster_scale: { ...SVC, minimum: 1, maximum: 2 },
   set_domain_contacts: { ...ID, contact: { city: 'X' } },
   set_domain_dns: { ...ID, records: [] },
   set_domain_nameservers: { ...ID, nameservers: ['ns1.example.com', 'ns2.example.com'] },
   set_proxy_auth_method: { ...ID, method: 'password' },
+  set_proxy_auto_rotation: { ...ID, enabled: true, intervalMinutes: 30 },
   set_proxy_credentials: { ...ID, username: 'u', password: 'p' },
   set_service_password: { ...SVC, password: 'supersecret1' },
   set_service_rdns: { ...SVC, hostname: 'mail.example.com' },
