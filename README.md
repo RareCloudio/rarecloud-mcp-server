@@ -6,9 +6,9 @@ Drop into [Claude Code](https://claude.com/claude-code), Claude Desktop, [Cursor
 
 ## What it does
 
-Exposes **186 tools** wrapping the RareCloud REST API: **93 read tools** (inspect / list / get / check, always safe) plus **93 write/action tools** (deploy, resize, destroy, order, renew, and similar mutations). 69 of the writes are gated behind an explicit `confirm:true`; the other 24 are plain. See [Safety model](#safety-model) below for how it works.
+Exposes **196 tools** wrapping the RareCloud REST API: **98 read tools** (inspect / list / get / check, always safe) plus **98 write/action tools** (deploy, resize, destroy, order, renew, and similar mutations). 71 of the writes are gated behind an explicit `confirm:true`; the other 27 are plain. See [Safety model](#safety-model) below for how it works.
 
-### Read tools (93)
+### Read tools (98)
 
 | Category | Tool | Purpose |
 |---|---|---|
@@ -97,6 +97,11 @@ Exposes **186 tools** wrapping the RareCloud REST API: **93 read tools** (inspec
 | | `list_proxy_requests` | Proxy-requests on a GB Residential bucket (country + rotation + count groups) |
 | | `get_proxy_request_list` | Live endpoints + credentials for one GB Residential proxy-request, **live secret** |
 | | `get_proxy_replacements` | IP-replacement allowance + history for a proxy service |
+| AI Sandboxes | `list_sandboxes` | Sandboxes: id, name, status, template, image, labels, env names (never values), run mode, expiry |
+| | `get_sandbox` | One sandbox: status (and why it is pending), image, labels, env names, run mode, `expiresAt` |
+| | `list_sandbox_templates` | Templates (python / node / base): size, image, price per hour in EUR and USD |
+| | `read_sandbox_file` | Read one file by absolute path (text, or base64 for binary; up to 25 MiB) |
+| | `get_sandbox_logs` | Last lines of a run-mode sandbox's output, plain text (404 = logs gone; 503 = not available yet) |
 | | `check_order` | Would `deploy_service` be accepted right now? Same body, creates and reserves nothing; on a refusal returns the message plus the Add funds or Pay invoice link for the human (needs `services:write`) |
 | Snapshots | `list_snapshots` | Every VM snapshot the account owns, across all cloud VMs: state (creating / securing / ready / failed), size, source VM |
 | | `list_service_snapshots` | Snapshots of one cloud VM (up to 5 per VM); check before a risky change |
@@ -108,9 +113,9 @@ Exposes **186 tools** wrapping the RareCloud REST API: **93 read tools** (inspec
 
 Tools marked **live secret** return a real credential (a kubeconfig bearer token, proxy `ip:port:user:pass`, or an S3 secret access key). Their descriptions carry the standard SECURITY sentence (see [Safety model](#safety-model)).
 
-### Write / action tools (93)
+### Write / action tools (98)
 
-The **Safety** column is each tool's kind (see [Safety model](#safety-model)). **spends**, **destructive**, **disruptive** and **sensitive** tools are gated (69 tools): they refuse to run, making **no** API call, unless the call passes `confirm:true`, so an agent must surface the action and its cost or consequence to the user first. **plain** tools (24) cost nothing, tear nothing down, and run without confirmation.
+The **Safety** column is each tool's kind (see [Safety model](#safety-model)). **spends**, **destructive**, **disruptive** and **sensitive** tools are gated (71 tools): they refuse to run, making **no** API call, unless the call passes `confirm:true`, so an agent must surface the action and its cost or consequence to the user first. **plain** tools (27) cost nothing, tear nothing down, and run without confirmation.
 
 | Category | Tool | Safety | Purpose |
 |---|---|---|---|
@@ -201,6 +206,11 @@ The **Safety** column is each tool's kind (see [Safety model](#safety-model)). *
 | | `request_proxy_replacement` | **disruptive** | Request an IP replacement, consuming the monthly allowance |
 | | `create_proxy_request` | plain | Create a proxy-request on a GB Residential bucket |
 | | `delete_proxy_request` | **destructive** | Delete a proxy-request from a GB Residential bucket |
+| AI Sandboxes | `create_sandbox` | **spends** | Create a sandbox from a template or image, with lifetime, name, env, labels, network switch and optional run mode (billed per second; env values never returned) |
+| | `delete_sandbox` | **destructive** | Terminate a sandbox and delete everything in it |
+| | `run_sandbox_code` | plain | Run a Python or Node snippet in a sandbox; returns stdout, stderr, exit code |
+| | `run_sandbox_command` | plain | Run a shell command (`sh -c`) in a sandbox; returns stdout, stderr, exit code |
+| | `write_sandbox_file` | plain | Create or overwrite one file in a sandbox (text or base64) |
 | Snapshots | `create_snapshot` | **spends** | Snapshot a cloud VM's root disk; take one before `reinstall_service` / `resize_service` (billed for the storage it uses) |
 | | `delete_snapshot` | **destructive** | Delete a VM snapshot (refused while VMs created from it exist) |
 | | `restore_snapshot` | **destructive** | Restore a cloud VM from one of its own snapshots: the undo; replaces the root disk |
@@ -208,7 +218,7 @@ The **Safety** column is each tool's kind (see [Safety model](#safety-model)). *
 | Reverse DNS | `set_service_rdns` | **disruptive** | Set the reverse DNS (PTR) record of a cloud VM's public IPv4 (e.g. for a mail server) |
 | | `delete_service_rdns` | **disruptive** | Remove the reverse DNS (PTR) record of a cloud VM's public IPv4 |
 
-Notably absent by design: no password/2FA changes, no sub-user invites, no payment-method or API-token management, no credit top-up, no invoice payment, no affiliate activate/withdraw, and no way to change a resource's API access. Those are identity, credential, or raw-money-movement operations that stay out of an agent's reach: they have no tool at all (see [Security](#security)).
+Notably absent by design: no password/2FA changes, no sub-user invites, no payment-method or API-token management, no credit top-up, no invoice payment, no affiliate activate/withdraw, and no way to change a resource's API access. Those are identity, credential, or raw-money-movement operations that stay out of an agent's reach: they have no tool at all (see [Security](#security)). Sandbox port exposure has no tool either, for a different reason: the API answers 501 for it (preview URLs are not part of AI Sandboxes v1).
 
 ## Safety model
 
@@ -225,7 +235,7 @@ Every read tool only inspects account state and is always safe to call. Every wr
 - **Gated tools refuse with zero API calls unless the call passes `confirm: true`.** No side effect, no partial charge, nothing to undo. The refusal says what the tool would have done, for example `stop_service was NOT executed because it is disruptive: it powers the server off; everything running on it stops until it is started again.`, so the agent can go back to you for an explicit go-ahead. The confirm is per call; there is no "confirm once, run twice" shortcut.
 - **Every description ends with one standard `Safety:` sentence** naming the kind and the concrete consequence, so the agent sees the same information before it calls.
 - **Every tool carries MCP annotations.** All reads set `readOnlyHint: true` (so a client can auto-approve them), plus `idempotentHint: true` and `destructiveHint: false`. All writes set `readOnlyHint: false`, and `destructiveHint` is true for destructive and disruptive tools, so an MCP client's own guardrails can treat those more cautiously. Every tool sets `openWorldHint: true` (it talks to the live RareCloud API).
-- **Credentials are marked.** Tools whose result contains a live credential (`deploy_service` and `reinstall_service` when they return a one-time console password, `order_proxy` for an ISP plan's proxy list, `create_cluster_kubeconfig`, `create_object_storage_key`, `get_cluster_kubeconfig`, `download_cluster_kubeconfig`, `get_proxy_list`, `get_proxy_auth`, `get_proxy_request_list`) carry one standard sentence: *SECURITY: the result contains ..., a live credential. Treat it as a secret: do not repeat it to the user, or write it to files or logs, unless the user explicitly asks; pass it straight to whatever needs it.* Tools that take a secret as input (`set_service_password`, `reset_service_password`, `set_proxy_credentials`) tell the agent never to echo the value back.
+- **Credentials are marked.** Tools whose result contains a live credential (`deploy_service` and `reinstall_service` when they return a one-time console password, `order_proxy` for an ISP plan's proxy list, `create_cluster_kubeconfig`, `create_object_storage_key`, `get_cluster_kubeconfig`, `download_cluster_kubeconfig`, `get_proxy_list`, `get_proxy_auth`, `get_proxy_request_list`) carry one standard sentence: *SECURITY: the result contains ..., a live credential. Treat it as a secret: do not repeat it to the user, or write it to files or logs, unless the user explicitly asks; pass it straight to whatever needs it.* Tools that take a secret as input (`set_service_password`, `reset_service_password`, `set_proxy_credentials`, and `create_sandbox` for its `env` values) tell the agent never to echo the value back. `create_sandbox` never returns `env` values: the result names the variables only (`envKeys`).
 
 ### Resources the user made read-only for agents
 
@@ -237,7 +247,7 @@ In the console you can switch **API access** off for any service (VPS, cloud VM,
 
 ### Safe retries (idempotency keys)
 
-A dropped connection after the API created something used to leave the agent guessing whether to retry, and a retry could create a second VM or charge twice. The 42 write tools that map to a route where the API honours an `Idempotency-Key` take an optional `idempotency_key` input (1 to 255 printable ASCII characters): reuse the same value if you retry the exact same request, and the API runs it at most once and returns the first answer again.
+A dropped connection after the API created something used to leave the agent guessing whether to retry, and a retry could create a second VM or charge twice. The 43 write tools that map to a route where the API honours an `Idempotency-Key` take an optional `idempotency_key` input (1 to 255 printable ASCII characters): reuse the same value if you retry the exact same request, and the API runs it at most once and returns the first answer again.
 
 - Without `idempotency_key`, the server makes a fresh UUIDv4 key for the call and, if the connection drops or times out before the answer arrives, retries **once** with that same key.
 - If the API says the first request with that key is still running (`409 IDEMPOTENCY_IN_PROGRESS`), the server waits the `Retry-After` time (at most 10 seconds) and asks again with the same key, up to 3 times.
@@ -246,9 +256,9 @@ A dropped connection after the API created something used to leave the agent gue
 - The confirm gate still comes first: without `confirm:true` a gated tool makes no key and no request.
 - No other POST ever carries the header, and no other request is ever retried.
 
-The tools: `add_account_ssh_key`, `add_cluster_pool`, `add_firewall_rule`, `add_load_balancer_member`, `add_proxy_whitelisted_ip`, `add_service_ssh_key`, `add_service_ssh_key_to_library`, `cancel_service`, `create_bucket`, `create_cluster_kubeconfig`, `create_firewall`, `create_load_balancer`, `create_network`, `create_object_storage_key`, `create_proxy_request`, `create_service_backup`, `create_snapshot`, `create_ticket`, `create_volume`, `deploy_service`, `enable_cluster_ha`, `enable_object_storage`, `manage_account_contact`, `order_proxy`, `reboot_service`, `redeem_voucher`, `register_domain`, `reinstall_service`, `renew_domain`, `renew_proxy`, `renew_service`, `reply_ticket`, `request_proxy_replacement`, `request_quota_increase`, `reserve_ip`, `reset_service_password`, `resize_service`, `set_cluster_scale`, `start_service`, `stop_service`, `transfer_domain`, `upgrade_service`.
+The tools: `add_account_ssh_key`, `add_cluster_pool`, `add_firewall_rule`, `add_load_balancer_member`, `add_proxy_whitelisted_ip`, `add_service_ssh_key`, `add_service_ssh_key_to_library`, `cancel_service`, `create_bucket`, `create_cluster_kubeconfig`, `create_firewall`, `create_load_balancer`, `create_network`, `create_object_storage_key`, `create_proxy_request`, `create_sandbox`, `create_service_backup`, `create_snapshot`, `create_ticket`, `create_volume`, `deploy_service`, `enable_cluster_ha`, `enable_object_storage`, `manage_account_contact`, `order_proxy`, `reboot_service`, `redeem_voucher`, `register_domain`, `reinstall_service`, `renew_domain`, `renew_proxy`, `renew_service`, `reply_ticket`, `request_proxy_replacement`, `request_quota_increase`, `reserve_ip`, `reset_service_password`, `resize_service`, `set_cluster_scale`, `start_service`, `stop_service`, `transfer_domain`, `upgrade_service`.
 
-For anything outside the 93 write tools, the agent can read, recommend, and generate Terraform/CLI commands. You copy-paste them or run them via [the RareCloud CLI](https://github.com/RareCloudio/rarecloud-cli).
+For anything outside the 98 write tools, the agent can read, recommend, and generate Terraform/CLI commands. You copy-paste them or run them via [the RareCloud CLI](https://github.com/RareCloudio/rarecloud-cli).
 
 ## Install
 
@@ -269,7 +279,7 @@ npx @rarecloudio/mcp-server
 Get an API token: **Dashboard → Account → API tokens → New token**. Pick scopes for what you want the agent to do:
 
 - Read-only agent: the explicit read scopes `account:read`, `services:read`, `billing:read`, `domains:read`, `tickets:read`.
-- An agent that can also act: add the matching `{domain}:write` scope(s): `services:write` (covers cloud VMs, managed Kubernetes, volumes, networks, reserved IPs, firewalls, load balancers, Object Storage, **and residential proxies**: there is no separate proxy scope; the read-only `check_order` also needs it, because it answers whether this token can order), `domains:write`, `account:write`, `billing:write`, `tickets:write`.
+- An agent that can also act: add the matching `{domain}:write` scope(s): `services:write` (covers cloud VMs, managed Kubernetes, volumes, networks, reserved IPs, firewalls, load balancers, Object Storage, AI Sandboxes, **and residential proxies**: there is no separate proxy scope; the read-only `check_order` also needs it, because it answers whether this token can order), `domains:write`, `account:write`, `billing:write`, `tickets:write`.
 - Full access: bare `*`.
 
 Scope matching is **exact per token**: wildcard patterns like `*:read` are not supported; a token must carry the precise scope string a tool's description names. `account:write` / `billing:write` / `tickets:write` are deliberately narrow: they cover only the safe write tools listed above (profile fields, SSH keys, contacts, spend alerts, voucher redemption, tickets) and exclude every identity/credential/money-movement operation (password/2FA changes, sub-user invites, payment methods, API tokens, credit top-up, invoice payment, affiliate activate/withdraw): those simply have no tool here, gated or otherwise.
@@ -374,14 +384,14 @@ Then point Claude Desktop at your local checkout:
 npm test
 ```
 
-Tests run on the built-in Node test runner (`node:test`) via `tsx`: no build step, no network. Each tool is exercised against an injected mock client that records the request path and returns a canned payload, so the suite asserts path construction, input-schema shape, JSON-vs-raw output, secret-handling guidance, and error mapping without ever calling the live API. For write tools, the same fake-client harness also proves every gated tool (69, pinned by name and kind) refuses with its reason and makes zero requests when `confirm` is omitted, that every tool carries the right MCP annotations, that both the zod input and the JSON `inputSchema` enforce the same bounds (mirrored both layers), and that every dynamic path segment is guarded against path traversal. Further tests drop the first answer of an idempotent request and prove the retry reuses the same key, pin which tools take `idempotency_key` against the API's covered routes, and pin the `RESOURCE_PROTECTED` error text. A registry invariant test pins the exposed tool count (186) and enforces unique names, well-formed schemas, and, for the write-scope surfaces, an exact pinned set of tool names per scope, so a future change can't silently add a tool under the wrong scope.
+Tests run on the built-in Node test runner (`node:test`) via `tsx`: no build step, no network. Each tool is exercised against an injected mock client that records the request path and returns a canned payload, so the suite asserts path construction, input-schema shape, JSON-vs-raw output, secret-handling guidance, and error mapping without ever calling the live API. For write tools, the same fake-client harness also proves every gated tool (71, pinned by name and kind) refuses with its reason and makes zero requests when `confirm` is omitted, that every tool carries the right MCP annotations, that both the zod input and the JSON `inputSchema` enforce the same bounds (mirrored both layers), and that every dynamic path segment is guarded against path traversal. Further tests drop the first answer of an idempotent request and prove the retry reuses the same key, pin which tools take `idempotency_key` against the API's covered routes, and pin the `RESOURCE_PROTECTED` error text. A registry invariant test pins the exposed tool count (196) and enforces unique names, well-formed schemas, and, for the write-scope surfaces, an exact pinned set of tool names per scope, so a future change can't silently add a tool under the wrong scope.
 
 ## Security
 
 - Tokens never touch shell history (we use env vars, not CLI flags).
 - Each tool maps 1:1 to a RareCloud API endpoint; the MCP server doesn't aggregate or transform data beyond what the API returns.
 - **Scope is exact-match per token, enforced server-side.** A token only unlocks the tools whose scope it carries; there is no wildcard scope matching (`*:read` does not imply `services:read`) and no client-side scope bypass: an unscoped or under-scoped token gets the API's own `[FORBIDDEN]` response back.
-- **Writes exist and are gated.** 93 of the 186 tools mutate state. The 69 that spend money, destroy something, disrupt something running, or are security-sensitive require `confirm:true` and make no API call at all without it (see [Safety model](#safety-model)). The remaining 24 are plain (no charge, nothing torn down) and run without confirmation once the token's scope allows them.
+- **Writes exist and are gated.** 98 of the 196 tools mutate state. The 71 that spend money, destroy something, disrupt something running, or are security-sensitive require `confirm:true` and make no API call at all without it (see [Safety model](#safety-model)). The remaining 27 are plain (no charge, nothing torn down) and run without confirmation once the token's scope allows them.
 - **No identity/credential/money-movement surface, by design, not by gate.** Password/2FA changes, sub-user invites, payment-method management, API-token management, credit top-up, invoice payment, and affiliate activate/withdraw, and the per-resource API access switch, have no tool here at all: an agent holding even a maximally-scoped token cannot reach them. A registry test pins this exclusion list so a future change can't quietly add one back.
 - The tools that return live credentials (kubeconfigs, proxy endpoint/auth lists, one-time console passwords) carry the standard SECURITY sentence so the agent doesn't echo them back unprompted.
 - Revoke a token at any time: **Dashboard → Account → API tokens**. Revocation is instant, no propagation delay.

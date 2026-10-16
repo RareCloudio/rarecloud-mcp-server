@@ -202,6 +202,20 @@ import {
   createProxyRequest,
   deleteProxyRequest,
 } from './proxies-write.js';
+import {
+  listSandboxes,
+  getSandbox,
+  listSandboxTemplates,
+  readSandboxFile,
+  getSandboxLogs,
+} from './sandboxes.js';
+import {
+  createSandbox,
+  deleteSandbox,
+  runSandboxCode,
+  runSandboxCommand,
+  writeSandboxFile,
+} from './sandboxes-write.js';
 import { listSnapshots, listServiceSnapshots, getSnapshot } from './snapshots.js';
 import { createSnapshot, deleteSnapshot, restoreSnapshot } from './snapshots-write.js';
 import { getQuotaLimits, estimateLimits, listQuotaRequests } from './limits.js';
@@ -307,6 +321,12 @@ export const TOOLS: ToolDefinition[] = [
   listProxyRequests,
   getProxyRequestList,
   getProxyReplacements,
+  // AI Sandboxes ("what sandboxes are running, what do templates cost, read a file or the logs")
+  listSandboxes,
+  getSandbox,
+  listSandboxTemplates,
+  readSandboxFile,
+  getSandboxLogs,
   // Snapshots ("what VM snapshots do I have?")
   listSnapshots,
   listServiceSnapshots,
@@ -418,6 +438,12 @@ export const TOOLS: ToolDefinition[] = [
   requestProxyReplacement,
   createProxyRequest,
   deleteProxyRequest,
+  // AI Sandboxes: writes (create / delete / run code / run a command / write a file; no port exposure)
+  createSandbox,
+  deleteSandbox,
+  runSandboxCode,
+  runSandboxCommand,
+  writeSandboxFile,
   // Snapshots: writes (take / delete / restore)
   createSnapshot,
   deleteSnapshot,

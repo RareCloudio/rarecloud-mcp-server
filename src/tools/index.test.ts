@@ -10,7 +10,7 @@ import { isIdempotentPostPath } from '../idempotency.js';
 
 // Bump this in the same commit that adds/removes tools. A mismatch means the
 // registry changed without the test acknowledging it.
-const EXPECTED_TOOL_COUNT = 186;
+const EXPECTED_TOOL_COUNT = 196;
 
 test('registry: tool count matches the expected total', () => {
   assert.equal(TOOLS.length, EXPECTED_TOOL_COUNT);
@@ -133,12 +133,12 @@ test('exclusion guard: the account/billing/tickets write surface is EXACTLY the 
 // remaining write-scope surfaces (services:write, domains:write) as exact
 // sorted sets too — same rationale as the account/billing/tickets pin above.
 // services:write is the big one: it covers services-write.ts + k8s-write.ts +
-// infra-write.ts + firewall-lb-write.ts + object-storage-write.ts + proxies-write.ts (67 tools) — the
-// README's "services:write covers IaaS AND proxies" note names this exact
+// infra-write.ts + firewall-lb-write.ts + object-storage-write.ts + proxies-write.ts +
+// sandboxes-write.ts (72 tools); the README's "services:write covers IaaS AND proxies" note names this exact
 // sharing. domains:write is domains-write.ts (7 tools).
 // ---------------------------------------------------------------------------
 
-test('exclusion guard: the services:write surface is EXACTLY the safe set (IaaS + k8s + object storage + proxies)', () => {
+test('exclusion guard: the services:write surface is EXACTLY the safe set (IaaS + k8s + object storage + proxies + sandboxes)', () => {
   assert.deepEqual(withScope('services:write'), [
     'add_cluster_pool',
     'add_firewall_rule',
@@ -161,6 +161,7 @@ test('exclusion guard: the services:write surface is EXACTLY the safe set (IaaS 
     'create_network',
     'create_object_storage_key',
     'create_proxy_request',
+    'create_sandbox',
     'create_service_backup',
     'create_snapshot',
     'create_volume',
@@ -172,6 +173,7 @@ test('exclusion guard: the services:write surface is EXACTLY the safe set (IaaS 
     'delete_network',
     'delete_object_storage_key',
     'delete_proxy_request',
+    'delete_sandbox',
     'delete_service_rdns',
     'delete_snapshot',
     'delete_volume',
@@ -200,6 +202,8 @@ test('exclusion guard: the services:write surface is EXACTLY the safe set (IaaS 
     'resize_service',
     'restore_snapshot',
     'revoke_cluster_kubeconfig',
+    'run_sandbox_code',
+    'run_sandbox_command',
     'set_cluster_scale',
     'set_proxy_auth_method',
     'set_proxy_auto_renew',
@@ -215,6 +219,7 @@ test('exclusion guard: the services:write surface is EXACTLY the safe set (IaaS 
     'update_bucket',
     'update_cluster_pool',
     'upgrade_service',
+    'write_sandbox_file',
   ]);
 });
 
@@ -290,6 +295,7 @@ const GATED_TOOLS: Record<string, Exclude<Kind, 'plain'>> = {
   create_cluster_kubeconfig: 'sensitive',
   create_load_balancer: 'spends',
   create_object_storage_key: 'sensitive',
+  create_sandbox: 'spends',
   create_snapshot: 'spends',
   create_ticket: 'sensitive',
   create_volume: 'spends',
@@ -303,6 +309,7 @@ const GATED_TOOLS: Record<string, Exclude<Kind, 'plain'>> = {
   delete_network: 'destructive',
   delete_object_storage_key: 'destructive',
   delete_proxy_request: 'destructive',
+  delete_sandbox: 'destructive',
   delete_service_rdns: 'disruptive',
   delete_snapshot: 'destructive',
   delete_volume: 'destructive',
@@ -369,6 +376,8 @@ const PLAIN_TOOLS = [
   'mount_service_iso',
   'redeem_voucher',
   'resend_email_verification',
+  'run_sandbox_code',
+  'run_sandbox_command',
   'set_billing_alert',
   'set_proxy_auto_renew',
   'set_service_autorenew',
@@ -376,6 +385,7 @@ const PLAIN_TOOLS = [
   'set_service_tags',
   'start_service',
   'unmount_service_iso',
+  'write_sandbox_file',
 ];
 
 const SAFETY_TAG: Record<Kind, string> = {
@@ -397,10 +407,10 @@ function reasonOf(description: string): string {
   return m[1];
 }
 
-test('safety: every tool (all 186) carries annotations; reads are readOnly, writes are not', () => {
+test('safety: every tool (all 196) carries annotations; reads are readOnly, writes are not', () => {
   assert.equal(readTools().length + writeTools().length, TOOLS.length, 'every tool sets readOnlyHint');
-  assert.equal(readTools().length, 93);
-  assert.equal(writeTools().length, 93);
+  assert.equal(readTools().length, 98);
+  assert.equal(writeTools().length, 98);
   for (const t of readTools()) {
     assert.deepEqual(
       t.annotations,
@@ -410,13 +420,13 @@ test('safety: every tool (all 186) carries annotations; reads are readOnly, writ
   }
 });
 
-test('safety: the gated set (69) and the plain set (24) are exactly the pinned ones', () => {
+test('safety: the gated set (71) and the plain set (27) are exactly the pinned ones', () => {
   const gated = writeTools().filter((t) => 'confirm' in t.inputSchema.properties).map((t) => t.name).sort();
   const plain = writeTools().filter((t) => !('confirm' in t.inputSchema.properties)).map((t) => t.name).sort();
   assert.deepEqual(gated, Object.keys(GATED_TOOLS).sort());
   assert.deepEqual(plain, [...PLAIN_TOOLS].sort());
-  assert.equal(gated.length, 69);
-  assert.equal(plain.length, 24);
+  assert.equal(gated.length, 71);
+  assert.equal(plain.length, 27);
 });
 
 test('safety: each write tool carries its kind (Safety tag + destructiveHint + openWorldHint)', () => {
@@ -480,6 +490,7 @@ const GATED_ARGS: Record<string, Record<string, unknown>> = {
   create_cluster_kubeconfig: { ...SVC, name: 'ci', role: 'view' },
   create_load_balancer: { name: 'lb', port: 80, memberServerIds: ['vm-1'] },
   create_object_storage_key: { name: 'ci', buckets: '*', access: 'read' },
+  create_sandbox: {},
   create_snapshot: { ...SVC, name: 'before-upgrade' },
   create_ticket: { subject: 's', department: '1', priority: 'low', body: 'b' },
   create_volume: { sizeGb: 10 },
@@ -493,6 +504,7 @@ const GATED_ARGS: Record<string, Record<string, unknown>> = {
   delete_network: { ...ID },
   delete_object_storage_key: { ...ID },
   delete_proxy_request: { ...ID, reqId: 'q-1' },
+  delete_sandbox: { id: 'sbx-1' },
   delete_service_rdns: { ...SVC },
   delete_snapshot: { ...ID },
   delete_volume: { ...ID },
@@ -595,7 +607,7 @@ test('safety: exactly the credential-returning tools carry the standard SECURITY
 });
 
 test('safety: tools that take a secret as input carry the never-echo sentence', () => {
-  for (const name of ['set_service_password', 'reset_service_password', 'set_proxy_credentials']) {
+  for (const name of ['set_service_password', 'reset_service_password', 'set_proxy_credentials', 'create_sandbox']) {
     assert.match(findTool(name)!.description, /SECURITY: treat .* you pass in as a secret \(a live credential\): never echo the value back/, name);
   }
 });
@@ -649,6 +661,8 @@ const PLAIN_ARGS: Record<string, Record<string, unknown>> = {
   mount_service_iso: { ...SVC, iso_url: 'https://example.com/a.iso' },
   redeem_voucher: { code: 'CODE' },
   resend_email_verification: {},
+  run_sandbox_code: { id: 'sbx-1', language: 'python', code: 'print(1)' },
+  run_sandbox_command: { id: 'sbx-1', cmd: 'ls' },
   set_billing_alert: { thresholdCents: 1000 },
   set_proxy_auto_renew: { ...ID, enabled: true },
   set_service_autorenew: { ...SVC, enabled: true },
@@ -656,6 +670,7 @@ const PLAIN_ARGS: Record<string, Record<string, unknown>> = {
   set_service_tags: { ...SVC, tags: ['web'] },
   start_service: { ...SVC },
   unmount_service_iso: { ...SVC },
+  write_sandbox_file: { id: 'sbx-1', path: '/tmp/a.txt', content: 'x' },
 };
 
 // The tools that take idempotency_key, pinned by name (the README lists them).
@@ -675,6 +690,7 @@ const IDEMPOTENT_TOOLS = [
   'create_network',
   'create_object_storage_key',
   'create_proxy_request',
+  'create_sandbox',
   'create_service_backup',
   'create_snapshot',
   'create_ticket',
