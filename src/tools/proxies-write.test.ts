@@ -531,6 +531,43 @@ test('request_proxy_replacement: POSTs to /v1/proxies/{id}/replacements with no 
   assert.deepEqual(calls, [{ method: 'POST', path: '/v1/proxies/proxy-1/replacements', body: undefined }]);
 });
 
+test('request_proxy_replacement: sends {locationId, locationLabel} when given, and only the fields given', async () => {
+  for (const [extra, body] of [
+    [{ locationId: 'loc-7', locationLabel: 'Frankfurt, DE' }, { locationId: 'loc-7', locationLabel: 'Frankfurt, DE' }],
+    [{ locationId: 'loc-7' }, { locationId: 'loc-7' }],
+    [{ locationLabel: 'Frankfurt, DE' }, { locationLabel: 'Frankfurt, DE' }],
+  ] as Array<[Record<string, unknown>, Record<string, unknown>]>) {
+    const { client, calls } = fakeWriteClient();
+    const result = await requestProxyReplacement.handler(client, { id: 'proxy-1', ...extra, confirm: true });
+    assert.equal(result.isError, undefined);
+    assert.deepEqual(calls, [{ method: 'POST', path: '/v1/proxies/proxy-1/replacements', body }]);
+  }
+});
+
+test('request_proxy_replacement: rejects an empty locationId, an empty or over-120-char locationLabel, with no request', async () => {
+  for (const bad of [{ locationId: '' }, { locationLabel: '' }, { locationLabel: 'x'.repeat(121) }, { locationId: 7 }]) {
+    const { client, calls } = fakeWriteClient();
+    const result = await requestProxyReplacement.handler(client, { id: 'proxy-1', ...bad, confirm: true });
+    assert.equal(result.isError, true, JSON.stringify(bad));
+    assert.deepEqual(calls, []);
+  }
+  const { client, calls } = fakeWriteClient();
+  await requestProxyReplacement.handler(client, { id: 'proxy-1', locationLabel: 'x'.repeat(120), confirm: true });
+  assert.equal(calls.length, 1);
+});
+
+test('request_proxy_replacement: schema mirrors the optional location bounds and points to list_proxy_replacement_locations', () => {
+  const p = requestProxyReplacement.inputSchema.properties as Record<string, Record<string, unknown>>;
+  assert.equal(p.locationId.type, 'string');
+  assert.equal(p.locationId.minLength, 1);
+  assert.equal(p.locationLabel.type, 'string');
+  assert.equal(p.locationLabel.minLength, 1);
+  assert.equal(p.locationLabel.maxLength, 120);
+  assert.match(String(p.locationId.description), /list_proxy_replacement_locations/);
+  assert.deepEqual([...(requestProxyReplacement.inputSchema.required ?? [])].sort(), ['confirm', 'id']);
+  assert.match(requestProxyReplacement.description, /list_proxy_replacement_locations/);
+});
+
 // --- create_proxy_request (POST /v1/proxies/{id}/proxy-requests, no gate) -
 // DEVIATION FROM BRIEF: brief said rotationInterval:string; openapi/route
 // restrict it to a real enum. openapi wins.
