@@ -2,6 +2,32 @@
 
 All notable changes to `@rarecloudio/mcp-server` are recorded here.
 
+## Unreleased
+
+### Added: AI Sandboxes tools
+
+Ten tools for AI Sandboxes (`/v1/sandboxes`), 183 tools in total, 91 of them reads:
+
+- Reads (scope `services:read`): `list_sandboxes` (`GET /v1/sandboxes`),
+  `get_sandbox` (`GET /v1/sandboxes/{id}`), `list_sandbox_templates`
+  (`GET /v1/sandboxes/templates`, size and hourly price), `read_sandbox_file`
+  (`GET /v1/sandboxes/{id}/files?path=`), and `get_sandbox_logs`
+  (`GET /v1/sandboxes/{id}/logs?tail=`, plain text returned verbatim; a 503
+  passes the API message through and says logs are not available yet, a 404
+  says the logs are gone).
+- Writes (scope `services:write`): `create_sandbox` (`POST /v1/sandboxes`,
+  **spends**, gated, takes `idempotency_key`; template, image, timeoutMs, name,
+  env, labels, networkBlocked and run mode with entrypoint/command; env values
+  are marked as secret input, refused entries are named by position, and an
+  `env` field is stripped from the result), `delete_sandbox`
+  (`DELETE /v1/sandboxes/{id}`, **destructive**, gated), and the plain
+  `run_sandbox_code` (`POST /run_code`), `run_sandbox_command`
+  (`POST /commands`) and `write_sandbox_file` (`PUT /files`).
+- No tool for `POST /v1/sandboxes/{id}/ports/{port}`: the API answers 501 by
+  product decision.
+- `RareCloudClient.getText` reads a plain-text endpoint; an error still maps to
+  the usual `APIError` with its HTTP status.
+
 ## 0.3.0 (2026-10-08)
 
 ### Changed
