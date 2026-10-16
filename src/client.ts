@@ -90,6 +90,16 @@ export interface PostOptions {
    * covers (idempotency.ts); on any other path the POST goes out plain.
    */
   idempotent?: IdempotentPostOptions;
+  /**
+   * Extra request headers, additive over Authorization / User-Agent /
+   * Content-Type. Used by exactly one call site today
+   * (create_registry_kubernetes_manifest): that endpoint's default response is a raw
+   * `application/yaml` manifest for a plain `curl | kubectl apply -f -` flow,
+   * and it only answers with the structured `{credential,manifest,secret}`
+   * JSON envelope when the request carries `Accept: application/json`.
+   * Ignored on the idempotent path.
+   */
+  headers?: Record<string, string>;
 }
 
 interface Envelope<T> {
@@ -168,7 +178,7 @@ export class RareCloudClient {
     if (opts.idempotent && isIdempotentPostPath(path)) {
       return this.postIdempotent<T>(path, body, opts.idempotent);
     }
-    return (await this.do<T>('POST', this.url(path), body)).data;
+    return (await this.do<T>('POST', this.url(path), body, opts.headers)).data;
   }
 
   async put<T = unknown>(path: string, body?: unknown): Promise<T> {
@@ -260,6 +270,24 @@ export class RareCloudClient {
     }
 
     const header = (name: string): string | null => resp.headers?.get?.(name) ?? null;
+
+    // A bare 204 No Content (revoke_registry_credential, delete_registry_tag,
+    // delete_registry_manifest, and any future DELETE-style route with no body)
+    // has an EMPTY text body. JSON.parse('') throws, which used to map every one
+    // of these successful calls to a false INVALID_RESPONSE error. An empty body
+    // on a 2xx status is a success with nothing to report ({} as T, the same as
+    // a `{data: undefined}` envelope). An empty body on a NON-2xx status is still
+    // an error, just one with no envelope to read a code from, so it maps to a
+    // synthetic HTTP_<status> code.
+    if (text.trim() === '') {
+      if (resp.ok) {
+        return { data: {} as T, replayed: false, partialResults: [], secretsOmittedOnReplay: [] };
+      }
+      throw new APIError(
+        { code: `HTTP_${resp.status}`, message: `HTTP ${resp.status} (empty body)` },
+        { status: resp.status, transport: GATEWAY_STATUSES.has(resp.status) },
+      );
+    }
 
     let env: Envelope<T>;
     try {

@@ -81,6 +81,16 @@ import {
   downloadClusterKubeconfig,
 } from './k8s.js';
 import {
+  getRegistry,
+  listRegistryTiers,
+  suggestRegistryHandle,
+  listRegistryCredentials,
+  listRegistryRepositories,
+  getRegistryRepository,
+  listRegistryTagVulnerabilities,
+  listRegistryClusters,
+} from './registry.js';
+import {
   listProxies,
   getProxyCatalog,
   getProxy,
@@ -193,6 +203,20 @@ import {
 } from './object-storage-write.js';
 import { setBillingAlert, deleteBillingAlert, redeemVoucher } from './billing-write.js';
 import { createTicket, replyTicket, closeTicket } from './tickets-write.js';
+import {
+  enableRegistry,
+  setRegistryTier,
+  closeRegistry,
+  createRegistryCredential,
+  revokeRegistryCredential,
+  deleteRegistryRepository,
+  deleteRegistryTag,
+  deleteRegistryManifest,
+  linkRegistryCluster,
+  unlinkRegistryCluster,
+  rotateRegistryClusterLink,
+  createRegistryKubernetesManifest,
+} from './registry-write.js';
 import {
   orderProxy,
   renewProxy,
@@ -347,6 +371,15 @@ export const TOOLS: ToolDefinition[] = [
   listQuotaRequests,
   // Reverse DNS
   getServiceRdns,
+  // Container Registry ("my private OCI registry: account/tiers/creds/repos/clusters")
+  getRegistry,
+  listRegistryTiers,
+  suggestRegistryHandle,
+  listRegistryCredentials,
+  listRegistryRepositories,
+  getRegistryRepository,
+  listRegistryTagVulnerabilities,
+  listRegistryClusters,
 
   // --- WRITE / ACTION TOOLS (Parity Phase B) ---
   // Services — writes
@@ -465,6 +498,19 @@ export const TOOLS: ToolDefinition[] = [
   // Reverse DNS: writes
   setServiceRdns,
   deleteServiceRdns,
+  // Container Registry writes (enable/tier/close, robot credentials, repo/tag delete, cluster link)
+  enableRegistry,
+  setRegistryTier,
+  closeRegistry,
+  createRegistryCredential,
+  revokeRegistryCredential,
+  deleteRegistryRepository,
+  deleteRegistryTag,
+  deleteRegistryManifest,
+  linkRegistryCluster,
+  unlinkRegistryCluster,
+  rotateRegistryClusterLink,
+  createRegistryKubernetesManifest,
 ];
 
 export function findTool(name: string): ToolDefinition | undefined {

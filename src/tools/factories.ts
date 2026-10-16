@@ -299,6 +299,14 @@ export interface WriteToolOptions<S extends z.ZodTypeAny> {
   /** Override result formatting (e.g. unwrap a returned credential). Default: jsonResult. */
   formatResult?: (data: unknown) => ToolCallResult;
   /**
+   * Extra request headers for this tool's one HTTP call. Additive over the
+   * client's own Authorization/User-Agent/Content-Type, used ONLY by
+   * create_registry_kubernetes_manifest today, whose endpoint answers with a raw
+   * `application/yaml` manifest unless the request carries
+   * `Accept: application/json`. Every other write tool omits this.
+   */
+  extraHeaders?: Record<string, string>;
+  /**
    * POST only: the route honours Idempotency-Key (it is in idempotency.ts). Adds the
    * optional `idempotency_key` input and the safe-retry behaviour.
    */
@@ -398,7 +406,7 @@ export function writeTool<S extends z.ZodTypeAny>(
                   onReplay: (info) => { replay = info; },
                 },
               })
-            : await callMethod(client, opts.method, path, body);
+            : await callMethod(client, opts.method, path, body, opts.extraHeaders);
         const result = opts.formatResult ? opts.formatResult(data) : jsonResult(data);
         if (!replay) return result;
         return { ...result, content: [{ type: 'text', text: replayNote(replay) }, ...result.content] };
@@ -409,10 +417,16 @@ export function writeTool<S extends z.ZodTypeAny>(
   };
 }
 
-function callMethod(client: RareCloudClient, method: WriteMethod, path: string, body: unknown): Promise<unknown> {
+function callMethod(
+  client: RareCloudClient,
+  method: WriteMethod,
+  path: string,
+  body: unknown,
+  extraHeaders?: Record<string, string>,
+): Promise<unknown> {
   switch (method) {
     case 'POST':
-      return client.post(path, body);
+      return client.post(path, body, extraHeaders ? { headers: extraHeaders } : undefined);
     case 'PUT':
       return client.put(path, body);
     case 'PATCH':

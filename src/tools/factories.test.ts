@@ -665,3 +665,52 @@ test('writeTool: a ZodEffects refine violation returns errorResult and makes no 
   assert.match(textOf(result), /productId \(or its alias plan\) is required/);
   assert.deepEqual(calls, [], 'a refine-violating call must issue no request');
 });
+
+// (m) extraHeaders (create_registry_kubernetes_manifest's Accept: application/json
+// need) is forwarded to client.post as the 3rd argument's `headers`. A bespoke fake (not
+// the shared fakeWriteClient) because every other test above asserts calls
+// as a plain {method,path,body} tuple. Adding a headers field there would
+// break every one of those deepEqual assertions.
+test('writeTool: extraHeaders is forwarded to client.post as opts.headers', async () => {
+  const calls: Array<{ path: string; body?: unknown; headers?: Record<string, string> }> = [];
+  const client = {
+    post: async (path: string, body?: unknown, opts?: { headers?: Record<string, string> }) => {
+      calls.push({ path, body, headers: opts?.headers });
+      return { ok: true };
+    },
+  } as unknown as RareCloudClient;
+  const tool = writeTool({
+    name: 'm',
+    description: 'm.',
+    method: 'POST',
+    input: z.object({}).strict(),
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    safety: { kind: 'plain' },
+    buildPath: () => '/v1/m',
+    extraHeaders: { Accept: 'application/json' },
+  });
+  const result = await tool.handler(client, {});
+  assert.equal(result.isError, undefined);
+  assert.deepEqual(calls, [{ path: '/v1/m', body: undefined, headers: { Accept: 'application/json' } }]);
+});
+
+test('writeTool: omitting extraHeaders passes undefined as the 3rd argument (unchanged default)', async () => {
+  const calls: Array<{ opts?: unknown }> = [];
+  const client = {
+    post: async (_path: string, _body?: unknown, opts?: unknown) => {
+      calls.push({ opts });
+      return { ok: true };
+    },
+  } as unknown as RareCloudClient;
+  const tool = writeTool({
+    name: 'm',
+    description: 'm.',
+    method: 'POST',
+    input: z.object({}).strict(),
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    safety: { kind: 'plain' },
+    buildPath: () => '/v1/m',
+  });
+  await tool.handler(client, {});
+  assert.deepEqual(calls, [{ opts: undefined }]);
+});

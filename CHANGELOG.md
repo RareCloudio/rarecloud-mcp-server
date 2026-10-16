@@ -4,9 +4,55 @@ All notable changes to `@rarecloudio/mcp-server` are recorded here.
 
 ## Unreleased
 
+Totals with every entry below: 222 tools, 110 reads, 112 writes (85 gated,
+27 plain), 46 take `idempotency_key`.
+
+### Added: Container Registry tools
+
+20 tools for the private OCI registry (`/v1/registry*`), all under
+`services:read` / `services:write` (there is no separate registry scope).
+Until the registry launches every registry write answers `503
+BACKEND_UNAVAILABLE` and changes nothing; each write's description says so.
+
+- Reads: `get_registry` (usage is the hourly metering sample; `push.reason`
+  explains a refusal, including the repository cap `repo_limit`, which counts
+  the repository index), `list_registry_tiers`, `suggest_registry_handle`,
+  `list_registry_credentials` (optional `status: "active"`),
+  `list_registry_repositories` (`lastPush` is the newest image's build time),
+  `get_registry_repository` (`createdAt` is the build time; `pushedAt` is a
+  deprecated alias of it), `list_registry_tag_vulnerabilities`,
+  `list_registry_clusters`.
+- Writes: `enable_registry` and `set_registry_tier` (spends),
+  `close_registry`, `revoke_registry_credential`, `delete_registry_repository`
+  (an empty repository answers `deleted: 0`), `delete_registry_tag` (404 for a
+  missing tag), `delete_registry_manifest` (by digest; `confirm_multiple_tags`
+  sends the API's `confirm=true`, without which a digest more than one tag
+  points at answers 409), `unlink_registry_cluster` (destructive),
+  `rotate_registry_cluster_link` (disruptive), `create_registry_credential`,
+  `create_registry_kubernetes_manifest` and `link_registry_cluster` (sensitive; the
+  first two return a live secret once).
+- `enable_registry`, `create_registry_credential` and `link_registry_cluster`
+  take `idempotency_key`.
+- The client treats an empty 2xx body (a bare 204) as a success instead of
+  `INVALID_RESPONSE`, and `post()` takes an optional `headers` overlay (used to
+  ask the Kubernetes manifest endpoint for JSON).
+
+### Changed: Private network firewall and load balancer members
+
+- `list_firewalls` / `get_firewall` describe `isPrivateNetwork` and
+  `remoteFirewallId`; `list_firewalls` no longer mentions a status field.
+- `attach_firewall`, `detach_firewall` and `delete_firewall` say the Private
+  network firewall answers 409; `add_firewall_rule` says an inbound rule on it
+  needs a private source range (400 otherwise) and that `rarecloud:`
+  descriptions are reserved.
+- `create_load_balancer` caps `memberServerIds` at 50 (as the API does) and
+  describes the managed rule on the Private network firewall.
+- `add_load_balancer_member` / `remove_load_balancer_member` describe the 409
+  while a load balancer is being set up or deleted and the two kinds of 503.
+
 ### Added: proxy extras (6 tools)
 
-Six proxy tools, 202 tools in total (102 reads, 100 writes, 73 gated):
+Six proxy tools:
 
 - Reads (scope `services:read`): `get_proxy_bandwidth`
   (`GET /v1/proxies/{id}/bandwidth`, GB Residential only),
@@ -30,7 +76,7 @@ Six proxy tools, 202 tools in total (102 reads, 100 writes, 73 gated):
 
 ### Added: AI Sandboxes tools
 
-Ten tools for AI Sandboxes (`/v1/sandboxes`), 183 tools in total, 91 of them reads:
+Ten tools for AI Sandboxes (`/v1/sandboxes`), five of them reads:
 
 - Reads (scope `services:read`): `list_sandboxes` (`GET /v1/sandboxes`),
   `get_sandbox` (`GET /v1/sandboxes/{id}`), `list_sandbox_templates`
@@ -67,8 +113,6 @@ Ten tools for AI Sandboxes (`/v1/sandboxes`), 183 tools in total, 91 of them rea
   the user's name and replaces any pending one; takes `idempotency_key`).
 - Reverse DNS: `get_service_rdns`; `set_service_rdns` and
   `delete_service_rdns` (disruptive, like `set_domain_dns`).
-- With the AI Sandboxes tools above: 196 tools, 98 reads, 98 writes (71 gated,
-  27 plain), 43 take `idempotency_key`.
 
 ## 0.3.0 (2026-10-08)
 

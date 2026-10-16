@@ -10,7 +10,7 @@ import { isIdempotentPostPath } from '../idempotency.js';
 
 // Bump this in the same commit that adds/removes tools. A mismatch means the
 // registry changed without the test acknowledging it.
-const EXPECTED_TOOL_COUNT = 202;
+const EXPECTED_TOOL_COUNT = 222;
 
 test('registry: tool count matches the expected total', () => {
   assert.equal(TOOLS.length, EXPECTED_TOOL_COUNT);
@@ -134,11 +134,19 @@ test('exclusion guard: the account/billing/tickets write surface is EXACTLY the 
 // sorted sets too — same rationale as the account/billing/tickets pin above.
 // services:write is the big one: it covers services-write.ts + k8s-write.ts +
 // infra-write.ts + firewall-lb-write.ts + object-storage-write.ts + proxies-write.ts +
-// sandboxes-write.ts (74 tools); the README's "services:write covers IaaS AND proxies" note names this exact
+// sandboxes-write.ts + snapshots-write.ts + limits-write.ts + rdns-write.ts, plus the
+// read-only check_order (82 tools); the README's "services:write covers IaaS AND proxies" note names this exact
 // sharing. domains:write is domains-write.ts (7 tools).
+//
+// Plan 4 Task 5 EXTENSION: registry-write.ts's 12 tools also carry
+// services:write (94 in the pinned set below). There is no separate registry scope, the same sharing
+// services:write already does for k8s/infra/object storage/proxies above. See
+// the CR-12 policy-ruling test further below for why registry robot
+// credentials get a tool at all despite superficially looking like the
+// "credential" operations the identity exclusion above forbids.
 // ---------------------------------------------------------------------------
 
-test('exclusion guard: the services:write surface is EXACTLY the safe set (IaaS + k8s + object storage + proxies + sandboxes)', () => {
+test('exclusion guard: the services:write surface is EXACTLY the safe set (IaaS + k8s + object storage + proxies + sandboxes + snapshots + quotas + rDNS + registry)', () => {
   assert.deepEqual(withScope('services:write'), [
     'add_cluster_pool',
     'add_firewall_rule',
@@ -154,6 +162,7 @@ test('exclusion guard: the services:write surface is EXACTLY the safe set (IaaS 
     'cancel_proxy',
     'cancel_service',
     'check_order',
+    'close_registry',
     'create_bucket',
     'create_cluster_kubeconfig',
     'create_firewall',
@@ -161,6 +170,8 @@ test('exclusion guard: the services:write surface is EXACTLY the safe set (IaaS 
     'create_network',
     'create_object_storage_key',
     'create_proxy_request',
+    'create_registry_credential',
+    'create_registry_kubernetes_manifest',
     'create_sandbox',
     'create_service_backup',
     'create_snapshot',
@@ -173,6 +184,9 @@ test('exclusion guard: the services:write surface is EXACTLY the safe set (IaaS 
     'delete_network',
     'delete_object_storage_key',
     'delete_proxy_request',
+    'delete_registry_manifest',
+    'delete_registry_repository',
+    'delete_registry_tag',
     'delete_sandbox',
     'delete_service_rdns',
     'delete_snapshot',
@@ -185,6 +199,8 @@ test('exclusion guard: the services:write surface is EXACTLY the safe set (IaaS 
     'disable_object_storage',
     'enable_cluster_ha',
     'enable_object_storage',
+    'enable_registry',
+    'link_registry_cluster',
     'mount_service_iso',
     'order_proxy',
     'reboot_service',
@@ -202,7 +218,9 @@ test('exclusion guard: the services:write surface is EXACTLY the safe set (IaaS 
     'resize_service',
     'restore_snapshot',
     'revoke_cluster_kubeconfig',
+    'revoke_registry_credential',
     'rotate_proxy',
+    'rotate_registry_cluster_link',
     'run_sandbox_code',
     'run_sandbox_command',
     'set_cluster_scale',
@@ -210,6 +228,7 @@ test('exclusion guard: the services:write surface is EXACTLY the safe set (IaaS 
     'set_proxy_auto_renew',
     'set_proxy_auto_rotation',
     'set_proxy_credentials',
+    'set_registry_tier',
     'set_service_autorenew',
     'set_service_hostname',
     'set_service_password',
@@ -217,6 +236,7 @@ test('exclusion guard: the services:write surface is EXACTLY the safe set (IaaS 
     'set_service_tags',
     'start_service',
     'stop_service',
+    'unlink_registry_cluster',
     'unmount_service_iso',
     'update_bucket',
     'update_cluster_pool',
@@ -277,6 +297,74 @@ test('exclusion guard convention: every write-scope tool names EXACTLY ONE :writ
 });
 
 // ---------------------------------------------------------------------------
+// Plan 4 Task 5 REGISTRY-LEVEL EXCLUSION GUARD EXTENSION (policy ruling,
+// binding; see registry-write.ts's header for the full text).
+//
+// The Task 8 exclusion guard above proves account IDENTITY operations
+// (password, 2FA, sub-user invites, affiliate activate/withdraw) have NO
+// tool. Registry ROBOT credentials (docker login / pull / push) and the BYO
+// Kubernetes manifest are a DIFFERENT class: infrastructure ACCESS
+// material, the same category add_account_ssh_key and
+// create_cluster_kubeconfig already occupy, not identity. Spec CR-12
+// explicitly allows them behind an agent PAT, gated by confirm:true, with
+// the minted secret shown exactly once. This guard proves BOTH halves at
+// once: the identity list is untouched (still zero matches) AND the
+// registry credential-minting tools ARE registered.
+// ---------------------------------------------------------------------------
+
+test('registry policy (CR-12): identity exclusion still holds, no forbidden identity tool exists', () => {
+  // Re-run the Task 8 blocklist check explicitly in this section too, so a
+  // regression here is caught by a test whose name and comment point
+  // straight at the registry policy ruling, not just the older Task 8 one.
+  const names = new Set(TOOLS.map((t) => t.name));
+  const present = FORBIDDEN_TOOL_NAMES.filter((n) => names.has(n));
+  assert.deepEqual(present, [], `forbidden identity tool(s) registered: ${present.join(', ')}`);
+});
+
+test('registry policy (CR-12): robot/infra credential-minting tools ARE registered, gated by confirm', () => {
+  const byName = new Map(TOOLS.map((t) => [t.name, t]));
+  // These three mint a live secret (robot credential secret, or a BYO
+  // manifest's embedded secret) and MUST require confirm:true.
+  for (const name of ['create_registry_credential', 'create_registry_kubernetes_manifest']) {
+    const tool = byName.get(name);
+    assert.ok(tool, `${name} must be registered per CR-12`);
+    assert.ok(
+      (tool!.inputSchema.required ?? []).includes('confirm'),
+      `${name} must require confirm:true (it mints a live secret)`,
+    );
+  }
+  // revoke_registry_credential does not mint anything, but it is the other
+  // half of the robot-credential lifecycle this ruling covers. Confirm it
+  // exists too (gated as destructive, checked in registry-write.test.ts).
+  assert.ok(byName.has('revoke_registry_credential'), 'revoke_registry_credential must be registered');
+});
+
+test('registry policy (CR-12): the full registry surface is EXACTLY 20 tools, verb-first *_registry* names', () => {
+  const registryTools = TOOLS.filter((t) => /(^|_)registry(_|$)/.test(t.name)).map((t) => t.name).sort();
+  assert.deepEqual(registryTools, [
+    'close_registry',
+    'create_registry_credential',
+    'create_registry_kubernetes_manifest',
+    'delete_registry_manifest',
+    'delete_registry_repository',
+    'delete_registry_tag',
+    'enable_registry',
+    'get_registry',
+    'get_registry_repository',
+    'link_registry_cluster',
+    'list_registry_clusters',
+    'list_registry_credentials',
+    'list_registry_repositories',
+    'list_registry_tag_vulnerabilities',
+    'list_registry_tiers',
+    'revoke_registry_credential',
+    'rotate_registry_cluster_link',
+    'set_registry_tier',
+    'suggest_registry_handle',
+    'unlink_registry_cluster',
+  ]);
+});
+
 // SAFETY MODEL (tool-safety-metadata). Every tool carries MCP annotations;
 // every write tool has exactly one safety kind, derived by the factory into
 // the confirm gate, the refusal text, a single trailing "Safety:" sentence,
@@ -293,10 +381,13 @@ const GATED_TOOLS: Record<string, Exclude<Kind, 'plain'>> = {
   attach_network_vm: 'disruptive',
   cancel_proxy: 'destructive',
   cancel_service: 'destructive',
+  close_registry: 'destructive',
   create_bucket: 'spends',
   create_cluster_kubeconfig: 'sensitive',
   create_load_balancer: 'spends',
   create_object_storage_key: 'sensitive',
+  create_registry_credential: 'sensitive',
+  create_registry_kubernetes_manifest: 'sensitive',
   create_sandbox: 'spends',
   create_snapshot: 'spends',
   create_ticket: 'sensitive',
@@ -311,6 +402,9 @@ const GATED_TOOLS: Record<string, Exclude<Kind, 'plain'>> = {
   delete_network: 'destructive',
   delete_object_storage_key: 'destructive',
   delete_proxy_request: 'destructive',
+  delete_registry_manifest: 'destructive',
+  delete_registry_repository: 'destructive',
+  delete_registry_tag: 'destructive',
   delete_sandbox: 'destructive',
   delete_service_rdns: 'disruptive',
   delete_snapshot: 'destructive',
@@ -323,6 +417,8 @@ const GATED_TOOLS: Record<string, Exclude<Kind, 'plain'>> = {
   disable_object_storage: 'destructive',
   enable_cluster_ha: 'spends',
   enable_object_storage: 'spends',
+  enable_registry: 'spends',
+  link_registry_cluster: 'sensitive',
   manage_account_contact: 'sensitive',
   manage_domain: 'sensitive',
   order_proxy: 'spends',
@@ -344,7 +440,9 @@ const GATED_TOOLS: Record<string, Exclude<Kind, 'plain'>> = {
   resize_service: 'spends',
   restore_snapshot: 'destructive',
   revoke_cluster_kubeconfig: 'destructive',
+  revoke_registry_credential: 'destructive',
   rotate_proxy: 'disruptive',
+  rotate_registry_cluster_link: 'disruptive',
   set_cluster_scale: 'disruptive',
   set_domain_contacts: 'sensitive',
   set_domain_dns: 'disruptive',
@@ -352,10 +450,12 @@ const GATED_TOOLS: Record<string, Exclude<Kind, 'plain'>> = {
   set_proxy_auth_method: 'disruptive',
   set_proxy_auto_rotation: 'disruptive',
   set_proxy_credentials: 'disruptive',
+  set_registry_tier: 'spends',
   set_service_password: 'disruptive',
   set_service_rdns: 'disruptive',
   stop_service: 'disruptive',
   transfer_domain: 'spends',
+  unlink_registry_cluster: 'destructive',
   update_account: 'sensitive',
   update_bucket: 'sensitive',
   update_cluster_pool: 'disruptive',
@@ -411,10 +511,10 @@ function reasonOf(description: string): string {
   return m[1];
 }
 
-test('safety: every tool (all 202) carries annotations; reads are readOnly, writes are not', () => {
+test('safety: every tool (all 222) carries annotations; reads are readOnly, writes are not', () => {
   assert.equal(readTools().length + writeTools().length, TOOLS.length, 'every tool sets readOnlyHint');
-  assert.equal(readTools().length, 102);
-  assert.equal(writeTools().length, 100);
+  assert.equal(readTools().length, 110);
+  assert.equal(writeTools().length, 112);
   for (const t of readTools()) {
     assert.deepEqual(
       t.annotations,
@@ -424,12 +524,12 @@ test('safety: every tool (all 202) carries annotations; reads are readOnly, writ
   }
 });
 
-test('safety: the gated set (73) and the plain set (27) are exactly the pinned ones', () => {
+test('safety: the gated set (85) and the plain set (27) are exactly the pinned ones', () => {
   const gated = writeTools().filter((t) => 'confirm' in t.inputSchema.properties).map((t) => t.name).sort();
   const plain = writeTools().filter((t) => !('confirm' in t.inputSchema.properties)).map((t) => t.name).sort();
   assert.deepEqual(gated, Object.keys(GATED_TOOLS).sort());
   assert.deepEqual(plain, [...PLAIN_TOOLS].sort());
-  assert.equal(gated.length, 73);
+  assert.equal(gated.length, 85);
   assert.equal(plain.length, 27);
 });
 
@@ -490,10 +590,13 @@ const GATED_ARGS: Record<string, Record<string, unknown>> = {
   attach_network_vm: { ...ID, serverId: 'vm-1' },
   cancel_proxy: { ...ID },
   cancel_service: { ...SVC },
+  close_registry: { handle: 'acme' },
   create_bucket: { name: 'assets', region: 'eu-central-1' },
   create_cluster_kubeconfig: { ...SVC, name: 'ci', role: 'view' },
   create_load_balancer: { name: 'lb', port: 80, memberServerIds: ['vm-1'] },
   create_object_storage_key: { name: 'ci', buckets: '*', access: 'read' },
+  create_registry_credential: { name: 'ci', scope: 'pull' },
+  create_registry_kubernetes_manifest: {},
   create_sandbox: {},
   create_snapshot: { ...SVC, name: 'before-upgrade' },
   create_ticket: { subject: 's', department: '1', priority: 'low', body: 'b' },
@@ -508,6 +611,9 @@ const GATED_ARGS: Record<string, Record<string, unknown>> = {
   delete_network: { ...ID },
   delete_object_storage_key: { ...ID },
   delete_proxy_request: { ...ID, reqId: 'q-1' },
+  delete_registry_manifest: { repo: 'app', digest: `sha256:${'a'.repeat(64)}` },
+  delete_registry_repository: { repo: 'app' },
+  delete_registry_tag: { repo: 'app', tag: '1.0' },
   delete_sandbox: { id: 'sbx-1' },
   delete_service_rdns: { ...SVC },
   delete_snapshot: { ...ID },
@@ -520,6 +626,8 @@ const GATED_ARGS: Record<string, Record<string, unknown>> = {
   disable_object_storage: {},
   enable_cluster_ha: { ...SVC },
   enable_object_storage: {},
+  enable_registry: { handle: 'acme', tier: 'free' },
+  link_registry_cluster: { ...SVC },
   manage_account_contact: { action: 'delete', id: 1 },
   manage_domain: { ...ID, action: 'epp' },
   order_proxy: { kind: 'residential-gb', gb: 1 },
@@ -541,7 +649,9 @@ const GATED_ARGS: Record<string, Record<string, unknown>> = {
   resize_service: { ...SVC, flavor: 'c-2vcpu-4gb' },
   restore_snapshot: { ...SVC, snapshotId: '0b6f1c2e-6d1a-4f43-9c3e-2a7d9e8f1b20' },
   revoke_cluster_kubeconfig: { ...SVC, credential_id: 'c-1' },
+  revoke_registry_credential: { id: '11111111-1111-1111-1111-111111111111' },
   rotate_proxy: { ...ID },
+  rotate_registry_cluster_link: { ...SVC },
   set_cluster_scale: { ...SVC, minimum: 1, maximum: 2 },
   set_domain_contacts: { ...ID, contact: { city: 'X' } },
   set_domain_dns: { ...ID, records: [] },
@@ -549,10 +659,12 @@ const GATED_ARGS: Record<string, Record<string, unknown>> = {
   set_proxy_auth_method: { ...ID, method: 'password' },
   set_proxy_auto_rotation: { ...ID, enabled: true, intervalMinutes: 30 },
   set_proxy_credentials: { ...ID, username: 'u', password: 'p' },
+  set_registry_tier: { tier: 'starter' },
   set_service_password: { ...SVC, password: 'supersecret1' },
   set_service_rdns: { ...SVC, hostname: 'mail.example.com' },
   stop_service: { ...SVC },
   transfer_domain: { domain: 'example.com', epp: 'code' },
+  unlink_registry_cluster: { ...SVC },
   update_account: { city: 'X' },
   update_bucket: { ...ID, public: true },
   update_cluster_pool: { ...SVC, pool: 'workers', maximum: 3 },
@@ -594,6 +706,8 @@ test('safety: every gated tool refuses without confirm, names its reason, and ma
 const RETURNS_SECRET = [
   'create_cluster_kubeconfig',
   'create_object_storage_key',
+  'create_registry_credential',
+  'create_registry_kubernetes_manifest',
   'deploy_service',
   'download_cluster_kubeconfig',
   'get_cluster_kubeconfig',
@@ -696,6 +810,7 @@ const IDEMPOTENT_TOOLS = [
   'create_network',
   'create_object_storage_key',
   'create_proxy_request',
+  'create_registry_credential',
   'create_sandbox',
   'create_service_backup',
   'create_snapshot',
@@ -704,6 +819,8 @@ const IDEMPOTENT_TOOLS = [
   'deploy_service',
   'enable_cluster_ha',
   'enable_object_storage',
+  'enable_registry',
+  'link_registry_cluster',
   'manage_account_contact',
   'order_proxy',
   'reboot_service',

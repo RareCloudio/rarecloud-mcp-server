@@ -1,0 +1,260 @@
+// Container Registry READ tools: wrap the account's own private OCI
+// container registry, covering account status/usage/quota, billing tiers,
+// robot credentials (metadata only, never a secret; see registry-write.ts
+// for creation), repositories/tags/CVE findings, and linked Kubernetes
+// clusters. Read-only by design (same convention as every other *.ts read
+// file here); the matching mutations live in registry-write.ts.
+//
+// No read tool below names a scope literal in its description, matching
+// this repo's existing convention for every other read tool (only writes
+// name their exact `{domain}:write` scope; see factories.ts / README.md
+// "Configure"). The registry's reads sit under `services:read`, the same
+// scope the Kubernetes/proxies/infra reads already use: there is no
+// separate registry scope, exactly like proxies share `services:write` on
+// the write side (see index.test.ts's exclusion-guard comment).
+//
+// Bodies + shapes re-confirmed against console openapi.json (the Registry
+// tag) AND the route sources (api/src/routes/v1-registry.ts,
+// v1-registry-repos.ts, v1-registry-clusters.ts, v1-registry-tiers.ts):
+//
+//   - list_registry_tiers (GET /registry/tiers): modeled from the ruled response
+//     shape while the route was being added in parallel; the route now exists
+//     (api/src/routes/v1-registry-tiers.ts) and answers exactly
+//     `{items: [{tier, quotaGb, burstCeilingGb, monthlyCents: {EUR, USD},
+//     overageCentsPerGbMonth, available}]}`; unauthenticated callers receive
+//     only `available: true` rows, so the tool sees the full table. No input, matching the
+//     catalog.ts convention for un-authed/no-argument "what are my options"
+//     reads (list_catalog_products, list_regions, ...).
+//   - suggest_registry_handle (GET /registry/handles/suggest): follow-up tool
+//     (the route now exists for real, in v1-registry-tiers.ts alongside
+//     list_registry_tiers above). `base` is optional free-form text, typically
+//     whatever the customer has typed so far in an onboarding form; the route
+//     passes it straight to suggestHandle() in registry/handles.ts with no
+//     length bound of its own, matching that route's openapi.json parameter
+//     schema (`{type: 'string'}`, no min/maxLength), so this tool advertises
+//     none either. An empty-string base is dropped before the request is
+//     sent, the same idiom as an empty cursor below: after suggestHandle()'s
+//     own cleaning step, a stripped-empty base behaves identically to no
+//     base at all. Output is `{suggestions: string[]}`, up to 3 items (fewer
+//     only if the handle namespace around `base` is extremely crowded), each
+//     always matching the handle grammar `^[a-z0-9]{3,30}$` (registry/
+//     handles.ts's HANDLE_RE, which mirrors the app.registry_accounts.handle
+//     column's own CHECK constraint verbatim). No reserved word
+//     (registry/handles.ts's RESERVED_HANDLES) and no already-taken handle
+//     is ever suggested.
+//   - get_registry_repository / list_registry_tag_vulnerabilities: `repo`
+//     MAY itself contain `/` (e.g. `team/app`); the API always resolves it
+//     under the caller's own handle and never trusts it as a full name. This
+//     is passed through `encodeSegment`, which is safe for a multi-segment
+//     value: it percent-encodes the WHOLE argument into one opaque path
+//     segment (any internal `/` becomes `%2F`), which the route's own
+//     `repoPathSegments` decodes back into the original multi-part string.
+//     Verified empirically against Node's URL parser: a literal `..` is
+//     rejected by encodeSegment itself before any request, and an embedded
+//     `a/../b` never reaches URL dot-segment normalization because it never
+//     appears as a literal, unescaped path segment. See v1-registry-repos.ts's
+//     own header comment for the matching server-side reasoning (the
+//     "sub-resource dispatch rule": a repository whose OWN name ends exactly
+//     like `tags/<tag>` or `tags/<tag>/vulnerabilities` cannot be addressed
+//     by these routes, inherent to allowing `/` in repository names, not a
+//     defect in this client).
+//   - `repo` has no independently-known client-side length bound. Its real
+//     ceiling, `MAX_REPOSITORY_NAME_LENGTH` = 255, is shared with the
+//     account's own handle inside the combined `${handle}/${path}` name, so
+//     a fixed bound here could wrongly reject a valid short repo under a
+//     long handle. It is left as `minLength: 1`; the server is authoritative.
+//   - list_registry_repositories / list_registry_tag_vulnerabilities page
+//     with `limit` (1-100, default 50) + `cursor` (opaque, from a previous
+//     page's `nextCursor`), the same optional-query-params idiom as
+//     account.ts's get_account_activity / list_account_emails.
+
+import { readList, readTool, encodeSegment } from './factories.js';
+
+export const getRegistry = readList(
+  'get_registry',
+  '/v1/registry',
+  'Get the authenticated account\'s container registry: handle, hostname, tier, status (active, suspended: ' +
+    'pushes blocked and pulls still work, closed), usage, quota, push and clusters. usage is the latest ' +
+    'HOURLY metering sample, not a live reading: {logicalBytes, repoCount, sampledAt} in decimal bytes ' +
+    '(GB = logicalBytes / 1e9), null until the account is first measured. quota is {quotaGb, ' +
+    'burstCeilingGb, overageCentsPerGbMonth} for the current tier; storage above quotaGb is billed as ' +
+    'overage, and a push is refused at the burst ceiling. push is {allowed, reason, repoCount}: whether ' +
+    'a `docker push` would be allowed right now and why. reason ok: under quota; burst: over quota, ' +
+    'allowed, overage accrues; over_ceiling: refused; balance_under_72h: refused, the spendable balance ' +
+    'does not cover 72 hours of the account\'s current accrual; meter_stale_24h: refused, no fresh sample ' +
+    'for 24 hours; no_sample: brand-new account, allowed; unavailable: the policy read failed, pushes to ' +
+    'existing repositories are allowed; repo_limit: the account is at its tier\'s repository cap, so a push ' +
+    'to a NEW repository is refused while pushes to existing ones keep working. The cap counts the ' +
+    'account\'s repository index (push.repoCount), not usage.repoCount: a repository counts from the moment ' +
+    'push to it is granted, keeps counting with no tags, and a repository deleted through the API keeps ' +
+    'counting until the registry garbage-collects it (about 8 days; pushing that name again meanwhile ' +
+    'reuses its slot). clusters is {linked, linkable} (null if that read failed). 404 if the registry has ' +
+    'not been enabled yet; use enable_registry first. Use for "is my registry set up?", "how much am I ' +
+    'storing?", or "can I still push?".',
+);
+
+export const listRegistryTiers = readList(
+  'list_registry_tiers',
+  '/v1/registry/tiers',
+  'List the container registry\'s billing tiers: for each tier, its included storage quota (decimal GB), ' +
+    'burst ceiling (quota multiplied by the tier\'s burst multiplier; the free tier never bursts), monthly ' +
+    'price in EUR/USD cents, overage price per GB-month above quota, and whether the tier is currently ' +
+    'generally available (`available`; before launch every tier is false). No input. Use before ' +
+    'enable_registry to choose a starting tier, or before set_registry_tier to compare options.',
+);
+
+export const suggestRegistryHandle = readTool({
+  name: 'suggest_registry_handle',
+  description:
+    'Suggest up to 3 free, valid container-registry handles derived from `base` (typically whatever the ' +
+    'customer has typed so far). Each suggestion always matches the handle shape (3 to 30 lowercase letters ' +
+    'or digits), is never a reserved word, and is never already taken by another account. Omit `base` for ' +
+    'unrelated suggestions; may return fewer than 3 in rare cases, never zero unless the namespace around ' +
+    '`base` is extremely crowded. Use before enable_registry to help a customer pick a handle. Called too ' +
+    'often it answers RATE_LIMITED; wait and retry.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      base: {
+        type: 'string',
+        description:
+          'Free-form text to base the suggestions on, e.g. what the customer has typed so far. Lowercased ' +
+          'and stripped to the handle character class before use; omit for unrelated suggestions.',
+      },
+    },
+    additionalProperties: false,
+  },
+  buildPath: (args) => {
+    const q = new URLSearchParams();
+    if (args.base !== undefined && args.base !== '') q.set('base', String(args.base));
+    const s = q.toString();
+    return s ? `/v1/registry/handles/suggest?${s}` : '/v1/registry/handles/suggest';
+  },
+});
+
+export const listRegistryCredentials = readTool({
+  name: 'list_registry_credentials',
+  description:
+    'List the account\'s container registry robot credentials (for `docker login` / pull / push), oldest ' +
+    'first: id, name, scope, username (`<handle>+<name>`), expiresAt, createdAt, lastUsedAt, revokedAt. ' +
+    'NEVER includes a secret; a credential\'s secret is only ever shown once, at creation ' +
+    '(create_registry_credential). Without a filter every credential is listed, revoked and expired ones ' +
+    'included (the audit trail); status "active" lists only usable ones (neither revoked nor expired). A ' +
+    'revoked credential keeps its name, so creating a new one with that name fails with a conflict. Use to ' +
+    'find a credential id for revoke_registry_credential, or to audit what exists. 404 if the registry is ' +
+    'not enabled.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      status: {
+        type: 'string',
+        enum: ['active'],
+        description: 'Optional filter: "active" lists only credentials that are neither revoked nor expired. Omit to list all.',
+      },
+    },
+    additionalProperties: false,
+  },
+  buildPath: (args) =>
+    args.status !== undefined && args.status !== ''
+      ? `/v1/registry/credentials?${new URLSearchParams({ status: String(args.status) }).toString()}`
+      : '/v1/registry/credentials',
+});
+
+export const listRegistryRepositories = readTool({
+  name: 'list_registry_repositories',
+  description:
+    'List the repositories under the account\'s own registry handle: name, path, sizeBytes, lastPush, ' +
+    'newestTag. `name` never carries the handle; pass it straight to get_registry_repository / ' +
+    'delete_registry_repository / delete_registry_tag / delete_registry_manifest / ' +
+    'list_registry_tag_vulnerabilities as `repo`. `path` is the full `<handle>/<name>` (combine it with ' +
+    'the hostname from get_registry for the pull/push address). lastPush is a deprecated name: its value is ' +
+    'the newest image\'s BUILD time (the OCI image config `created` time), not a push time (the registry ' +
+    'exposes none); call it the build time. Page with limit (1-100, default 50) and cursor (from a previous ' +
+    'page\'s nextCursor). 404 if the registry is not enabled yet; 503 if the registry backend is briefly ' +
+    'unavailable (retry).',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      limit: { type: 'integer', minimum: 1, maximum: 100, description: 'Page size, clamped to 1-100 (default 50).' },
+      cursor: { type: 'string', description: 'Opaque pagination cursor from a previous page\'s nextCursor.' },
+    },
+    additionalProperties: false,
+  },
+  buildPath: (args) => {
+    const q = new URLSearchParams();
+    if (args.limit !== undefined) q.set('limit', String(args.limit));
+    if (args.cursor !== undefined && args.cursor !== '') q.set('cursor', String(args.cursor));
+    const s = q.toString();
+    return s ? `/v1/registry/repositories?${s}` : '/v1/registry/repositories';
+  },
+});
+
+export const getRegistryRepository = readTool({
+  name: 'get_registry_repository',
+  description:
+    'Get one repository\'s full tag list. Each tag has tag, digest (sha256:..., pass it to ' +
+    'delete_registry_manifest to delete the image itself; tags sharing a digest are the same image), ' +
+    'sizeBytes, createdAt, pushedAt, platforms and cve. createdAt is when the image was BUILT (its OCI ' +
+    'config `created` time), not when it was pushed: an upstream image pushed today often shows a date ' +
+    'weeks or months old. pushedAt is a deprecated alias that always equals createdAt; read createdAt. ' +
+    'cve holds severity counts (critical/high/medium/low/unknown, from at most 500 findings; ' +
+    '`unavailable: true` means the scan could not be read and the zeros mean nothing). repo is relative to the ' +
+    'account\'s own handle and may contain `/` (e.g. `team/app`); it is always resolved under that handle, ' +
+    'never anyone else\'s. A malformed or foreign-shaped value 404s the same way whether or not it exists ' +
+    'elsewhere, so a namespace probe learns nothing. An empty tags array means the repository does not ' +
+    'exist, or exists but currently holds no images; both read the same way. repo comes from ' +
+    'list_registry_repositories.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      repo: { type: 'string', minLength: 1, description: 'Repository path relative to the account\'s handle (may contain /). From list_registry_repositories.' },
+    },
+    required: ['repo'],
+    additionalProperties: false,
+  },
+  buildPath: (args) => `/v1/registry/repositories/${encodeSegment(args.repo, 'repo')}`,
+});
+
+export const listRegistryTagVulnerabilities = readTool({
+  name: 'list_registry_tag_vulnerabilities',
+  description:
+    'List paginated CVE findings (from the registry\'s vulnerability scan) for one tag of one repository: ' +
+    'id, severity, title, affected packages. `unavailable: true` means the scan extension itself is ' +
+    'disabled or unreachable: items is empty, NOT a real "no findings" answer; do not report a clean scan ' +
+    'in that case. An unknown tag also returns an empty items list (no separate "tag not found" signal). ' +
+    'Page with limit (1-100, default 50) and cursor (from a previous page\'s nextCursor). 404 if the ' +
+    'registry is not enabled or repo is malformed. repo + tag come from get_registry_repository.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      repo: { type: 'string', minLength: 1, description: 'Repository path relative to the account\'s handle (may contain /).' },
+      tag: { type: 'string', minLength: 1, description: 'The tag to scan, from get_registry_repository.' },
+      limit: { type: 'integer', minimum: 1, maximum: 100, description: 'Page size, clamped to 1-100 (default 50).' },
+      cursor: { type: 'string', description: 'Opaque pagination cursor from a previous page\'s nextCursor.' },
+    },
+    required: ['repo', 'tag'],
+    additionalProperties: false,
+  },
+  buildPath: (args) => {
+    const base =
+      `/v1/registry/repositories/${encodeSegment(args.repo, 'repo')}` +
+      `/tags/${encodeSegment(args.tag, 'tag')}/vulnerabilities`;
+    const q = new URLSearchParams();
+    if (args.limit !== undefined) q.set('limit', String(args.limit));
+    if (args.cursor !== undefined && args.cursor !== '') q.set('cursor', String(args.cursor));
+    const s = q.toString();
+    return s ? `${base}?${s}` : base;
+  },
+});
+
+export const listRegistryClusters = readList(
+  'list_registry_clusters',
+  '/v1/registry/clusters',
+  'List the Kubernetes clusters linked to the account\'s container registry: serviceId, clusterName, ' +
+    'status (linking/active/rotating/unlinking/error), installedAt, syncerImage, syncerReady (probed about ' +
+    'hourly; an "active" link can still report false), syncerCheckedAt, lastError, credentialName (the pull ' +
+    'credential\'s name, e.g. k8s-<serviceId>, never the secret). A link whose cluster can no longer be found reports status "error" with ' +
+    'lastError "cluster not found" rather than disappearing silently. Use to find a service_id for ' +
+    'unlink_registry_cluster / rotate_registry_cluster_link, or to check whether linking finished (status ' +
+    '"linking" means it is still in progress).',
+);
