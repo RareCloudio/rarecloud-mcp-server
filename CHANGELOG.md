@@ -2,7 +2,9 @@
 
 All notable changes to `@rarecloudio/mcp-server` are recorded here.
 
-## Unreleased
+## 0.4.0 (2026-10-17)
+
+Container Registry and AI Sandboxes tools are included ahead of each product's launch: until then registry writes answer 503 and `get_registry` 404 "not enabled"; sandbox tools answer 503.
 
 Totals with every entry below: 222 tools, 110 reads, 112 writes (85 gated,
 27 plain), 46 take `idempotency_key`.
