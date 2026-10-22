@@ -12,6 +12,7 @@ import {
   listSandboxes,
   getSandbox,
   listSandboxTemplates,
+  listSandboxSizes,
   readSandboxFile,
   getSandboxLogs,
 } from './sandboxes.js';
@@ -61,6 +62,7 @@ const SBX = 'sbx-0a1b2c3d';
 const READS: Array<[ToolDefinition, string, Record<string, unknown>, string]> = [
   [listSandboxes, 'list_sandboxes', {}, '/v1/sandboxes'],
   [listSandboxTemplates, 'list_sandbox_templates', {}, '/v1/sandboxes/templates'],
+  [listSandboxSizes, 'list_sandbox_sizes', {}, '/v1/sandboxes/sizes'],
   [getSandbox, 'get_sandbox', { id: SBX }, `/v1/sandboxes/${SBX}`],
   [readSandboxFile, 'read_sandbox_file', { id: SBX, path: '/home/user/out.txt' }, `/v1/sandboxes/${SBX}/files?path=%2Fhome%2Fuser%2Fout.txt`],
   [readSandboxFile, 'read_sandbox_file', { id: SBX, path: '/tmp/a b&c.txt' }, `/v1/sandboxes/${SBX}/files?path=%2Ftmp%2Fa+b%26c.txt`],
@@ -120,6 +122,28 @@ test('sandbox read: an APIError becomes an error result', async () => {
 test('list_sandbox_templates: description says it lists size and hourly price', () => {
   assert.match(listSandboxTemplates.description, /price/);
   assert.match(listSandboxTemplates.description, /create_sandbox/);
+});
+
+test('list_sandbox_sizes: returns sizes and the custom block as the API sent them', async () => {
+  const payload = {
+    sizes: [
+      { slug: 'xs', label: 'XS', vcpu: 1, ramGb: 1, diskGb: 3, hourlyCents: 5.2, accountCurrency: 'EUR', accountHourlyCents: 5.2, available: true, default: false },
+      { slug: 'l', label: 'L', vcpu: 2, ramGb: 8, diskGb: 3, hourlyCents: 17.6, accountCurrency: 'EUR', accountHourlyCents: 17.6, available: false, default: false },
+    ],
+    defaultSize: 's',
+    custom: { vcpuMin: 1, vcpuMax: 8, ramGbMin: 1, ramGbMax: 32, ramGbPerVcpuMin: 1, ramGbPerVcpuMax: 8, vcpuCentsPerHour: 4, ramGbCentsPerHour: 1.2, maxAvailableVcpu: 1, maxAvailableRamGb: 2 },
+  };
+  const { client, calls } = fakeClient(() => payload);
+  const result = await listSandboxSizes.handler(client, {});
+  assert.deepEqual(calls, [{ method: 'GET', path: '/v1/sandboxes/sizes' }]);
+  assert.deepEqual(JSON.parse(textOf(result)), payload);
+});
+
+test('list_sandbox_sizes: description covers availability, the custom bounds, price and create_sandbox', () => {
+  const d = listSandboxSizes.description;
+  for (const word of ['available', 'custom', 'maxAvailableVcpu', 'maxAvailableRamGb', 'hourlyCents', 'create_sandbox', 'size_unavailable']) {
+    assert.ok(d.includes(word), `description names ${word}`);
+  }
 });
 
 // --- logs ---------------------------------------------------------------------

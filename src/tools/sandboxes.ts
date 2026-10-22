@@ -46,6 +46,20 @@ export const listSandboxTemplates = readList(
   'List the templates a sandbox can be created from (python, node, base) with their size (vcpu, ramGb, diskGb), the image each runs, and the price per hour in EUR and USD (billed per second). Requires scope services:read. Use to pick the template for create_sandbox and to tell the user what it costs before creating one.',
 );
 
+export const listSandboxSizes = readList(
+  'list_sandbox_sizes',
+  '/v1/sandboxes/sizes',
+  'List the sizes a sandbox can be created at (xs, s, m, l, xl, 2xl), independent of the template: for each its slug, ' +
+    'label, vcpu, ramGb, diskGb, the price per hour (hourlyCents in EUR, plus accountCurrency and accountHourlyCents ' +
+    'in the account\'s own currency; billed per second), default (the size a create with neither template nor size ' +
+    'gets) and available (false while the cluster cannot run that size yet). Also returns custom: the bounds for ' +
+    'explicit vcpu and ramGb on create_sandbox (vcpuMin/vcpuMax, ramGbMin/ramGbMax, ramGbPerVcpuMin/ramGbPerVcpuMax), ' +
+    'the EUR per-unit rates (hourlyCents = vcpu x vcpuCentsPerHour + ramGb x ramGbCentsPerHour), and ' +
+    'maxAvailableVcpu and maxAvailableRamGb, the largest shape one sandbox can get today. Requires scope ' +
+    'services:read. Call it before create_sandbox with a size, vcpu or ramGb, and after a create that failed with ' +
+    '409 size_unavailable, to pick a size that is available.',
+);
+
 export const getSandbox = readOne(
   'get_sandbox',
   '/v1/sandboxes',
