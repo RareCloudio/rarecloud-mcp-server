@@ -26,6 +26,7 @@
 import { z } from 'zod';
 import { type ToolDefinition, jsonResult } from './types.js';
 import { writeTool, encodeSegment } from './factories.js';
+import { APIError } from '../client.js';
 import { SANDBOX_ID_PROPERTY, SANDBOX_FILE_PATH_PROPERTY } from './sandboxes.js';
 
 const MAX_LIFETIME_MS = 3_600_000;
@@ -35,6 +36,17 @@ const NAME_PATTERN = '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$';
 const IMAGE_PATTERN = '^[a-zA-Z0-9][\\w./:@-]*$';
 const ENV_MAX_VARS = 50;
 const LABELS_MAX = 20;
+
+// Sandbox sizes (GET /v1/sandboxes/sizes). A create sends either a size slug or
+// both vcpu and ramGb, never both and never one of the pair alone; the API
+// answers 400 INVALID_PARAM otherwise, so the same rule is checked here first.
+export const SANDBOX_SIZES = ['xs', 's', 'm', 'l', 'xl', '2xl'] as const;
+const VCPU_MIN = 1;
+const VCPU_MAX = 8;
+const RAM_GB_MIN = 1;
+const RAM_GB_MAX = 32;
+const RAM_GB_PER_VCPU_MIN = 1;
+const RAM_GB_PER_VCPU_MAX = 8;
 
 const sandboxId = z.string().min(1);
 
@@ -73,6 +85,19 @@ const argvProperty = (description: string) => ({
   description,
 });
 
+/**
+ * A 409 whose details name size_unavailable: the size or custom shape is valid
+ * but the cluster cannot run it yet. Nothing was created.
+ */
+function describeCreateError(e: APIError): string | undefined {
+  if (e.status !== 409 || !e.details?.some((d) => d.message === 'size_unavailable')) return undefined;
+  return (
+    `${e.message} (size_unavailable: this size or shape is not available right now, so nothing was created ` +
+    'and retrying it unchanged will not help. Call list_sandbox_sizes and retry with a size whose available is ' +
+    'true, or with vcpu and ramGb no larger than custom.maxAvailableVcpu and custom.maxAvailableRamGb.)'
+  );
+}
+
 /** The sandbox as the API returned it, minus any `env` field: env values never reach the agent. */
 function withoutEnvValues(data: unknown) {
   if (data && typeof data === 'object' && !Array.isArray(data) && 'env' in data) {
@@ -86,7 +111,11 @@ export const createSandbox: ToolDefinition = writeTool({
   name: 'create_sandbox',
   description:
     'Create an isolated AI Sandbox (a short-lived container for running code). Requires scope services:write. ' +
-    'All inputs are optional: template (default python) picks size and price, see list_sandbox_templates; ' +
+    'All inputs are optional: template (default python) picks the image and the default size, see ' +
+    'list_sandbox_templates; size (xs, s, m, l, xl, 2xl) picks other resources, or send vcpu and ramGb for a ' +
+    'custom shape: send either size or both vcpu and ramGb, never size with them and never one of the two alone. ' +
+    'Not every size is available yet: call list_sandbox_sizes first (available, and custom.maxAvailableVcpu / ' +
+    'maxAvailableRamGb); an unavailable one is refused with 409 size_unavailable and nothing is created. ' +
     'image runs a custom public image or one from your RareCloud registry instead; timeoutMs is the lifetime ' +
     '(default 5 minutes, max 1 hour), after which it stops and is deleted at expiresAt; name, labels, env and ' +
     'networkBlocked are fixed at creation. Without run the sandbox waits for run_sandbox_code, ' +
@@ -115,8 +144,36 @@ export const createSandbox: ToolDefinition = writeTool({
       labels: labelsSchema.optional(),
       networkBlocked: z.boolean().optional(),
       run: z.object({ entrypoint: argv.optional(), command: argv.optional() }).strict().optional(),
+      size: z.enum(SANDBOX_SIZES, { message: `size must be one of ${SANDBOX_SIZES.join(', ')}` }).optional(),
+      vcpu: z.number({ message: 'vcpu must be a whole number' }).int('vcpu must be a whole number')
+        .min(VCPU_MIN, `vcpu must be ${VCPU_MIN} to ${VCPU_MAX}`).max(VCPU_MAX, `vcpu must be ${VCPU_MIN} to ${VCPU_MAX}`).optional(),
+      ramGb: z.number({ message: 'ramGb must be a whole number' }).int('ramGb must be a whole number')
+        .min(RAM_GB_MIN, `ramGb must be ${RAM_GB_MIN} to ${RAM_GB_MAX}`).max(RAM_GB_MAX, `ramGb must be ${RAM_GB_MIN} to ${RAM_GB_MAX}`).optional(),
     })
-    .strict(),
+    .strict()
+    .superRefine((a, ctx) => {
+      const hasVcpu = a.vcpu !== undefined;
+      const hasRam = a.ramGb !== undefined;
+      if (a.size !== undefined && (hasVcpu || hasRam)) {
+        ctx.addIssue({ code: 'custom', path: ['size'], message: 'send either size or both vcpu and ramGb, not both' });
+        return;
+      }
+      if (hasVcpu !== hasRam) {
+        ctx.addIssue({ code: 'custom', path: [hasVcpu ? 'ramGb' : 'vcpu'], message: 'vcpu and ramGb go together: send both, or use size' });
+        return;
+      }
+      if (hasVcpu && hasRam) {
+        const v = a.vcpu as number;
+        const r = a.ramGb as number;
+        if (r < v * RAM_GB_PER_VCPU_MIN || r > v * RAM_GB_PER_VCPU_MAX) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['ramGb'],
+            message: `ramGb must be ${RAM_GB_PER_VCPU_MIN} to ${RAM_GB_PER_VCPU_MAX} GB per vCPU (${v * RAM_GB_PER_VCPU_MIN} to ${Math.min(v * RAM_GB_PER_VCPU_MAX, RAM_GB_MAX)} for ${v} vCPU)`,
+          });
+        }
+      }
+    }),
   inputSchema: {
     type: 'object',
     properties: {
@@ -173,18 +230,39 @@ export const createSandbox: ToolDefinition = writeTool({
         description:
           'Run mode: the sandbox starts a program by itself instead of waiting for commands, and ends when it exits (no restart). {} runs the image\'s own ENTRYPOINT and CMD. With a template (no image) command is required. At most 64 elements per list, 4096 bytes each, 32 KiB in total. Read the output with get_sandbox_logs.',
       },
+      size: {
+        type: 'string',
+        enum: [...SANDBOX_SIZES],
+        description:
+          'Optional size, independent of the template: xs 1 vCPU / 1 GB, s 1 vCPU / 2 GB, m 1 vCPU / 4 GB, l 2 vCPU / 8 GB, xl 4 vCPU / 16 GB, 2xl 8 vCPU / 32 GB, all with 3 GB of disk. Default: the template\'s defaultSize (xs for base, s for python and node). Check available and the price with list_sandbox_sizes first. Do not combine with vcpu or ramGb.',
+      },
+      vcpu: {
+        type: 'integer',
+        minimum: VCPU_MIN,
+        maximum: VCPU_MAX,
+        description:
+          'Custom shape instead of a size: vCPU count (1-8). Send together with ramGb (1 to 8 GB per vCPU), never with size. The largest shape available today is custom.maxAvailableVcpu from list_sandbox_sizes.',
+      },
+      ramGb: {
+        type: 'integer',
+        minimum: RAM_GB_MIN,
+        maximum: RAM_GB_MAX,
+        description:
+          'Custom shape instead of a size: RAM in GB (1-32, and 1 to 8 GB per vCPU). Send together with vcpu, never with size. The largest available today is custom.maxAvailableRamGb from list_sandbox_sizes.',
+      },
     },
     additionalProperties: false,
   },
   buildPath: () => '/v1/sandboxes',
   buildBody: (a) => {
     const body: Record<string, unknown> = {};
-    for (const k of ['template', 'image', 'timeoutMs', 'name', 'env', 'labels', 'networkBlocked', 'run'] as const) {
+    for (const k of ['template', 'image', 'timeoutMs', 'name', 'env', 'labels', 'networkBlocked', 'run', 'size', 'vcpu', 'ramGb'] as const) {
       if (a[k] !== undefined) body[k] = a[k];
     }
     return body;
   },
   formatResult: withoutEnvValues,
+  describeApiError: describeCreateError,
 });
 
 export const deleteSandbox: ToolDefinition = writeTool({

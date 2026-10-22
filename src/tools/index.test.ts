@@ -10,7 +10,7 @@ import { isIdempotentPostPath } from '../idempotency.js';
 
 // Bump this in the same commit that adds/removes tools. A mismatch means the
 // registry changed without the test acknowledging it.
-const EXPECTED_TOOL_COUNT = 222;
+const EXPECTED_TOOL_COUNT = 223;
 
 test('registry: tool count matches the expected total', () => {
   assert.equal(TOOLS.length, EXPECTED_TOOL_COUNT);
@@ -511,9 +511,9 @@ function reasonOf(description: string): string {
   return m[1];
 }
 
-test('safety: every tool (all 222) carries annotations; reads are readOnly, writes are not', () => {
+test('safety: every tool (all 223) carries annotations; reads are readOnly, writes are not', () => {
   assert.equal(readTools().length + writeTools().length, TOOLS.length, 'every tool sets readOnlyHint');
-  assert.equal(readTools().length, 110);
+  assert.equal(readTools().length, 111);
   assert.equal(writeTools().length, 112);
   for (const t of readTools()) {
     assert.deepEqual(

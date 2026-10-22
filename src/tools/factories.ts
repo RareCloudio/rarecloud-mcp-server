@@ -311,6 +311,12 @@ export interface WriteToolOptions<S extends z.ZodTypeAny> {
    * optional `idempotency_key` input and the safe-retry behaviour.
    */
   idempotent?: boolean;
+  /**
+   * Tool-specific wording for an APIError this tool knows how to explain (e.g.
+   * create_sandbox's 409 size_unavailable). Return the full message, or
+   * undefined to keep the default `[CODE] message`.
+   */
+  describeApiError?: (e: APIError) => string | undefined;
 }
 
 export function writeTool<S extends z.ZodTypeAny>(
@@ -411,7 +417,8 @@ export function writeTool<S extends z.ZodTypeAny>(
         if (!replay) return result;
         return { ...result, content: [{ type: 'text', text: replayNote(replay) }, ...result.content] };
       } catch (e) {
-        return errorResult(e instanceof APIError ? e.message : (e as Error).message);
+        if (e instanceof APIError) return errorResult(opts.describeApiError?.(e) ?? e.message);
+        return errorResult((e as Error).message);
       }
     },
   };

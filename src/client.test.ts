@@ -125,6 +125,43 @@ test('throws APIError carrying the API error code + message', async () => {
   }
 });
 
+test('APIError keeps the API error details (field + message pairs) when the envelope carries them', async () => {
+  const details = [{ field: 'size', message: 'size_unavailable' }];
+  const stub = stubFetch({
+    status: 409,
+    body: { ok: false, error: { code: 'CONFLICT', message: 'Size l is not available yet.', details } },
+  });
+  try {
+    const client = new RareCloudClient({ endpoint: 'https://example.com', token: 't' });
+    await assert.rejects(
+      () => client.post('/v1/sandboxes', { size: 'l' }),
+      (err: unknown) => {
+        assert.ok(err instanceof APIError, 'expected an APIError');
+        assert.equal(err.code, 'CONFLICT');
+        assert.equal(err.status, 409);
+        assert.deepEqual(err.details, details);
+        assert.equal(err.message, '[CONFLICT] Size l is not available yet.', 'details do not change the message');
+        return true;
+      },
+    );
+  } finally {
+    stub.restore();
+  }
+});
+
+test('APIError details are undefined when the envelope has none', async () => {
+  const stub = stubFetch({ status: 404, body: { ok: false, error: { code: 'NOT_FOUND', message: 'gone' } } });
+  try {
+    const client = new RareCloudClient({ endpoint: 'https://example.com', token: 't' });
+    await assert.rejects(
+      () => client.get('/v1/sandboxes/x'),
+      (err: unknown) => err instanceof APIError && err.details === undefined,
+    );
+  } finally {
+    stub.restore();
+  }
+});
+
 test('put() sends PUT with a JSON body and returns the data envelope', async () => {
   const stub = stubFetch(ok({ id: 'svc-123', name: 'renamed' }));
   try {
