@@ -43,7 +43,7 @@ export const listSandboxes = readList(
 export const listSandboxTemplates = readList(
   'list_sandbox_templates',
   '/v1/sandboxes/templates',
-  'List the templates a sandbox can be created from (python, node, base) with their size (vcpu, ramGb, diskGb), the image each runs, and the price per hour in EUR and USD (billed per second). Requires scope services:read. Use to pick the template for create_sandbox and to tell the user what it costs before creating one.',
+  'List the templates a sandbox can be created from (python, node, base) with their default size (defaultSize, vcpu, ramGb, diskGb), the image each runs, and the price per hour at that size in EUR and USD (billed per second). Requires scope services:read. Use to pick the template for create_sandbox and to tell the user what it costs before creating one; list_sandbox_sizes lists the other sizes.',
 );
 
 export const listSandboxSizes = readList(
