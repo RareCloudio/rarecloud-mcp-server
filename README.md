@@ -6,9 +6,9 @@ Drop into [Claude Code](https://claude.com/claude-code), Claude Desktop, [Cursor
 
 ## What it does
 
-Exposes **222 tools** wrapping the RareCloud REST API: **110 read tools** (inspect / list / get / check, always safe) plus **112 write/action tools** (deploy, resize, destroy, order, renew, and similar mutations). 85 of the writes are gated behind an explicit `confirm:true`; the other 27 are plain. See [Safety model](#safety-model) below for how it works.
+Exposes **223 tools** wrapping the RareCloud REST API: **111 read tools** (inspect / list / get / check, always safe) plus **112 write/action tools** (deploy, resize, destroy, order, renew, and similar mutations). 85 of the writes are gated behind an explicit `confirm:true`; the other 27 are plain. See [Safety model](#safety-model) below for how it works.
 
-### Read tools (110)
+### Read tools (111)
 
 | Category | Tool | Purpose |
 |---|---|---|
@@ -111,7 +111,8 @@ Exposes **222 tools** wrapping the RareCloud REST API: **110 read tools** (inspe
 | | `get_proxy_auto_rotation` | Auto-rotation settings of a mobile proxy line |
 | AI Sandboxes | `list_sandboxes` | Sandboxes: id, name, status, template, image, labels, env names (never values), run mode, expiry |
 | | `get_sandbox` | One sandbox: status (and why it is pending), image, labels, env names, run mode, `expiresAt` |
-| | `list_sandbox_templates` | Templates (python / node / base): size, image, price per hour in EUR and USD |
+| | `list_sandbox_templates` | Templates (python / node / base): default size, image, price per hour in EUR and USD |
+| | `list_sandbox_sizes` | Sizes (xs to 2xl): vCPU, RAM, disk, price per hour, default, and whether each is available yet; plus the custom vCPU/RAM bounds, rates and the largest shape available today |
 | | `read_sandbox_file` | Read one file by absolute path (text, or base64 for binary; up to 25 MiB) |
 | | `get_sandbox_logs` | Last lines of a run-mode sandbox's output, plain text (404 = logs gone; 503 = not available yet) |
 | | `check_order` | Would `deploy_service` be accepted right now? Same body, creates and reserves nothing; on a refusal returns the message plus the Add funds or Pay invoice link for the human (needs `services:write`) |
@@ -232,7 +233,7 @@ The **Safety** column is each tool's kind (see [Safety model](#safety-model)). *
 | | `delete_proxy_request` | **destructive** | Delete a proxy-request from a GB Residential bucket |
 | | `set_proxy_auto_rotation` | **disruptive** | Turn a mobile line's automatic IP rotation on/off and set its interval |
 | | `rotate_proxy` | **disruptive** | Rotate a mobile line's exit IP now |
-| AI Sandboxes | `create_sandbox` | **spends** | Create a sandbox from a template or image, with lifetime, name, env, labels, network switch and optional run mode (billed per second; env values never returned) |
+| AI Sandboxes | `create_sandbox` | **spends** | Create a sandbox from a template or image, at a size (`size`) or a custom shape (`vcpu` + `ramGb`), with lifetime, name, env, labels, network switch and optional run mode (billed per second; env values never returned; an unavailable size answers `size_unavailable`, see `list_sandbox_sizes`) |
 | | `delete_sandbox` | **destructive** | Terminate a sandbox and delete everything in it |
 | | `run_sandbox_code` | plain | Run a Python or Node snippet in a sandbox; returns stdout, stderr, exit code |
 | | `run_sandbox_command` | plain | Run a shell command (`sh -c`) in a sandbox; returns stdout, stderr, exit code |
@@ -410,14 +411,14 @@ Then point Claude Desktop at your local checkout:
 npm test
 ```
 
-Tests run on the built-in Node test runner (`node:test`) via `tsx`: no build step, no network. Each tool is exercised against an injected mock client that records the request path and returns a canned payload, so the suite asserts path construction, input-schema shape, JSON-vs-raw output, secret-handling guidance, and error mapping without ever calling the live API. For write tools, the same fake-client harness also proves every gated tool (85, pinned by name and kind) refuses with its reason and makes zero requests when `confirm` is omitted, that every tool carries the right MCP annotations, that both the zod input and the JSON `inputSchema` enforce the same bounds (mirrored both layers), and that every dynamic path segment is guarded against path traversal. Further tests drop the first answer of an idempotent request and prove the retry reuses the same key, pin which tools take `idempotency_key` against the API's covered routes, and pin the `RESOURCE_PROTECTED` error text. A registry invariant test pins the exposed tool count (222) and enforces unique names, well-formed schemas, and, for the write-scope surfaces, an exact pinned set of tool names per scope, so a future change can't silently add a tool under the wrong scope.
+Tests run on the built-in Node test runner (`node:test`) via `tsx`: no build step, no network. Each tool is exercised against an injected mock client that records the request path and returns a canned payload, so the suite asserts path construction, input-schema shape, JSON-vs-raw output, secret-handling guidance, and error mapping without ever calling the live API. For write tools, the same fake-client harness also proves every gated tool (85, pinned by name and kind) refuses with its reason and makes zero requests when `confirm` is omitted, that every tool carries the right MCP annotations, that both the zod input and the JSON `inputSchema` enforce the same bounds (mirrored both layers), and that every dynamic path segment is guarded against path traversal. Further tests drop the first answer of an idempotent request and prove the retry reuses the same key, pin which tools take `idempotency_key` against the API's covered routes, and pin the `RESOURCE_PROTECTED` error text. A registry invariant test pins the exposed tool count (223) and enforces unique names, well-formed schemas, and, for the write-scope surfaces, an exact pinned set of tool names per scope, so a future change can't silently add a tool under the wrong scope.
 
 ## Security
 
 - Tokens never touch shell history (we use env vars, not CLI flags).
 - Each tool maps 1:1 to a RareCloud API endpoint; the MCP server doesn't aggregate or transform data beyond what the API returns.
 - **Scope is exact-match per token, enforced server-side.** A token only unlocks the tools whose scope it carries; there is no wildcard scope matching (`*:read` does not imply `services:read`) and no client-side scope bypass: an unscoped or under-scoped token gets the API's own `[FORBIDDEN]` response back.
-- **Writes exist and are gated.** 112 of the 222 tools mutate state. The 85 that spend money, destroy something, disrupt something running, or are security-sensitive require `confirm:true` and make no API call at all without it (see [Safety model](#safety-model)). The remaining 27 are plain (no charge, nothing torn down) and run without confirmation once the token's scope allows them.
+- **Writes exist and are gated.** 112 of the 223 tools mutate state. The 85 that spend money, destroy something, disrupt something running, or are security-sensitive require `confirm:true` and make no API call at all without it (see [Safety model](#safety-model)). The remaining 27 are plain (no charge, nothing torn down) and run without confirmation once the token's scope allows them.
 - **No identity/credential/money-movement surface, by design, not by gate.** Password/2FA changes, sub-user invites, payment-method management, API-token management, credit top-up, invoice payment, and affiliate activate/withdraw, and the per-resource API access switch, have no tool here at all: an agent holding even a maximally-scoped token cannot reach them. A registry test pins this exclusion list so a future change can't quietly add one back.
 - The tools that return live credentials (kubeconfigs, proxy endpoint/auth lists, one-time console passwords) carry the standard SECURITY sentence so the agent doesn't echo them back unprompted.
 - Revoke a token at any time: **Dashboard → Account → API tokens**. Revocation is instant, no propagation delay.
