@@ -239,6 +239,31 @@ test('request_smtp_unblock: the JSON schema advertises the same bounds as the zo
   assert.match(String(p.listSource.description), /purpose is newsletter/);
 });
 
+test('request_smtp_unblock: uppercase hostnames pass both the zod input and the JSON schema pattern, like the API', async () => {
+  const p = requestSmtpUnblock.inputSchema.properties as Record<string, Record<string, unknown>>;
+  const domainRe = new RegExp(String((p.domains.items as Record<string, unknown>).pattern));
+  const rdnsRe = new RegExp(String(p.rdns.pattern));
+  for (const host of ['Mail.Example.com', 'MAIL.EXAMPLE.COM', 'mail.example.com']) {
+    assert.ok(domainRe.test(host), `domains pattern accepts ${host}`);
+    assert.ok(rdnsRe.test(host), `rdns pattern accepts ${host}`);
+  }
+  for (const host of ['localhost', 'bad host', 'example.123']) {
+    assert.ok(!domainRe.test(host), `domains pattern refuses ${host}`);
+    assert.ok(!rdnsRe.test(host), `rdns pattern refuses ${host}`);
+  }
+  const { client, calls } = fakeClient();
+  const result = await requestSmtpUnblock.handler(client, {
+    service_id: VM, ...ANSWERS, domains: ['Mail.Example.com'], rdns: 'MAIL.EXAMPLE.COM', confirm: true,
+  });
+  assert.equal(result.isError, undefined, textOf(result));
+  assert.deepEqual((calls[0].body as Record<string, unknown>).domains, ['Mail.Example.com']);
+});
+
+test('request_smtp_unblock: the 409 sentence says the message names the date and get_service_smtp returns canRequestAfter', () => {
+  assert.match(requestSmtpUnblock.description, /409 CONFLICT whose message names the date/);
+  assert.match(requestSmtpUnblock.description, /get_service_smtp returns it as canRequestAfter/);
+});
+
 test('request_smtp_unblock: traversal tokens in service_id make no request', async () => {
   for (const bad of ['..', '.']) {
     const { client, calls } = fakeClient();

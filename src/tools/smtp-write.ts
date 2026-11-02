@@ -20,8 +20,11 @@ import { z } from 'zod';
 import { type ToolDefinition } from './types.js';
 import { writeTool, encodeSegment } from './factories.js';
 
-// The API's FQDN_RE: a dotted hostname with a letter-led last label.
-const FQDN_RE = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]([a-z0-9-]{0,61}[a-z0-9])?$/i;
+// The API's FQDN_RE (a dotted hostname with a letter-led last label), with the
+// API's /i flag spelled out as explicit A-Z ranges: `.source` feeds the JSON
+// Schema `pattern`, which carries no flags, so both layers accept the same names.
+const FQDN_RE =
+  /^(?=.{1,253}$)([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$/;
 const fqdn = z.string().trim().regex(FQDN_RE, 'must be a valid domain name, for example mail.example.com');
 const longText = z.string().trim().min(20).max(2000);
 
@@ -72,8 +75,8 @@ export const requestSmtpUnblock: ToolDefinition = writeTool({
     `messagesPerDay, and acceptPolicy (must be true: the user accepts the acceptable use policy for ` +
     `outbound email). purposeOther is required when purpose is other, recipientsOther when recipients is ` +
     `other, and listSource when purpose is newsletter (each 20-2000 chars). After a rejection or a revoked ` +
-    `approval a new request waits 7 days: the API answers 409 CONFLICT naming the date (canRequestAfter, ` +
-    `also shown by get_service_smtp).`,
+    `approval a new request waits 7 days: the API answers 409 CONFLICT whose message names the date, and ` +
+    `get_service_smtp returns it as canRequestAfter.`,
   method: 'POST',
   safety: {
     kind: 'sensitive',
