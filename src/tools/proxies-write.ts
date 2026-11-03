@@ -386,7 +386,7 @@ export const requestProxyReplacement: ToolDefinition = writeTool({
   description:
     `Request an IP replacement for a proxy service, consuming the included monthly allowance (1/month). ` +
     `Requires scope services:write (${SCOPE_NOTE}). ISP proxy services only. The replacement is requested ` +
-    `from the provider at once; check get_proxy_replacements first to confirm an allowance is available this month ` +
+    `at once; check get_proxy_replacements first to confirm an allowance is available this month ` +
     `(the request is refused server-side once the allowance is used). To move the new IP to another ` +
     `location, pick one from list_proxy_replacement_locations and pass its id as locationId (and its label ` +
     `as locationLabel so the shown location follows); omit both to replace in the same location. id comes ` +

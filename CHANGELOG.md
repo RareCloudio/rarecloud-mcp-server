@@ -19,14 +19,15 @@ changed except the addition under Added.
   bonus balance, not credit.
 - `get_billing_state`: the state is ok or suspended, with the open invoice,
   suspension schedule and runway. There is no grace period.
-- `create_load_balancer`: EUR 9/month with the public IP included. It said the
-  load balancer and its IP were each billed hourly.
-- `request_proxy_replacement`: no support ticket is opened.
+- `create_load_balancer`: billed hourly up to its monthly price, with the public
+  IP included. It said the load balancer and its IP were each billed hourly.
+- `request_proxy_replacement`: the replacement is requested at once; no support
+  ticket is opened.
 - `cancel_service`: legacy services only, and `immediate` files a request. It
   said `immediate` stops the service now.
-- `apply_service_ssh_key_library`: an empty list changes nothing; keys take
-  effect after a stop and start. It said an empty list removes every key, and no
-  longer says what happens to keys already installed.
+- `apply_service_ssh_key_library`: keys already installed stay, an empty list
+  changes nothing, and keys take effect after a stop and start. It said the set
+  replaced the installed keys and an empty list removed them all.
 - `add_service_ssh_key`: on a legacy VPS the key takes effect after a stop and
   start.
 - `get_account_limits`: active services, API tokens and sub-users. For cloud
@@ -60,7 +61,8 @@ changed except the addition under Added.
   API answers if the registry is paused.
 - `package.json` description: agents can manage the account, not only read it.
 - Removed internal wording from `get_credit_balance`, `cancel_proxy` and
-  `list_proxy_replacement_locations`.
+  `list_proxy_replacement_locations`, and backend names from the
+  `list_payment_methods`, `get_bonus_balance` and `get_bonus_ledger` prose.
 
 ## 0.5.0 (2026-11-03)
 

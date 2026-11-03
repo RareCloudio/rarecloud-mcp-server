@@ -267,7 +267,7 @@ export const createLoadBalancer: ToolDefinition = writeTool({
   idempotent: true,
   safety: {
     kind: 'spends',
-    reason: "creates a load balancer billed EUR 9/month (metered hourly, capped at the monthly price), its public IP included, until it is deleted",
+    reason: "creates a load balancer billed hourly up to its monthly price, its public IP included, until it is deleted",
   },
   input: z
     .object({

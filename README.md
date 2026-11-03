@@ -15,7 +15,7 @@ Exposes **224 tools** wrapping the RareCloud REST API: **111 read tools** (inspe
 | Catalog | `list_catalog_products` | Orderable products in the catalog (filter by kind / backend) |
 | | `get_catalog_plan` | Full product detail: plans (sizes), specs, per-cycle pricing, billing tracks |
 | | `list_regions` | Available datacenter regions |
-| | `list_images` | OS images (Ubuntu / Debian / Rocky / Windows Server / …) installable on new servers; only deployable images are listed |
+| | `list_images` | OS images (Ubuntu / Debian / Rocky) installable on new servers; only deployable images are listed |
 | | `get_product_details` | Order-ready detail for one SKU: cycles + prices, plans, config options |
 | | `list_prepurchase_os_templates` | OS templates selectable at purchase time for a VPS / dedicated SKU |
 | | `list_catalog_listings` | Deploy-wizard product cards for one category (the console "create" tiles) |
@@ -37,7 +37,7 @@ Exposes **224 tools** wrapping the RareCloud REST API: **111 read tools** (inspe
 | | `get_credit_balance` | Current prepaid credit balance |
 | | `get_credit_ledger` | Credit movements (top-ups, metering debits, refunds) |
 | | `get_invoice_pay_preview` | Preview what paying an invoice from balance would consume (bonus → credit → shortfall) |
-| | `list_payment_methods` | Available payment options (WHMCS gateways) |
+| | `list_payment_methods` | Available payment options (gateways) |
 | | `get_billing_campaign` | The active credit (deposit-match) promo, or none |
 | | `get_bonus_balance` | Promo (bonus) balance, in cents (EUR) |
 | | `get_bonus_ledger` | Bonus-credit ledger: campaign and voucher grants and promo consumption |
@@ -151,7 +151,7 @@ The **Safety** column is each tool's kind (see [Safety model](#safety-model)). *
 | | `reset_service_password` | **disruptive** | Reset the root password live via qemu-guest-agent, on a running cloud VM |
 | | `add_service_ssh_key` | **sensitive** | Install an SSH public key on a service (on a legacy VPS it takes effect after a stop and start) |
 | | `add_service_ssh_key_to_library` | plain | Register an SSH key in a legacy VPS's reinstall-time key library |
-| | `apply_service_ssh_key_library` | **disruptive** | Install a selected set of library SSH keys on a legacy VPS; they take effect after a stop and start; an empty list changes nothing |
+| | `apply_service_ssh_key_library` | **disruptive** | Install a selected set of library SSH keys on a legacy VPS. Keys already installed stay; they take effect after a stop and start; an empty list changes nothing |
 | | `set_service_tags` | plain | Replace a cloud VM's tags (the whole set; `[]` clears them) |
 | Managed Kubernetes | `set_cluster_scale` | **disruptive** | Set the autoscaling bounds of a cluster's first node pool |
 | | `add_cluster_pool` | **spends** | Add a named worker node pool |
@@ -185,7 +185,7 @@ The **Safety** column is each tool's kind (see [Safety model](#safety-model)). *
 | Object Storage | `enable_object_storage` | **spends** | Enable Object Storage (starts the monthly base fee); optional, the first bucket does it too |
 | | `disable_object_storage` | **destructive** | Delete the storage account for good (only once every bucket is deleted and every key revoked) |
 | | `create_bucket` | **spends** | Create a bucket (the first one enables or wakes the service and its base fee) |
-| | `update_bucket` | **sensitive** | Toggle a bucket's versioning or public CDN delivery (public makes every object readable by anyone) |
+| | `update_bucket` | **sensitive** | Toggle a bucket's versioning. Public delivery is not available yet and answers 503 |
 | | `delete_bucket` | **destructive** | Delete a bucket; `purge:true` deletes every object in it first |
 | | `create_object_storage_key` | **sensitive** | Create an S3 access key scoped to buckets + read/readwrite (returns a **live secret**, shown once) |
 | | `delete_object_storage_key` | **destructive** | Revoke an S3 access key |

@@ -18,7 +18,7 @@
 //   - create_object_storage_key: sensitive + returnsSecret (the secret is shown
 //     once and never stored).
 //   - delete_object_storage_key: destructive. Revoking deletes the key's IAM
-//     user upstream; the same key can never come back (a new key has a new id
+//     user; the same key can never come back (a new key has a new id
 //     and secret), matching revoke_cluster_kubeconfig.
 //
 // The API's own `confirm` query parameter on bucket delete (the typed bucket
@@ -128,7 +128,8 @@ export const updateBucket: ToolDefinition = writeTool({
     'Change a bucket\'s versioning or public delivery. Requires scope services:write. id comes from ' +
     'list_buckets. Pass at least one of versioning and public; only the fields given change. public:true ' +
     'serves the bucket over the CDN at its public URL (direct S3 access stays private); public:false takes ' +
-    'that URL offline.',
+    'that URL offline. Public delivery is not available yet: public:true answers 503 BACKEND_UNAVAILABLE ' +
+    'and the bucket stays private.',
   method: 'PATCH',
   safety: {
     kind: 'sensitive',

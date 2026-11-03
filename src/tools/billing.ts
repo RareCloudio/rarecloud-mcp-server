@@ -115,7 +115,7 @@ export const getInvoicePayPreview = readTool({
 export const listPaymentMethods = readList(
   'list_payment_methods',
   '/v1/billing/payment-methods',
-  'List the account\'s available payment options (WHMCS gateways). There is no stored-card vault: these are the gateways offered at checkout. Use for "how can I pay?".',
+  'List the account\'s available payment options (gateways). There is no stored-card vault: these are the gateways offered at checkout. Use for "how can I pay?".',
 );
 
 export const getBillingCampaign = readList(
@@ -127,13 +127,13 @@ export const getBillingCampaign = readList(
 export const getBonusBalance = readList(
   'get_bonus_balance',
   '/v1/billing/bonus',
-  'Get the account\'s promo (bonus) balance in cents (EUR). This is a SEPARATE non-WHMCS balance that depletes first, as a taxed discount line, at consumption. Pair with get_credit_balance for the full "how much can I spend?" picture.',
+  'Get the account\'s promo (bonus) balance in cents (EUR). This is a separate balance that depletes first, as a taxed discount line, at consumption. Pair with get_credit_balance for the full "how much can I spend?" picture.',
 );
 
 export const getBonusLedger = readList(
   'get_bonus_ledger',
   '/v1/billing/bonus/ledger',
-  'List all bonus-credit ledger entries (newest first): campaign and voucher grants (positive) and promo consumption (negative). Use to explain "where did my bonus go?": distinct from get_credit_ledger, which tracks real (WHMCS) credit.',
+  'List all bonus-credit ledger entries (newest first): campaign and voucher grants (positive) and promo consumption (negative). Use to explain "where did my bonus go?": distinct from get_credit_ledger, which tracks real credit.',
 );
 
 export const getBillingAlert = readList(

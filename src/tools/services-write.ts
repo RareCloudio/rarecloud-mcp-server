@@ -759,14 +759,14 @@ export const addServiceSshKeyToLibrary: ToolDefinition = writeTool({
 export const applyServiceSshKeyLibrary: ToolDefinition = writeTool({
   name: 'apply_service_ssh_key_library',
   description:
-    `Install a selected set of library SSH keys on a legacy VPS. They take effect after the server is ` +
+    `Install a selected set of library SSH keys on a legacy VPS. Keys already installed stay. They take effect after the server is ` +
     `stopped and started (a full power cycle); a reboot from inside the OS is not enough. Requires scope ` +
     `services:write. An omitted or empty list changes nothing. service_id comes from list_services; ` +
     `keyIds come from list_service_ssh_key_library.`,
   method: 'POST',
   safety: {
     kind: 'disruptive',
-    reason: "changes which SSH keys can log in to the server once it is stopped and started",
+    reason: "adds SSH keys that can log in to the server once it is stopped and started",
   },
   input: z.object({ service_id: z.string().min(1), keyIds: z.array(z.string().min(1).max(64)).max(50).optional() }).strict(),
   inputSchema: {
