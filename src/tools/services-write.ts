@@ -230,7 +230,7 @@ export const deployService: ToolDefinition = writeTool({
     `other fields depend on the family: discover them with get_product_details, list_catalog_listings, ` +
     `list_kubernetes_versions, list_regions, list_images. Preview the plan and its cost with ` +
     `get_product_details before asking the user to approve. Call check_order first to see whether the ` +
-    `order will be accepted. For a cloud VM deployed without rootPassword, the result includes a one-time ` +
+    `order will be accepted. Outbound TCP port 25 is blocked on new cloud VMs (see get_service_smtp); if the account's Private network firewall allows port 25, a cloud-vm deploy answers 409 SMTP_EGRESS_NOT_APPROVED. For a cloud VM deployed without rootPassword, the result includes a one-time ` +
     `consolePassword. ` +
     `For category cloud-loadbalancer the call returns status "provisioning" with serviceId as soon as the ` +
     `load balancer exists; poll get_load_balancer (or get_service) until status is "active".`,
@@ -381,7 +381,7 @@ export const renewService: ToolDefinition = writeTool({
   idempotent: true,
   safety: {
     kind: 'spends',
-    reason: "generates a renewal invoice for the service and settles it from the account balance",
+    reason: "returns the service's open renewal invoice, or creates one; the term extends when that invoice is paid",
   },
   input: z.object({ service_id: z.string().min(1) }).strict(),
   inputSchema: {
@@ -396,9 +396,10 @@ export const renewService: ToolDefinition = writeTool({
 export const cancelService: ToolDefinition = writeTool({
   name: 'cancel_service',
   description:
-    `File a cancellation request for a service. Requires scope services:write. type "immediate" stops it ` +
-    `now; "end_of_term" (the server default) cancels at the paid-through date. service_id comes from ` +
-    `list_services.`,
+    `File a cancellation request for a service. Legacy services only (numeric id): for a cloud VM use ` +
+    `destroy_service. Requires scope services:write. type "immediate" files a request for immediate ` +
+    `termination; "end_of_term" (the server default) cancels at the paid-through date. service_id comes ` +
+    `from list_services.`,
   method: 'POST',
   idempotent: true,
   safety: {
@@ -692,14 +693,15 @@ export const resetServicePassword: ToolDefinition = writeTool({
 export const addServiceSshKey: ToolDefinition = writeTool({
   name: 'add_service_ssh_key',
   description:
-    `Install an SSH public key directly onto a running service (per-server), distinct from ` +
+    `Install an SSH public key on a service (per-server), distinct from ` +
     `add_service_ssh_key_to_library, which registers a key in the server's reinstall-time key library. ` +
+    `On a legacy VPS the key takes effect after the server is stopped and started (a full power cycle). ` +
     `Requires scope services:write. service_id comes from list_services.`,
   method: 'POST',
   idempotent: true,
   safety: {
     kind: 'sensitive',
-    reason: "grants SSH access to the running server to whoever holds the matching private key",
+    reason: "grants SSH access to the server to whoever holds the matching private key",
   },
   input: z
     .object({
@@ -757,13 +759,14 @@ export const addServiceSshKeyToLibrary: ToolDefinition = writeTool({
 export const applyServiceSshKeyLibrary: ToolDefinition = writeTool({
   name: 'apply_service_ssh_key_library',
   description:
-    `Apply a SET of library SSH keys to a legacy VPS, replacing whichever keys are currently authorized ` +
-    `on the server. Requires scope services:write. Omit keyIds (or pass an empty array) to apply an empty ` +
-    `set. service_id comes from list_services; keyIds come from list_service_ssh_key_library.`,
+    `Install a selected set of library SSH keys on a legacy VPS. They take effect after the server is ` +
+    `stopped and started (a full power cycle); a reboot from inside the OS is not enough. Requires scope ` +
+    `services:write. An omitted or empty list changes nothing. service_id comes from list_services; ` +
+    `keyIds come from list_service_ssh_key_library.`,
   method: 'POST',
   safety: {
     kind: 'disruptive',
-    reason: "replaces the set of SSH keys authorized on the server; keys not in the list lose access (an empty list removes them all)",
+    reason: "changes which SSH keys can log in to the server once it is stopped and started",
   },
   input: z.object({ service_id: z.string().min(1), keyIds: z.array(z.string().min(1).max(64)).max(50).optional() }).strict(),
   inputSchema: {

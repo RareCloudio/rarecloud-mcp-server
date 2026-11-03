@@ -99,7 +99,7 @@ export const listRegistryTiers = readList(
   'List the container registry\'s billing tiers: for each tier, its included storage quota (decimal GB), ' +
     'burst ceiling (quota multiplied by the tier\'s burst multiplier; the free tier never bursts), monthly ' +
     'price in EUR/USD cents, overage price per GB-month above quota, and whether the tier is currently ' +
-    'generally available (`available`; before launch every tier is false). No input. Use before ' +
+    'generally available (`available`; false while the registry is paused). No input. Use before ' +
     'enable_registry to choose a starting tier, or before set_registry_tier to compare options.',
 );
 

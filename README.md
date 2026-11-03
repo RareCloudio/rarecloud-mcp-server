@@ -2,7 +2,7 @@
 
 Model Context Protocol server for the [RareCloud](https://rarecloud.io) API.
 
-Drop into [Claude Code](https://claude.com/claude-code), Claude Desktop, [Cursor](https://cursor.com), or your own MCP client to let AI agents inspect, reason about, and now also **manage** your RareCloud account: list servers, browse the catalog, check billing, inspect cloud infrastructure, deploy a VM, resize it, attach storage, and more.
+Drop into [Claude Code](https://claude.com/claude-code), Claude Desktop, [Cursor](https://cursor.com), or your own MCP client to let AI agents inspect, reason about, and **manage** your RareCloud account: list servers, browse the catalog, check billing, inspect cloud infrastructure, deploy a VM, resize it, attach storage, and more.
 
 ## What it does
 
@@ -35,20 +35,20 @@ Exposes **224 tools** wrapping the RareCloud REST API: **111 read tools** (inspe
 | Billing | `list_invoices` | Invoice history: number, status, issued date, total |
 | | `get_invoice` | Full invoice detail: line items, taxes, payment method + timestamp |
 | | `get_credit_balance` | Current prepaid credit balance |
-| | `get_credit_ledger` | Credit movements (top-ups, vouchers, metering debits, refunds) |
+| | `get_credit_ledger` | Credit movements (top-ups, metering debits, refunds) |
 | | `get_invoice_pay_preview` | Preview what paying an invoice from balance would consume (bonus → credit → shortfall) |
 | | `list_payment_methods` | Available payment options (WHMCS gateways) |
 | | `get_billing_campaign` | The active credit (deposit-match) promo, or none |
 | | `get_bonus_balance` | Promo (bonus) balance, in cents (EUR) |
-| | `get_bonus_ledger` | Bonus-credit ledger: campaign grants and promo consumption |
+| | `get_bonus_ledger` | Bonus-credit ledger: campaign and voucher grants and promo consumption |
 | | `get_billing_alert` | Spending-alert state: threshold, month-to-date spend, triggered? |
-| | `get_billing_state` | Cloud auto-suspend state (normal / grace-period / suspended) |
+| | `get_billing_state` | Cloud billing state (ok or suspended), any open cloud invoice with its dated suspension schedule, and the runway |
 | Support | `list_tickets` | Support tickets: id, subject, status, department, last-updated |
 | | `get_ticket` | One support ticket with its full message thread |
 | | `list_ticket_departments` | Support departments + their ids (for opening a ticket) |
 | Account | `get_account` | Profile: email, name, country, billing currency, creation date |
-| | `list_ssh_keys` | SSH keys on a specific server (legacy VPS) |
-| | `get_account_limits` | Resource limits and current usage (servers / vCPUs / IPs / volumes / …) |
+| | `list_ssh_keys` | SSH keys on a specific server (legacy VPS); for account-wide keys see `list_account_ssh_keys` |
+| | `get_account_limits` | Account counters: active services, API tokens (cap 20), sub-users (cap 10); for cloud quotas see `get_quota_limits` |
 | | `list_account_clients` | Users linked to this client account (accepted members + pending invites) |
 | | `get_affiliate` | Affiliate status + stats: referral link, conversions, commissions, payouts |
 | | `get_two_factor_status` | Whether 2FA (TOTP) is enabled on the account |
@@ -95,9 +95,9 @@ Exposes **224 tools** wrapping the RareCloud REST API: **111 read tools** (inspe
 | | `get_cluster_kubeconfig` | Short-lived admin kubeconfig (expires in hours), **live secret** |
 | | `list_cluster_kubeconfigs` | Long-lived kubeconfig credentials, metadata only (token never returned) |
 | | `download_cluster_kubeconfig` | Re-download a long-lived credential's kubeconfig (active-only), **live secret** |
-| Proxies | `list_proxies` | Residential proxy services: id, name, flavor, status, plan, expiry |
+| Proxies | `list_proxies` | Proxy services (ISP, GB Residential, mobile): id, kind, status, quantity, location, expiry, auto-renew, tags |
 | | `get_proxy_catalog` | Proxy order-wizard catalog: ISP IP-count tiers + GB Residential buckets, pricing |
-| | `get_proxy` | One proxy service: flavor, status, plan, location, expiry / renewal |
+| | `get_proxy` | One proxy service: kind, status, quantity, location, expiry / renewal; `closedReason` for a GB plan closed because its bandwidth is used up |
 | | `get_proxy_list` | Live proxy endpoints + credentials for an ISP fixed-IP plan, **live secret** |
 | | `get_proxy_auth` | Auth settings for a proxy service: method, credentials, IP whitelist, **live secret** |
 | | `list_gb_residential_countries` | Countries selectable when creating a GB Residential proxy-request |
@@ -106,12 +106,12 @@ Exposes **224 tools** wrapping the RareCloud REST API: **111 read tools** (inspe
 | | `get_proxy_request_list` | Live endpoints + credentials for one GB Residential proxy-request, **live secret** |
 | | `get_proxy_replacements` | IP-replacement allowance + history for a proxy service |
 | | `list_proxy_replacement_locations` | Locations a replacement IP can be placed in (ISP only) |
-| | `get_proxy_bandwidth` | Bandwidth usage of a GB Residential bucket: total, used, available |
+| | `get_proxy_bandwidth` | Bandwidth usage of a GB Residential bucket: total, used, available; `state: exhausted` when used up |
 | | `check_proxy` | Live check of every proxy of a service: up/down, exit IP, ISP, geo, latency (a POST: sends a small amount of traffic through each proxy and refreshes the shown location) |
 | | `get_proxy_auto_rotation` | Auto-rotation settings of a mobile proxy line |
 | AI Sandboxes | `list_sandboxes` | Sandboxes: id, name, status, template, image, labels, env names (never values), run mode, expiry |
 | | `get_sandbox` | One sandbox: status (and why it is pending), image, labels, env names, run mode, `expiresAt` |
-| | `list_sandbox_templates` | Templates (python / node / base): size, image, price per hour in EUR and USD |
+| | `list_sandbox_templates` | Templates (python / node / base): default size, image, price per hour in EUR and USD |
 | | `read_sandbox_file` | Read one file by absolute path (text, or base64 for binary; up to 25 MiB) |
 | | `get_sandbox_logs` | Last lines of a run-mode sandbox's output, plain text (404 = logs gone; 503 = not available yet) |
 | | `check_order` | Would `deploy_service` be accepted right now? Same body, creates and reserves nothing; on a refusal returns the message plus the Add funds or Pay invoice link for the human (needs `services:write`) |
@@ -138,7 +138,7 @@ The **Safety** column is each tool's kind (see [Safety model](#safety-model)). *
 | | `resize_service` | **spends** | Resize a cloud VM to a new flavor/plan |
 | | `upgrade_service` | **spends** | Create an upgrade order moving a service to a new product/plan |
 | | `renew_service` | **spends** | Ensure a renewal invoice exists for a service |
-| | `cancel_service` | **destructive** | File a cancellation request: immediate or end-of-term |
+| | `cancel_service` | **destructive** | File a cancellation request for a legacy service: immediate or end-of-term |
 | | `set_service_autorenew` | plain | Toggle auto-renew for a service |
 | | `create_service_backup` | plain | Create an on-demand backup of a legacy VPS |
 | | `mount_service_iso` | plain | Mount a rescue/install ISO on a VPS |
@@ -149,9 +149,9 @@ The **Safety** column is each tool's kind (see [Safety model](#safety-model)). *
 | | `reboot_service` | **disruptive** | Reboot a service |
 | | `reinstall_service` | **destructive** | Reinstall (rebuild from scratch) a service, wiping the disk (returns a **live secret**) |
 | | `reset_service_password` | **disruptive** | Reset the root password live via qemu-guest-agent, on a running cloud VM |
-| | `add_service_ssh_key` | **sensitive** | Install an SSH public key directly onto a running service |
+| | `add_service_ssh_key` | **sensitive** | Install an SSH public key on a service (on a legacy VPS it takes effect after a stop and start) |
 | | `add_service_ssh_key_to_library` | plain | Register an SSH key in a legacy VPS's reinstall-time key library |
-| | `apply_service_ssh_key_library` | **disruptive** | Apply a set of library SSH keys to a legacy VPS, replacing the current set |
+| | `apply_service_ssh_key_library` | **disruptive** | Install a selected set of library SSH keys on a legacy VPS; they take effect after a stop and start; an empty list changes nothing |
 | | `set_service_tags` | plain | Replace a cloud VM's tags (the whole set; `[]` clears them) |
 | Managed Kubernetes | `set_cluster_scale` | **disruptive** | Set the autoscaling bounds of a cluster's first node pool |
 | | `add_cluster_pool` | **spends** | Add a named worker node pool |
@@ -174,7 +174,7 @@ The **Safety** column is each tool's kind (see [Safety model](#safety-model)). *
 | | `detach_reserved_ip` | **disruptive** | Detach a reserved public IP from its VM |
 | Cloud infra: firewalls / load balancers | `create_firewall` | plain | Create a new cloud firewall (security group) |
 | | `delete_firewall` | **destructive** | Delete a cloud firewall (the default and the Private network firewall answer 409) |
-| | `add_firewall_rule` | plain | Add an inbound/outbound rule to a firewall (inbound on the Private network firewall needs a private source range) |
+| | `add_firewall_rule` | plain | Add an inbound/outbound rule to a firewall (inbound on the Private network firewall needs a private source range; a rule that would allow outbound port 25 from a restricted VM answers 409) |
 | | `delete_firewall_rule` | **destructive** | Remove a rule from a firewall |
 | | `attach_firewall` | plain | Attach a firewall to a cloud VM |
 | | `detach_firewall` | **disruptive** | Detach a firewall from a cloud VM |
@@ -216,13 +216,13 @@ The **Safety** column is each tool's kind (see [Safety model](#safety-model)). *
 | | `create_affiliate_link` | plain | Mint a signed affiliate referral link (no money movement) |
 | Billing | `set_billing_alert` | plain | Set (or update) the month-to-date spend alert |
 | | `delete_billing_alert` | **destructive** | Remove the month-to-date spend alert |
-| | `redeem_voucher` | plain | Redeem a credit voucher / promo code (adds credit: never spends) |
+| | `redeem_voucher` | plain | Redeem a voucher / promo code into the bonus balance (never spends) |
 | Support | `create_ticket` | **sensitive** | Open a support ticket |
 | | `reply_ticket` | **sensitive** | Post a reply to an existing support ticket |
 | | `close_ticket` | plain | Close a support ticket |
-| Proxies | `order_proxy` | **spends** | Order a new residential proxy plan: ISP or GB Residential (returns a **live secret**) |
-| | `renew_proxy` | **spends** | Renew a proxy service for another billing term |
-| | `set_proxy_auto_renew` | plain | Turn a proxy service's auto-renew on/off |
+| Proxies | `order_proxy` | **spends** | Order a new residential proxy plan: ISP or GB Residential, not mobile (returns a **live secret**) |
+| | `renew_proxy` | **spends** | Renew a proxy service for another billing term (a GB plan whose bandwidth is used up cannot be renewed) |
+| | `set_proxy_auto_renew` | plain | Turn auto-renew on/off for an ISP or mobile service |
 | | `cancel_proxy` | **destructive** | Cancel a proxy service |
 | | `set_proxy_auth_method` | **disruptive** | Switch a proxy service's authentication method |
 | | `set_proxy_credentials` | **disruptive** | Set a proxy service's username/password |
@@ -233,7 +233,7 @@ The **Safety** column is each tool's kind (see [Safety model](#safety-model)). *
 | | `delete_proxy_request` | **destructive** | Delete a proxy-request from a GB Residential bucket |
 | | `set_proxy_auto_rotation` | **disruptive** | Turn a mobile line's automatic IP rotation on/off and set its interval |
 | | `rotate_proxy` | **disruptive** | Rotate a mobile line's exit IP now |
-| AI Sandboxes | `create_sandbox` | **spends** | Create a sandbox from a template or image, with lifetime, name, env, labels, network switch and optional run mode (billed per second; env values never returned) |
+| AI Sandboxes | `create_sandbox` | **spends** | Create a sandbox from a template or image (default size only; no size or custom resources yet), with lifetime, name, env, labels, network switch and optional run mode (billed per second; env values never returned) |
 | | `delete_sandbox` | **destructive** | Terminate a sandbox and delete everything in it |
 | | `run_sandbox_code` | plain | Run a Python or Node snippet in a sandbox; returns stdout, stderr, exit code |
 | | `run_sandbox_command` | plain | Run a shell command (`sh -c`) in a sandbox; returns stdout, stderr, exit code |
@@ -247,6 +247,8 @@ The **Safety** column is each tool's kind (see [Safety model](#safety-model)). *
 | Outbound email | `request_smtp_unblock` | **sensitive** | Ask for outbound port 25 on a cloud VM (only port 25 is blocked on new cloud servers); opens a support ticket and a human operator decides; 7-day wait after a rejection |
 
 Notably absent by design: no password/2FA changes, no sub-user invites, no payment-method or API-token management, no credit top-up, no invoice payment, no affiliate activate/withdraw, and no way to change a resource's API access. Those are identity, credential, or raw-money-movement operations that stay out of an agent's reach: they have no tool at all (see [Security](#security)). Registry robot credentials (`create_registry_credential`, `create_registry_kubernetes_manifest`) are a different class: infrastructure access, like SSH keys and kubeconfigs, so they have tools, gated as **sensitive** and shown once. Sandbox port exposure has no tool either, for a different reason: the API answers 501 for it (preview URLs are not part of AI Sandboxes v1).
+
+Not covered by a tool yet, but available in the console and the CLI: sandbox sizes and custom resources, ordering mobile proxy lines and renewing them for other than one month, mobile proxy prices, regenerating mobile credentials, VPN config files, proxy tags, switching an ISP proxy's protocol, the live check of a single proxy-request, the billing alert's runway threshold, and the web console URL.
 
 ## Safety model
 
@@ -374,7 +376,7 @@ Once configured, try:
 
 - *"What VPS plans do you offer in Frankfurt?"* → uses `list_catalog_products` + `list_regions`
 - *"List my running servers and their monthly cost"* → `list_services` + per-service spec lookup
-- *"Am I close to any resource limits?"* → `get_account_limits`
+- *"Am I close to any resource limits?"* → `get_quota_limits`
 - *"Show my block volumes and which VM each is attached to"* → `list_volumes`
 - *"Any unpaid invoices, and what would paying the latest one from my balance cost?"* → `list_invoices` + `get_invoice_pay_preview`
 - *"Give me a Terraform config for a 2 vCPU / 4 GB VPS in The Hague"* → `get_catalog_plan` + composition
@@ -418,7 +420,7 @@ Tests run on the built-in Node test runner (`node:test`) via `tsx`: no build ste
 
 - Tokens never touch shell history (we use env vars, not CLI flags).
 - Each tool maps 1:1 to a RareCloud API endpoint; the MCP server doesn't aggregate or transform data beyond what the API returns.
-- **Scope is exact-match per token, enforced server-side.** A token only unlocks the tools whose scope it carries; there is no wildcard scope matching (`*:read` does not imply `services:read`) and no client-side scope bypass: an unscoped or under-scoped token gets the API's own `[FORBIDDEN]` response back.
+- **Scope is exact-match per token, enforced server-side.** A token only unlocks the tools whose scope it carries; there is no wildcard scope matching (`*:read` does not imply `services:read`) and no client-side scope bypass: an unscoped or under-scoped token gets the API's own `[PERMISSION_DENIED]` response back.
 - **Writes exist and are gated.** 113 of the 224 tools mutate state. The 86 that spend money, destroy something, disrupt something running, or are security-sensitive require `confirm:true` and make no API call at all without it (see [Safety model](#safety-model)). The remaining 27 are plain (no charge, nothing torn down) and run without confirmation once the token's scope allows them.
 - **No identity/credential/money-movement surface, by design, not by gate.** Password/2FA changes, sub-user invites, payment-method management, API-token management, credit top-up, invoice payment, and affiliate activate/withdraw, and the per-resource API access switch, have no tool here at all: an agent holding even a maximally-scoped token cannot reach them. A registry test pins this exclusion list so a future change can't quietly add one back.
 - The tools that return live credentials (kubeconfigs, proxy endpoint/auth lists, one-time console passwords) carry the standard SECURITY sentence so the agent doesn't echo them back unprompted.

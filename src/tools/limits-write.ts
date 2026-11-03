@@ -57,7 +57,7 @@ export const requestQuotaIncrease: ToolDefinition = writeTool({
   safety: {
     kind: 'sensitive',
     reason:
-      "submits a quota request on the user's behalf; a large one opens a support ticket that RareCloud staff act on, and it replaces any pending request",
+      "submits a quota request on the user's behalf; it opens a support ticket that a person reviews, and it replaces any pending request",
   },
   input: z
     .object({

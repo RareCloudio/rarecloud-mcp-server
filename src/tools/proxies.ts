@@ -32,7 +32,7 @@ const proxyIdSchema = {
 export const listProxies = readList(
   'list_proxies',
   '/v1/proxies',
-  'List your residential proxy services: id, name, flavor (ISP fixed-IP plan vs GB Residential bandwidth bucket), status, plan, and expiry. Use for "what proxy services do I have?" or to find a proxy service id.',
+  'List your proxy services: id, kind (residential-isp, residential-gb, mobile-4g, mobile-vpn or mobile-multisim), status, quantity, location, expiry, auto-renew and tags. Use for "what proxy services do I have?" or to find a proxy service id.',
 );
 
 export const getProxyCatalog = readList(
@@ -58,7 +58,7 @@ export const listGbRotationIntervals = readList(
 export const getProxy = readOne(
   'get_proxy',
   '/v1/proxies',
-  'Get one residential proxy service: flavor (ISP fixed-IP plan vs GB Residential bandwidth bucket), status, plan, location, and expiry/renewal. Use after list_proxies to inspect a single service. The id comes from list_proxies.',
+  'Get one proxy service: kind (residential-isp, residential-gb, mobile-4g, mobile-vpn or mobile-multisim), status, quantity, location, and expiry/renewal. closedReason bandwidth_exhausted means a GB plan whose bandwidth is used up: its status is expired and it cannot be renewed, so order a new GB plan. Use after list_proxies to inspect a single service. The id comes from list_proxies.',
   'id',
   { idSource: 'list_proxies' },
 );
@@ -86,7 +86,7 @@ export const getProxyAuth = readTool({
 export const listProxyRequests = readTool({
   name: 'list_proxy_requests',
   description:
-    'List the proxy-requests on a GB Residential bandwidth bucket: the country + rotation-interval + count groups that allocate endpoints from the bucket. Use to see the groups on a GB service or to find a proxy-request id. GB Residential only; ISP fixed-IP plans expose their endpoints directly via get_proxy_list. The id comes from list_proxies (a GB Residential service).',
+    'List the proxy-requests on a GB Residential bandwidth bucket: the country + rotation-interval + count groups that allocate endpoints from the bucket. A plan whose bandwidth is used up answers 409 CONFLICT. Use to see the groups on a GB service or to find a proxy-request id. GB Residential only; ISP fixed-IP plans expose their endpoints directly via get_proxy_list. The id comes from list_proxies (a GB Residential service).',
   inputSchema: proxyIdSchema,
   buildPath: (args) => `/v1/proxies/${encodeSegment(args.id, 'id')}/proxy-requests`,
 });
@@ -133,6 +133,7 @@ export const getProxyBandwidth = readTool({
   name: 'get_proxy_bandwidth',
   description:
     'Get the bandwidth usage of a GB Residential bandwidth bucket: unit (e.g. MB), total, used and available. ' +
+    'state exhausted means the bandwidth is used up and the plan is closed: order a new GB plan. ' +
     'Use to see how much of a GB bucket is left before creating more proxy-requests or ordering a bigger bucket. ' +
     'GB Residential only: ISP and mobile services return an INVALID_PARAM error. The id comes from list_proxies.',
   inputSchema: proxyIdSchema,
@@ -175,7 +176,7 @@ export const listProxyReplacementLocations = readTool({
   name: 'list_proxy_replacement_locations',
   description:
     'List the locations (id + label) a new IP can be placed in when replacing an IP of an ISP proxy service. ' +
-    'This set comes from the proxy provider and differs from the order catalog locations in get_proxy_catalog. ' +
+    'This set differs from the order catalog locations in get_proxy_catalog. ' +
     'ISP proxy services only. Check get_proxy_replacements first for the monthly allowance. The id comes from list_proxies.',
   inputSchema: proxyIdSchema,
   buildPath: (args) => `/v1/proxies/${encodeSegment(args.id, 'id')}/replacements/locations`,

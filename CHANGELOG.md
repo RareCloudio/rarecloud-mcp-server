@@ -2,6 +2,66 @@
 
 All notable changes to `@rarecloudio/mcp-server` are recorded here.
 
+## 0.5.1 (2026-11-03)
+
+Totals are unchanged: 224 tools, 111 reads, 113 writes (86 gated, 27 plain), 46
+take `idempotency_key`. No tool was added, renamed or removed, and no input
+changed except the addition under Added.
+
+### Fixed: descriptions that did not match the API
+
+- `renew_proxy`: covers ISP and GB plans, and a mobile line for one month. It
+  said ISP only.
+- `set_proxy_auto_renew`: covers ISP and mobile. It said ISP only.
+- `renew_service`: returns or creates the renewal invoice and pays nothing. It
+  said the invoice is settled from the balance.
+- `redeem_voucher`, `get_credit_ledger`, `get_bonus_ledger`: a voucher grants
+  bonus balance, not credit.
+- `get_billing_state`: the state is ok or suspended, with the open invoice,
+  suspension schedule and runway. There is no grace period.
+- `create_load_balancer`: EUR 9/month with the public IP included. It said the
+  load balancer and its IP were each billed hourly.
+- `request_proxy_replacement`: no support ticket is opened.
+- `cancel_service`: legacy services only, and `immediate` files a request. It
+  said `immediate` stops the service now.
+- `apply_service_ssh_key_library`: an empty list changes nothing; keys take
+  effect after a stop and start. It said an empty list removes every key, and no
+  longer says what happens to keys already installed.
+- `add_service_ssh_key`: on a legacy VPS the key takes effect after a stop and
+  start.
+- `get_account_limits`: active services, API tokens and sub-users. For cloud
+  quotas use `get_quota_limits`.
+- `request_quota_increase`: every request opens a support ticket, not only a
+  large one.
+- `create_sandbox`, `list_sandbox_templates`: the template sets the default size;
+  this tool cannot choose a size yet.
+- `list_ssh_keys`: account-wide keys exist (`list_account_ssh_keys`).
+- `list_proxies`, `get_proxy`: name the real fields, `kind` instead of `flavor`,
+  and the mobile kinds.
+- README: an under-scoped token gets `[PERMISSION_DENIED]`, not `[FORBIDDEN]`.
+
+### Added to the descriptions
+
+- Outbound port 25: `add_firewall_rule`, `attach_firewall`, `attach_network_vm`
+  and `deploy_service` describe `409 SMTP_EGRESS_NOT_APPROVED`.
+- Used-up GB plans: `get_proxy` (`closedReason`), `get_proxy_bandwidth`
+  (`state: exhausted`), `renew_proxy`, `cancel_proxy`, `list_proxy_requests` and
+  `create_proxy_request`.
+- README: the capabilities the console and the CLI have and these tools do not.
+
+### Added
+
+- `list_catalog_products`: `kind` also accepts `cloud_loadbalancer`,
+  `cloud_reserved_ip` and `cloud_object_storage`, which the API already filters on.
+
+### Changed
+
+- Registry tools no longer speak of a launch that has happened: they say what the
+  API answers if the registry is paused.
+- `package.json` description: agents can manage the account, not only read it.
+- Removed internal wording from `get_credit_balance`, `cancel_proxy` and
+  `list_proxy_replacement_locations`.
+
 ## 0.5.0 (2026-11-03)
 
 Totals with every entry below: 224 tools, 111 reads, 113 writes (86 gated,

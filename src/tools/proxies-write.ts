@@ -116,7 +116,8 @@ const orderProxyInput = z.union([
 export const orderProxy: ToolDefinition = writeTool({
   name: 'order_proxy',
   description:
-    `Order a new residential proxy plan. Requires scope services:write (${SCOPE_NOTE}). Two shapes: a US ` +
+    `Order a new residential proxy plan. Mobile lines cannot be ordered with this tool (use the console or ` +
+    `the CLI). Requires scope services:write (${SCOPE_NOTE}). Two shapes: a US ` +
     `Residential ISP plan {ips, cycle, locationId, protocol, authType} (discover the options and prices ` +
     `with get_proxy_catalog), or a GB Residential bucket {kind:"residential-gb", gb}. For an ISP plan the ` +
     `result includes the new proxy list.`,
@@ -153,10 +154,12 @@ export const orderProxy: ToolDefinition = writeTool({
 export const renewProxy: ToolDefinition = writeTool({
   name: 'renew_proxy',
   description:
-    `Renew a proxy service for another billing term. Requires scope services:write (${SCOPE_NOTE}). ISP ` +
-    `proxy services only. periods (1, 3, 6, or 12; default 1) selects how many terms to prolong in one ` +
-    `call; bulk periods carry a discount (3 -> 5%, 6 -> 10%, 12 -> 20%); see get_proxy_catalog for ` +
-    `prices. id comes from list_proxies.`,
+    `Renew a proxy service for another billing term. Requires scope services:write (${SCOPE_NOTE}). ISP and ` +
+    `GB plans: periods (1, 3, 6, or 12; default 1) selects how many terms to prolong in one call; bulk ` +
+    `periods carry a discount (3 -> 5%, 6 -> 10%, 12 -> 20%); see get_proxy_catalog for prices. A mobile ` +
+    `line renews for one month here, whatever periods says; other terms are in the console and the CLI. ` +
+    `A GB plan closed because its bandwidth is used up cannot be renewed (409 CONFLICT): order a new GB ` +
+    `plan. id comes from list_proxies.`,
   method: 'POST',
   idempotent: true,
   safety: {
@@ -197,7 +200,7 @@ export const setProxyAutoRenew: ToolDefinition = writeTool({
   name: 'set_proxy_auto_renew',
   description:
     `Turn a proxy service's auto-renew on or off. Requires scope services:write (${SCOPE_NOTE}). ISP ` +
-    `proxy services only. Nothing is charged now; a later automatic renewal is billed on its own ` +
+    `and mobile services; a GB plan answers INVALID_PARAM. Nothing is charged now; a later automatic renewal is billed on its own ` +
     `schedule. id comes from list_proxies.`,
   method: 'POST',
   safety: { kind: 'plain' },
@@ -222,8 +225,9 @@ export const cancelProxy: ToolDefinition = writeTool({
   description:
     `Cancel a proxy service (ISP, GB Residential, or mobile, any kind). Requires scope services:write ` +
     `(${SCOPE_NOTE}). Prepaid semantics: flags the service to stop auto-renewing; it stays usable until ` +
-    `its paid expiry, then ends normally (no upstream teardown call, no refund). cancel:true (the ` +
-    `default) cancels at period end; cancel:false undoes a prior cancel and restores auto-renew. id comes ` +
+    `its paid expiry, then ends normally (no refund). cancel:true (the ` +
+    `default) cancels at period end; cancel:false undoes a prior cancel and restores auto-renew, except on ` +
+    `a GB plan closed because its bandwidth is used up (409 CONFLICT). id comes ` +
     `from list_proxies.`,
   method: 'POST',
   safety: {
@@ -381,8 +385,8 @@ export const requestProxyReplacement: ToolDefinition = writeTool({
   name: 'request_proxy_replacement',
   description:
     `Request an IP replacement for a proxy service, consuming the included monthly allowance (1/month). ` +
-    `Requires scope services:write (${SCOPE_NOTE}). ISP proxy services only. Opens a support ticket that ` +
-    `fulfils the swap; check get_proxy_replacements first to confirm an allowance is available this month ` +
+    `Requires scope services:write (${SCOPE_NOTE}). ISP proxy services only. The replacement is requested ` +
+    `from the provider at once; check get_proxy_replacements first to confirm an allowance is available this month ` +
     `(the request is refused server-side once the allowance is used). To move the new IP to another ` +
     `location, pick one from list_proxy_replacement_locations and pass its id as locationId (and its label ` +
     `as locationLabel so the shown location follows); omit both to replace in the same location. id comes ` +
@@ -436,7 +440,7 @@ export const createProxyRequest: ToolDefinition = writeTool({
   name: 'create_proxy_request',
   description:
     `Create a proxy-request (country + rotation-interval + count group) on a GB Residential bucket, ` +
-    `allocating endpoints from it. Requires scope services:write (${SCOPE_NOTE}). GB Residential only: ` +
+    `allocating endpoints from it. A plan whose bandwidth is used up answers 409 CONFLICT. Requires scope services:write (${SCOPE_NOTE}). GB Residential only: ` +
     `ISP fixed-IP plans expose their endpoints directly via get_proxy_list. The result is the request ` +
     `metadata only; fetch its endpoints with get_proxy_request_list. countryId comes from ` +
     `list_gb_residential_countries; rotationInterval comes from list_gb_rotation_intervals. id comes from ` +

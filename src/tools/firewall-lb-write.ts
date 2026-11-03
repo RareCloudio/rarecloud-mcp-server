@@ -104,7 +104,7 @@ export const deleteFirewall: ToolDefinition = writeTool({
 export const addFirewallRule: ToolDefinition = writeTool({
   name: 'add_firewall_rule',
   description:
-    `Add an inbound/outbound rule to a cloud firewall. Requires scope services:write. id is the firewall ` +
+    `Add an inbound/outbound rule to a cloud firewall. Requires scope services:write. A rule that would allow outbound TCP port 25 from a cloud VM that is restricted and not approved answers 409 SMTP_EGRESS_NOT_APPROVED (see get_service_smtp and request_smtp_unblock). id is the firewall ` +
     `id from list_firewalls / get_firewall. direction and protocol are required; ` +
     `portRangeMin/portRangeMax (1-65535) narrow the rule to specific ports (omit both to match all ` +
     `ports); remoteCidr is the source (inbound) or destination (outbound) range, default 0.0.0.0/0; ` +
@@ -193,7 +193,7 @@ export const attachFirewall: ToolDefinition = writeTool({
   name: 'attach_firewall',
   description:
     `Attach a cloud firewall to every interface of a cloud VM, the public one included. Requires scope ` +
-    `services:write. id comes from list_firewalls; serverId is the cloud VM to attach to (the same value ` +
+    `services:write. A firewall that would allow outbound TCP port 25 from a cloud VM that is restricted and not approved answers 409 SMTP_EGRESS_NOT_APPROVED (see get_service_smtp and request_smtp_unblock). id comes from list_firewalls; serverId is the cloud VM to attach to (the same value ` +
     `as the cloud VM service_id from list_services). The account's Private network firewall ` +
     `(isPrivateNetwork true) cannot be attached: 409 CONFLICT, because the platform applies it to private ` +
     `interfaces by itself; edit its rules instead.`,
@@ -267,7 +267,7 @@ export const createLoadBalancer: ToolDefinition = writeTool({
   idempotent: true,
   safety: {
     kind: 'spends',
-    reason: "creates a load balancer and a public IP, each billed hourly until the load balancer is deleted",
+    reason: "creates a load balancer billed EUR 9/month (metered hourly, capped at the monthly price), its public IP included, until it is deleted",
   },
   input: z
     .object({

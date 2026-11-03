@@ -64,7 +64,7 @@ export const getInvoice: ToolDefinition = defineReadTool({
 
 export const getCreditBalance: ToolDefinition = defineReadTool({
   name: 'get_credit_balance',
-  description: 'Get the current account credit balance (Pattern A v2 prepaid credit). Use for "how much do I have left?", or to check before suggesting actions that would consume credit (cloud-compute hourly billing).',
+  description: 'Get the current account credit balance (prepaid credit). Use for "how much do I have left?", or to check before suggesting actions that would consume credit (cloud-compute hourly billing).',
   inputSchema: {
     type: 'object',
     properties: {},
@@ -82,7 +82,7 @@ export const getCreditBalance: ToolDefinition = defineReadTool({
 
 export const getCreditLedger: ToolDefinition = defineReadTool({
   name: 'get_credit_ledger',
-  description: 'List credit ledger entries (top-ups, voucher redemptions, hourly metering debits, refunds) for the authenticated account. Use to explain "where did my credit go?" or to reconcile a balance.',
+  description: 'List credit ledger entries (top-ups, hourly metering debits, refunds) for the authenticated account. Use to explain "where did my credit go?" or to reconcile a balance.',
   inputSchema: {
     type: 'object',
     properties: {},
@@ -133,7 +133,7 @@ export const getBonusBalance = readList(
 export const getBonusLedger = readList(
   'get_bonus_ledger',
   '/v1/billing/bonus/ledger',
-  'List all bonus-credit ledger entries (newest first): campaign grants (positive) and promo consumption (negative). Use to explain "where did my bonus go?": distinct from get_credit_ledger, which tracks real (WHMCS) credit.',
+  'List all bonus-credit ledger entries (newest first): campaign and voucher grants (positive) and promo consumption (negative). Use to explain "where did my bonus go?": distinct from get_credit_ledger, which tracks real (WHMCS) credit.',
 );
 
 export const getBillingAlert = readList(
@@ -145,5 +145,5 @@ export const getBillingAlert = readList(
 export const getBillingState = readList(
   'get_billing_state',
   '/v1/billing/state',
-  'Get the cloud auto-suspend state for the account (normal / grace-period / suspended), which drives the dashboard billing banner. Use to check whether a low balance is putting services at risk of suspension.',
+  'Get the cloud billing state of the account: state (ok or suspended), any open cloud invoice with its dated suspension schedule, and the runway. It drives the dashboard billing banner. Use to check whether a low balance is putting services at risk of suspension.',
 );
