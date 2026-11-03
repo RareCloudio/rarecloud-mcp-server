@@ -153,7 +153,7 @@ export const updateBucket: ToolDefinition = writeTool({
     properties: {
       id: { type: 'string', minLength: 1, description: 'Bucket id from list_buckets.' },
       versioning: { type: 'boolean', description: 'Keep old object versions (billed as stored data).' },
-      public: { type: 'boolean', description: 'true: serve the bucket publicly over the CDN. false: make it private again.' },
+      public: { type: 'boolean', description: 'Public delivery is not available yet: true answers 503 BACKEND_UNAVAILABLE. false: make it private again.' },
     },
     required: ['id'],
     additionalProperties: false,

@@ -10,6 +10,9 @@ changed except the addition under Added.
 
 ### Fixed: descriptions that did not match the API
 
+- `update_bucket`: public delivery is not available yet, `public:true` answers 503
+  `BACKEND_UNAVAILABLE`.
+- `list_images`: no Windows Server image is offered.
 - `renew_proxy`: covers ISP and GB plans, and a mobile line for one month. It
   said ISP only.
 - `set_proxy_auto_renew`: covers ISP and mobile. It said ISP only.
