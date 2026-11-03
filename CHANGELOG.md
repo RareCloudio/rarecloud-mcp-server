@@ -2,6 +2,33 @@
 
 All notable changes to `@rarecloudio/mcp-server` are recorded here.
 
+## 0.5.0 (2026-11-03)
+
+Totals with every entry below: 224 tools, 111 reads, 113 writes (86 gated,
+27 plain), 46 take `idempotency_key`.
+
+### Added: outbound email (SMTP port 25) tools
+
+Outbound email on TCP port 25 is blocked on new cloud VMs; ports 465 and 587
+to a mail provider stay open. These tools need an API release that has the
+`/v1/services/{id}/smtp` routes; an older API answers 404.
+
+- `get_service_smtp` (read, `services:read`): the VM's state (open, blocked,
+  pending, approved or rejected), the latest unblock request, and
+  `canRequestAfter` after a rejection or a revoked approval.
+- `request_smtp_unblock` (sensitive, `services:write`): sends the answers the
+  API asks for (purpose, software, domains, SPF/DKIM/DMARC, rdns, recipients,
+  messagesPerDay, acceptPolicy) with the same conditional rules, so a bad
+  answer is refused without a request. It opens a support ticket and a human
+  operator decides; after a rejection or a revoke a new request waits 7 days
+  (409 CONFLICT). No `idempotency_key`: the API exempts the route, and a repeat
+  answers CONFLICT instead of opening a second ticket.
+
+### Fixed
+
+- `request_quota_increase` and its docs no longer promise automatic approval: every request opens a
+  support ticket and a person from our team decides.
+
 ## 0.4.0 (2026-10-17)
 
 Container Registry and AI Sandboxes tools are included ahead of each product's launch: until then registry writes answer 503 and `get_registry` 404 "not enabled"; sandbox tools answer 503.
