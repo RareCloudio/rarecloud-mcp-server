@@ -241,7 +241,7 @@ The **Safety** column is each tool's kind (see [Safety model](#safety-model)). *
 | Snapshots | `create_snapshot` | **spends** | Snapshot a cloud VM's root disk; take one before `reinstall_service` / `resize_service` (billed for the storage it uses) |
 | | `delete_snapshot` | **destructive** | Delete a VM snapshot (refused while VMs created from it exist) |
 | | `restore_snapshot` | **destructive** | Restore a cloud VM from one of its own snapshots: the undo; replaces the root disk |
-| Quotas | `request_quota_increase` | **sensitive** | Ask for a higher quota; modest ones apply at once, larger ones open a support ticket |
+| Quotas | `request_quota_increase` | **sensitive** | Ask for a higher quota; it opens a support ticket and a person from our team decides |
 | Reverse DNS | `set_service_rdns` | **disruptive** | Set the reverse DNS (PTR) record of a cloud VM's public IPv4 (e.g. for a mail server) |
 | | `delete_service_rdns` | **disruptive** | Remove the reverse DNS (PTR) record of a cloud VM's public IPv4 |
 | Outbound email | `request_smtp_unblock` | **sensitive** | Ask for outbound port 25 on a cloud VM (only port 25 is blocked on new cloud servers); opens a support ticket and a human operator decides; 7-day wait after a rejection |

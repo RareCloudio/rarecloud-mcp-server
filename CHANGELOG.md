@@ -2,7 +2,7 @@
 
 All notable changes to `@rarecloudio/mcp-server` are recorded here.
 
-## Unreleased
+## 0.5.0 (2026-11-03)
 
 Totals with every entry below: 224 tools, 111 reads, 113 writes (86 gated,
 27 plain), 46 take `idempotency_key`.
@@ -23,6 +23,11 @@ to a mail provider stay open. These tools need an API release that has the
   operator decides; after a rejection or a revoke a new request waits 7 days
   (409 CONFLICT). No `idempotency_key`: the API exempts the route, and a repeat
   answers CONFLICT instead of opening a second ticket.
+
+### Fixed
+
+- `request_quota_increase` and its docs no longer promise automatic approval: every request opens a
+  support ticket and a person from our team decides.
 
 ## 0.4.0 (2026-10-17)
 
