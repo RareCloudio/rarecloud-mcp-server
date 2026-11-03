@@ -1,7 +1,7 @@
 {
   "name": "@rarecloudio/mcp-server",
-  "version": "0.5.0",
-  "description": "Model Context Protocol server for the RareCloud API. Drop into Claude Code / Claude Desktop / Cursor to let AI agents inspect and reason about your RareCloud account.",
+  "version": "0.5.1",
+  "description": "Model Context Protocol server for the RareCloud API. Drop into Claude Code / Claude Desktop / Cursor to let AI agents inspect and manage your RareCloud account.",
   "type": "module",
   "bin": {
     "rarecloud-mcp": "dist/index.js"

@@ -14,7 +14,7 @@ export const listCatalogProducts: ToolDefinition = defineReadTool({
     properties: {
       kind: {
         type: 'string',
-        enum: ['legacy_vps', 'cloud_compute', 'cloud_k8s', 'cloud_volume', 'cloud_network', 'dedicated_server', 'proxy', 'hosting', 'domain', 'app_hosting'],
+        enum: ['legacy_vps', 'cloud_compute', 'cloud_k8s', 'cloud_volume', 'cloud_network', 'cloud_loadbalancer', 'cloud_reserved_ip', 'cloud_object_storage', 'dedicated_server', 'proxy', 'hosting', 'domain', 'app_hosting'],
         description: 'Filter by product kind. Most users want legacy_vps (KVM VPS) or cloud_compute (hourly OpenStack VMs).',
       },
       backend: {
@@ -88,7 +88,7 @@ export const listRegions: ToolDefinition = defineReadTool({
 
 export const listImages: ToolDefinition = defineReadTool({
   name: 'list_images',
-  description: 'List available OS images (Ubuntu / Debian / Rocky / Windows Server / etc) that can be installed on new servers. Use to validate an image slug before recommending it. Only images that can actually be deployed are listed.',
+  description: 'List available OS images (Ubuntu / Debian / Rocky) that can be installed on new servers. Use to validate an image slug before recommending it. Only images that can actually be deployed are listed.',
   inputSchema: {
     type: 'object',
     properties: {},

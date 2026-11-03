@@ -25,7 +25,7 @@ export const getAccount: ToolDefinition = defineReadTool({
 
 export const listSshKeys: ToolDefinition = defineReadTool({
   name: 'list_ssh_keys',
-  description: 'List the SSH keys on a specific server (legacy VPS). SSH keys are per-server in the API, not account-wide. Pass a service_id from list_services.',
+  description: 'List the SSH keys on a specific server (legacy VPS). For account-wide keys use list_account_ssh_keys. Pass a service_id from list_services.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -51,7 +51,7 @@ export const listSshKeys: ToolDefinition = defineReadTool({
 
 export const getAccountLimits: ToolDefinition = defineReadTool({
   name: 'get_account_limits',
-  description: 'Get account resource limits and current usage (servers / vCPUs / snapshots / IPs / volumes / DNS zones / etc). Use before recommending a deploy to make sure the user has headroom.',
+  description: 'Get account counters: active services, API tokens (cap 20) and sub-users (cap 10). For cloud quotas before a deploy use get_quota_limits.',
   inputSchema: {
     type: 'object',
     properties: {},

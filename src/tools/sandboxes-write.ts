@@ -86,7 +86,7 @@ export const createSandbox: ToolDefinition = writeTool({
   name: 'create_sandbox',
   description:
     'Create an isolated AI Sandbox (a short-lived container for running code). Requires scope services:write. ' +
-    'All inputs are optional: template (default python) picks size and price, see list_sandbox_templates; ' +
+    'All inputs are optional: template (default python) picks the image and the default size and price (xs for base, s for python and node), see list_sandbox_templates; a size or custom resources cannot be chosen with this tool yet; ' +
     'image runs a custom public image or one from your RareCloud registry instead; timeoutMs is the lifetime ' +
     '(default 5 minutes, max 1 hour), after which it stops and is deleted at expiresAt; name, labels, env and ' +
     'networkBlocked are fixed at creation. Without run the sandbox waits for run_sandbox_code, ' +
@@ -124,7 +124,7 @@ export const createSandbox: ToolDefinition = writeTool({
         type: 'string',
         minLength: 1,
         maxLength: 64,
-        description: 'Template name from list_sandbox_templates: python (default, data science), node, or base (shell only). Drives size and price, also with a custom image.',
+        description: 'Template name from list_sandbox_templates: python (default, data science), node, or base (shell only). Sets the default size and price, also with a custom image.',
       },
       image: {
         type: 'string',
