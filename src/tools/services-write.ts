@@ -70,7 +70,8 @@ const reinstallUserDataJsonSchema = {
     'Cloud VM only (a legacy VPS refuses it with 400 INVALID_PARAM): a cloud-config or a script that cloud-init ' +
     `runs at first boot of the rebuilt VM. ${USER_DATA_FORMAT} It is not stored, so this reinstall does not reuse ` +
     'an earlier value: send it again, or the VM gets none. A reinstall from a snapshot of this same VM is refused ' +
-    'with 400 INVALID_PARAM when userData is sent: create a new VM from that snapshot instead. Any other ' +
+    'with 400 INVALID_PARAM when userData is sent and its source VM is on record, and an older snapshot may be ' +
+    'accepted with nothing run: create a new VM from that snapshot instead. Any other ' +
     USER_DATA_SNAPSHOT,
 };
 
