@@ -133,7 +133,7 @@ The **Safety** column is each tool's kind (see [Safety model](#safety-model)). *
 | Category | Tool | Safety | Purpose |
 |---|---|---|---|
 | Services | `set_service_hostname` | plain | Rename a service (legacy VPS hostname, or the cloud VM's server name) |
-| | `deploy_service` | **spends** | Deploy (order + provision) a new service: polymorphic across VM / k8s / volume / load-balancer / network / proxy / domain; load balancers, volumes and networks take no SKU (call `check_order` first; returns a **live secret**) |
+| | `deploy_service` | **spends** | Deploy (order + provision) a new service: polymorphic across VM / k8s / volume / load-balancer / network / proxy / domain; load balancers, volumes and networks take no SKU; a cloud VM takes an optional `userData` (call `check_order` first; returns a **live secret**) |
 | | `destroy_service` | **destructive** | Permanently destroy a service and release its resources (also load balancers, volumes and private networks by id) |
 | | `resize_service` | **spends** | Resize a cloud VM to a new flavor/plan |
 | | `upgrade_service` | **spends** | Create an upgrade order moving a service to a new product/plan |
@@ -147,7 +147,7 @@ The **Safety** column is each tool's kind (see [Safety model](#safety-model)). *
 | | `start_service` | plain | Power on a service |
 | | `stop_service` | **disruptive** | Power off a service |
 | | `reboot_service` | **disruptive** | Reboot a service |
-| | `reinstall_service` | **destructive** | Reinstall (rebuild from scratch) a service, wiping the disk (returns a **live secret**) |
+| | `reinstall_service` | **destructive** | Reinstall (rebuild from scratch) a service, wiping the disk; a cloud VM takes an optional `userData`, which is not kept from an earlier deploy or reinstall (returns a **live secret**) |
 | | `reset_service_password` | **disruptive** | Reset the root password live via qemu-guest-agent, on a running cloud VM |
 | | `add_service_ssh_key` | **sensitive** | Install an SSH public key on a service (on a legacy VPS it takes effect after a stop and start) |
 | | `add_service_ssh_key_to_library` | plain | Register an SSH key in a legacy VPS's reinstall-time key library |
@@ -266,6 +266,16 @@ Every read tool only inspects account state and is always safe to call. Every wr
 - **Every description ends with one standard `Safety:` sentence** naming the kind and the concrete consequence, so the agent sees the same information before it calls.
 - **Every tool carries MCP annotations.** All reads set `readOnlyHint: true` (so a client can auto-approve them), plus `idempotentHint: true` and `destructiveHint: false`. All writes set `readOnlyHint: false`, and `destructiveHint` is true for destructive and disruptive tools, so an MCP client's own guardrails can treat those more cautiously. Every tool sets `openWorldHint: true` (it talks to the live RareCloud API).
 - **Credentials are marked.** Tools whose result contains a live credential (`deploy_service` and `reinstall_service` when they return a one-time console password, `order_proxy` for an ISP plan's proxy list, `create_cluster_kubeconfig`, `create_object_storage_key`, `create_registry_credential`, `create_registry_kubernetes_manifest`, `get_cluster_kubeconfig`, `download_cluster_kubeconfig`, `get_proxy_list`, `get_proxy_auth`, `get_proxy_request_list`) carry one standard sentence: *SECURITY: the result contains ..., a live credential. Treat it as a secret: do not repeat it to the user, or write it to files or logs, unless the user explicitly asks; pass it straight to whatever needs it.* Tools that take a secret as input (`set_service_password`, `reset_service_password`, `set_proxy_credentials`, and `create_sandbox` for its `env` values) tell the agent never to echo the value back. `create_sandbox` never returns `env` values: the result names the variables only (`envKeys`).
+
+### User data on a cloud VM
+
+`deploy_service`, `check_order` and `reinstall_service` take an optional `userData`: a cloud-config or a script that cloud-init runs at first boot of a cloud VM.
+
+- Send plain text, not base64. The first line must start with `#cloud-config` or `#!`, and the limit is 32 KiB (32,768 bytes) measured as UTF-8. The API checks these rules and answers `400` with its reason; this server adds no check of its own.
+- Do not put secrets in it. Any local process inside the VM can read it.
+- A snapshot needs cloud-init for it to run. Clean the snapshot with `cloud-init clean` before you take it, or nothing runs and the API reports no error.
+- It is not stored, and no API returns it. A reinstall does not reuse an earlier value, so send it again or the VM gets none.
+- This server does not log it or repeat it in a tool result or an error it writes itself. It passes the API's answers on as they are, and the API's error messages do not quote the value.
 
 ### Resources the user made read-only for agents
 

@@ -2,6 +2,26 @@
 
 All notable changes to `@rarecloudio/mcp-server` are recorded here.
 
+## 0.6.0 (2026-11-05)
+
+Totals are unchanged: 224 tools, 111 reads, 113 writes (86 gated, 27 plain), 46
+take `idempotency_key`. No tool was added, renamed or removed, and the only input
+change is the new optional field below.
+
+### Added: `userData` on cloud VMs
+
+`deploy_service`, `check_order` and `reinstall_service` take an optional `userData`:
+a cloud-config or a script that cloud-init runs at first boot of a cloud VM.
+
+- It is plain text, the first line must start with `#cloud-config` or `#!`, and the
+  limit is 32 KiB measured as UTF-8. The API checks this and answers `400` with its
+  reason; this server adds no format check.
+- Any local process inside the VM can read it, so it must not hold secrets.
+- A snapshot needs cloud-init for it to run.
+- It is not stored and not returned, so a reinstall needs it again.
+- This server does not log it or repeat it in a tool result or an error it writes
+  itself.
+
 ## 0.5.1 (2026-11-03)
 
 Totals are unchanged: 224 tools, 111 reads, 113 writes (86 gated, 27 plain), 46

@@ -39,6 +39,42 @@ export const vmTagsJsonSchema = {
   description: `cloud-vm: tags for the new VM. ${VM_TAG_LIMITS}`,
 };
 
+// --- customer user data on a cloud VM ---------------------------------------
+// The API is the source of truth for these rules (customerUserData.ts there), and it
+// counts bytes, so the input is a plain optional string with no limit or pattern here.
+// The value is sent once: no tool result, error or log of this server repeats it.
+const USER_DATA_FORMAT =
+  'Plain text, not base64. The first line must start with `#cloud-config` or `#!`; other formats, including ' +
+  '`#include`, MIME and `#cloud-boothook`, are refused with 400 INVALID_PARAM, as is a NUL byte. At most 32 KiB ' +
+  "(32,768 bytes) measured as UTF-8; a payload near that limit can also be refused when it does not fit next to " +
+  "this VM's own SSH key and password. The contents are not checked: invalid YAML does not fail the request, and " +
+  'the server is reported ready without waiting for your script to finish. Do not put secrets in it: any local ' +
+  'process inside the VM can read it.';
+
+const USER_DATA_SNAPSHOT =
+  'snapshot needs cloud-init and should be cleaned with `cloud-init clean` before it is taken, or nothing runs ' +
+  'and the API reports no error.';
+
+const deployUserDataJsonSchema = {
+  type: 'string',
+  description:
+    'cloud-vm only: a cloud-config or a script that cloud-init runs at first boot. Any other product refuses it ' +
+    `with 400 INVALID_PARAM. ${USER_DATA_FORMAT} check_order applies the first-line and size checks but not the ` +
+    'fit next to the SSH key and password. It is not stored and no API returns it, so reinstall_service does not ' +
+    `reuse it: send it again. From a snapshot: the ${USER_DATA_SNAPSHOT}`,
+};
+
+const reinstallUserDataJsonSchema = {
+  type: 'string',
+  description:
+    'Cloud VM only (a legacy VPS refuses it with 400 INVALID_PARAM): a cloud-config or a script that cloud-init ' +
+    `runs at first boot of the rebuilt VM. ${USER_DATA_FORMAT} It is not stored, so this reinstall does not reuse ` +
+    'an earlier value: send it again, or the VM gets none. A reinstall from a snapshot of this same VM is refused ' +
+    'with 400 INVALID_PARAM when userData is sent and its source VM is on record, and an older snapshot may be ' +
+    'accepted with nothing run: create a new VM from that snapshot instead. Any other ' +
+    USER_DATA_SNAPSHOT,
+};
+
 export const setServiceHostname: ToolDefinition = writeTool({
   name: 'set_service_hostname',
   description:
@@ -125,6 +161,7 @@ const deployFields = z
     sizeGb: z.number().int().min(1).max(VOLUME_MAX_GB).optional(),
     addons: z.array(z.string()).optional(),
     tags: vmTagsInput.optional(),
+    userData: z.string().optional(),
     vpcId: z.string().optional(),
     configOptions: z.record(z.unknown()).optional(),
     customFields: z.record(z.unknown()).optional(),
@@ -213,6 +250,7 @@ export const DEPLOY_PROPERTIES: Record<string, unknown> = {
   sizeGb: { type: 'integer', minimum: 1, maximum: VOLUME_MAX_GB, description: `cloud-volume: size of the block volume in GB (1 to ${VOLUME_MAX_GB}); required for cloud-volume.` },
   addons: { type: 'array', items: { type: 'string' } },
   tags: vmTagsJsonSchema,
+  userData: deployUserDataJsonSchema,
   vpcId: { type: 'string', description: 'cloud-vm: private network id from list_networks.' },
   configOptions: { type: 'object' }, customFields: { type: 'object' },
   payWith: { type: 'string' },
@@ -622,8 +660,9 @@ export const reinstallService: ToolDefinition = writeTool({
     `Reinstall (rebuild from scratch) a service; works on BOTH a cloud VM (UUID service_id) and a legacy ` +
     `VPS (numeric service_id). Requires scope services:write. The service keeps its IP. Requires imageId, ` +
     `an OS template/image slug from list_os_templates (for this service) or list_images. password and ` +
-    `sshPublicKey are optional (sshPublicKey only applies to a cloud VM). For a cloud VM reinstalled ` +
-    `without a password, the result includes a one-time consolePassword. service_id comes from ` +
+    `sshPublicKey are optional (sshPublicKey only applies to a cloud VM). userData is optional and cloud VM ` +
+    `only; it is not kept from an earlier deploy or reinstall, so send it again if the rebuilt VM needs it. ` +
+    `For a cloud VM reinstalled without a password, the result includes a one-time consolePassword. service_id comes from ` +
     `list_services. For a cloud VM, take a snapshot first with create_snapshot: restore_snapshot is the ` +
     `undo.`,
   method: 'POST',
@@ -639,6 +678,7 @@ export const reinstallService: ToolDefinition = writeTool({
       imageId: z.string().min(1).max(128),
       password: z.string().min(8).max(128).optional(),
       sshPublicKey: z.string().min(1).max(4096).optional(),
+      userData: z.string().optional(),
     })
     .strict(),
   inputSchema: {
@@ -648,6 +688,7 @@ export const reinstallService: ToolDefinition = writeTool({
       imageId: { type: 'string', maxLength: 128, description: 'OS template/image slug (see list_os_templates or list_images).' },
       password: { type: 'string', minLength: 8, maxLength: 128, description: 'Optional root password for the rebuilt server (8–128 chars). Never echoed or logged.' },
       sshPublicKey: { type: 'string', maxLength: 4096, description: 'Optional inline SSH public key to install for root (cloud VM only).' },
+      userData: reinstallUserDataJsonSchema,
     },
     required: ['service_id', 'imageId'],
     additionalProperties: false,
@@ -657,6 +698,7 @@ export const reinstallService: ToolDefinition = writeTool({
     const body: Record<string, unknown> = { imageId: a.imageId };
     if (a.password !== undefined) body.password = a.password;
     if (a.sshPublicKey !== undefined) body.sshPublicKey = a.sshPublicKey;
+    if (a.userData !== undefined) body.userData = a.userData;
     return body;
   },
 });
