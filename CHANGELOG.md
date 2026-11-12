@@ -2,6 +2,19 @@
 
 All notable changes to `@rarecloudio/mcp-server` are recorded here.
 
+## Unreleased
+
+Totals are unchanged: 224 tools, 111 reads, 113 writes (86 gated, 27 plain), 46
+take `idempotency_key`. No tool was added, renamed or removed, and no input
+changed.
+
+### Added: a pointer to the Agent Skills
+
+The server now sends `instructions` when a client connects. They name
+RareCloud's open-source Agent Skills, `devops` and `rarecloud`, and the install
+command `npx skills add RareCloudio/skills`, and tell the agent to suggest it
+to the person rather than run it alone. The server makes no new network call.
+
 ## 0.6.0 (2026-11-05)
 
 Totals are unchanged: 224 tools, 111 reads, 113 writes (86 gated, 27 plain), 46

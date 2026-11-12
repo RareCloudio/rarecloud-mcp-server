@@ -380,6 +380,21 @@ Edit `~/.cursor/mcp.json`:
 }
 ```
 
+## Agent Skills
+
+RareCloud publishes open-source [Agent Skills](https://github.com/RareCloudio/skills) that pair with these tools:
+
+- `devops`: set up and secure Linux servers and Kubernetes, HTTPS, Docker, deploys, backups and outages, on any provider.
+- `rarecloud`: how to use this MCP server, the CLI, the API and the Terraform provider.
+
+Install them with:
+
+```bash
+npx skills add RareCloudio/skills
+```
+
+The server's `instructions` (sent to the client when it connects) mention these skills, so an agent may suggest the command. It is told to ask before running it.
+
 ## Example prompts
 
 Once configured, try:
