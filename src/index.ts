@@ -28,7 +28,6 @@
 //   - Speaks stdio. To use with Claude Desktop, see README.md for the
 //     mcpServers config snippet.
 
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
   CallToolRequestSchema,
@@ -38,8 +37,7 @@ import {
 import { clientFromEnv, APIError } from './client.js';
 import { TOOLS, findTool } from './tools/index.js';
 import { SERVER_VERSION } from './version.js';
-
-const SERVER_NAME = 'rarecloud';
+import { createServer, SERVER_NAME } from './server.js';
 
 async function main(): Promise<void> {
   // Validate config early so the user sees a clear error instead of
@@ -51,10 +49,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const server = new Server(
-    { name: SERVER_NAME, version: SERVER_VERSION },
-    { capabilities: { tools: {} } },
-  );
+  const server = createServer();
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: TOOLS.map((t) => ({
