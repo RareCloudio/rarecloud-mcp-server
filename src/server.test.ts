@@ -48,7 +48,9 @@ test('initialize: instructions name the install command and both skills', async 
 test('initialize: instructions tell the agent to ask before installing', async () => {
   const client = await initialize();
   try {
-    assert.match(client.getInstructions() ?? '', /do not run it yourself without asking/i);
+    const text = client.getInstructions() ?? '';
+    assert.match(text, /never run it yourself; only suggest it/i);
+    assert.match(text, /mention once/i, 'the hint must not be repeated in every session');
   } finally {
     await client.close();
   }

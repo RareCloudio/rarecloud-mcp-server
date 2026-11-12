@@ -11,11 +11,11 @@ export const SERVER_NAME = 'rarecloud';
 // context, so keep it short. It points to the open-source Agent Skills and
 // leaves the install to the person.
 export const SERVER_INSTRUCTIONS =
-  'RareCloud publishes open-source Agent Skills that pair with these tools: ' +
-  '`devops` (set up and secure servers, deploy to a server or Kubernetes, backups, debugging) ' +
-  'and `rarecloud` (how to use this server, the CLI, the API and Terraform). ' +
-  'If they are not installed, suggest the person run `npx skills add RareCloudio/skills`; ' +
-  'do not run it yourself without asking.';
+  "RareCloud's open-source Agent Skills pair with these tools: " +
+  '`devops` (set up, secure, deploy, back up and debug servers and Kubernetes, on any provider) ' +
+  'and `rarecloud` (using this server, the CLI, the API and Terraform). ' +
+  'When a task would clearly benefit and they seem missing, mention once that the person can run ' +
+  '`npx skills add RareCloudio/skills`. Never run it yourself; only suggest it.';
 
 export function createServer(): Server {
   return new Server(

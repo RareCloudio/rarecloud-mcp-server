@@ -393,7 +393,9 @@ Install them with:
 npx skills add RareCloudio/skills
 ```
 
-The server's `instructions` (sent to the client when it connects) mention these skills, so an agent may suggest the command. It is told to ask before running it.
+That command downloads the open-source `skills` installer from npm (by Vercel) and copies the skill files from the GitHub repository into your agent's skills folder; agents then follow those files, so read them if you want to know what they say.
+
+The server's `instructions` (sent to the client when it connects) mention these skills, so an agent may suggest the command once, when a task would benefit. It is told never to run it itself.
 
 ## Example prompts
 
