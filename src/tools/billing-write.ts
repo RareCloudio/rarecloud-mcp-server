@@ -83,8 +83,8 @@ export const deleteBillingAlert: ToolDefinition = writeTool({
 export const redeemVoucher: ToolDefinition = writeTool({
   name: 'redeem_voucher',
   description:
-    `Redeem a credit voucher / promo code, adding credit to the account balance. Requires scope ` +
-    `billing:write. It grants credit; no money leaves the account. code is the voucher code (1-64 chars).`,
+    `Redeem a voucher / promo code into the bonus (promo) balance. Requires scope billing:write. It grants ` +
+    `bonus (see get_bonus_ledger); no money leaves the account. code is the voucher code (1-64 chars).`,
   method: 'POST',
   idempotent: true,
   safety: { kind: 'plain' },

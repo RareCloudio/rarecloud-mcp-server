@@ -181,7 +181,7 @@ export const createSandbox: ToolDefinition = writeTool({
         type: 'string',
         minLength: 1,
         maxLength: 64,
-        description: 'Template name from list_sandbox_templates: python (default, data science), node, or base (shell only). Drives size and price, also with a custom image.',
+        description: 'Template name from list_sandbox_templates: python (default, data science), node, or base (shell only). Sets the default size and price, also with a custom image.',
       },
       image: {
         type: 'string',

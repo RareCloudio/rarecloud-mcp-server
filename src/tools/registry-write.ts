@@ -74,9 +74,9 @@ const SECRET_WARNING =
 
 // Every registry write answers this until the registry launches (the catalog
 // flip), changing nothing. Said once per write description so an agent does not
-// read a pre-launch 503 as an outage.
+// read that 503 as an outage.
 const NOT_LAUNCHED =
-  'Until the registry launches the API answers 503 BACKEND_UNAVAILABLE ("The container registry is not ' +
+  'If the registry is paused, the API answers 503 BACKEND_UNAVAILABLE ("The container registry is not ' +
   'available yet.") and changes nothing.';
 
 const DIGEST_RE = /^sha256:[a-f0-9]{64}$/;

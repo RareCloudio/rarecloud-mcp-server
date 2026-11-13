@@ -172,7 +172,7 @@ export const attachNetworkVm: ToolDefinition = writeTool({
   name: 'attach_network_vm',
   description:
     `Move a cloud VM into a private network (VPC), detaching it from its current VPC (the VM's public ` +
-    `eth0 interface is untouched). Requires scope services:write. id is the target VPC from ` +
+    `eth0 interface is untouched). Requires scope services:write. If the account's Private network firewall allows outbound TCP port 25 and the VM is restricted and not approved, this answers 409 SMTP_EGRESS_NOT_APPROVED. id is the target VPC from ` +
     `list_networks; serverId is the cloud VM to move (the same value as the cloud VM service_id from ` +
     `list_services).`,
   method: 'POST',

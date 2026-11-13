@@ -2,7 +2,7 @@
 // api/src/routes/v1-limits.ts). Scope services:write.
 //
 // Safety: `sensitive`, by analogy with create_ticket. Asking for more quota
-// charges nothing, but a request larger than the auto-approve ceiling opens a
+// charges nothing, but every request opens a
 // support ticket in the user's name that staff act on, and submitting again
 // replaces the user's pending request. That is the same "speaks for the user to
 // RareCloud staff" consequence create_ticket and reply_ticket are gated for, so
@@ -48,16 +48,16 @@ export const requestQuotaIncrease: ToolDefinition = writeTool({
     `ceiling (must exceed the current limit from get_quota_limits): ${OPENSTACK_RESOURCES.join(', ')} take a ` +
     `positive number or -1 for unlimited; object_storage_tb takes 1-1000; sandboxes takes 1-200. reason ` +
     `(10-2000 chars) is what a human reviewer reads, so say what is being deployed. context is an optional ` +
-    `object such as {kind: "k8s", name: "prod"} (4096 bytes max). Modest increases are applied at once ` +
-    `(status auto_approved) when the region has headroom; larger ones stay pending and open a support ` +
-    `ticket. Only one pending request exists at a time: submitting again replaces it. Check progress with ` +
+    `object such as {kind: "k8s", name: "prod"} (4096 bytes max). Every request stays pending ` +
+    `and opens a support ticket, and a person from our team decides. `+
+    `Only one pending request exists at a time: submitting again replaces it. Check progress with ` +
     `list_quota_requests.`,
   method: 'POST',
   idempotent: true,
   safety: {
     kind: 'sensitive',
     reason:
-      "submits a quota request on the user's behalf; a large one opens a support ticket that RareCloud staff act on, and it replaces any pending request",
+      "submits a quota request on the user's behalf; it opens a support ticket that a person reviews, and it replaces any pending request",
   },
   input: z
     .object({
@@ -80,7 +80,7 @@ export const requestQuotaIncrease: ToolDefinition = writeTool({
         properties: {
           ...Object.fromEntries(OPENSTACK_RESOURCES.map((r) => [r, { ...CEILING_JSON }])),
           object_storage_tb: { type: 'integer', minimum: 1, maximum: 1000, description: 'Object storage hard quota in whole TB (1-1000).' },
-          sandboxes: { type: 'integer', minimum: 1, maximum: 200, description: 'How many AI sandboxes may run at once (1-200; auto-approved up to 16).' },
+          sandboxes: { type: 'integer', minimum: 1, maximum: 200, description: 'How many AI sandboxes may run at once (1-200).' },
         },
         additionalProperties: false,
       },

@@ -10,7 +10,7 @@ import { isIdempotentPostPath } from '../idempotency.js';
 
 // Bump this in the same commit that adds/removes tools. A mismatch means the
 // registry changed without the test acknowledging it.
-const EXPECTED_TOOL_COUNT = 223;
+const EXPECTED_TOOL_COUNT = 225;
 
 test('registry: tool count matches the expected total', () => {
   assert.equal(TOOLS.length, EXPECTED_TOOL_COUNT);
@@ -139,7 +139,7 @@ test('exclusion guard: the account/billing/tickets write surface is EXACTLY the 
 // sharing. domains:write is domains-write.ts (7 tools).
 //
 // Plan 4 Task 5 EXTENSION: registry-write.ts's 12 tools also carry
-// services:write (94 in the pinned set below). There is no separate registry scope, the same sharing
+// services:write (95 in the pinned set below, with request_smtp_unblock). There is no separate registry scope, the same sharing
 // services:write already does for k8s/infra/object storage/proxies above. See
 // the CR-12 policy-ruling test further below for why registry robot
 // credentials get a tool at all despite superficially looking like the
@@ -213,6 +213,7 @@ test('exclusion guard: the services:write surface is EXACTLY the safe set (IaaS 
     'renew_service',
     'request_proxy_replacement',
     'request_quota_increase',
+    'request_smtp_unblock',
     'reserve_ip',
     'reset_service_password',
     'resize_service',
@@ -435,6 +436,7 @@ const GATED_TOOLS: Record<string, Exclude<Kind, 'plain'>> = {
   reply_ticket: 'sensitive',
   request_proxy_replacement: 'disruptive',
   request_quota_increase: 'sensitive',
+  request_smtp_unblock: 'sensitive',
   reserve_ip: 'spends',
   reset_service_password: 'disruptive',
   resize_service: 'spends',
@@ -511,10 +513,10 @@ function reasonOf(description: string): string {
   return m[1];
 }
 
-test('safety: every tool (all 223) carries annotations; reads are readOnly, writes are not', () => {
+test('safety: every tool (all 225) carries annotations; reads are readOnly, writes are not', () => {
   assert.equal(readTools().length + writeTools().length, TOOLS.length, 'every tool sets readOnlyHint');
-  assert.equal(readTools().length, 111);
-  assert.equal(writeTools().length, 112);
+  assert.equal(readTools().length, 112);
+  assert.equal(writeTools().length, 113);
   for (const t of readTools()) {
     assert.deepEqual(
       t.annotations,
@@ -524,12 +526,12 @@ test('safety: every tool (all 223) carries annotations; reads are readOnly, writ
   }
 });
 
-test('safety: the gated set (85) and the plain set (27) are exactly the pinned ones', () => {
+test('safety: the gated set (86) and the plain set (27) are exactly the pinned ones', () => {
   const gated = writeTools().filter((t) => 'confirm' in t.inputSchema.properties).map((t) => t.name).sort();
   const plain = writeTools().filter((t) => !('confirm' in t.inputSchema.properties)).map((t) => t.name).sort();
   assert.deepEqual(gated, Object.keys(GATED_TOOLS).sort());
   assert.deepEqual(plain, [...PLAIN_TOOLS].sort());
-  assert.equal(gated.length, 85);
+  assert.equal(gated.length, 86);
   assert.equal(plain.length, 27);
 });
 
@@ -644,6 +646,10 @@ const GATED_ARGS: Record<string, Record<string, unknown>> = {
   reply_ticket: { ...ID, body: 'b' },
   request_proxy_replacement: { ...ID },
   request_quota_increase: { requested: { cores: 16 }, reason: 'scaling the prod cluster' },
+  request_smtp_unblock: {
+    ...SVC, purpose: 'transactional', software: 'Postfix', domains: ['example.com'], spf: true, dkim: true,
+    dmarc: true, recipients: 'own_users', messagesPerDay: 100, acceptPolicy: true,
+  },
   reserve_ip: {},
   reset_service_password: { ...SVC, password: 'supersecret1' },
   resize_service: { ...SVC, flavor: 'c-2vcpu-4gb' },

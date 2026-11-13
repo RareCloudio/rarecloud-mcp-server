@@ -253,6 +253,8 @@ import { getQuotaLimits, estimateLimits, listQuotaRequests } from './limits.js';
 import { requestQuotaIncrease } from './limits-write.js';
 import { getServiceRdns } from './rdns.js';
 import { setServiceRdns, deleteServiceRdns } from './rdns-write.js';
+import { getServiceSmtp } from './smtp.js';
+import { requestSmtpUnblock } from './smtp-write.js';
 
 export const TOOLS: ToolDefinition[] = [
   // Catalog (un-authed surface, "what can I deploy?")
@@ -373,6 +375,8 @@ export const TOOLS: ToolDefinition[] = [
   listQuotaRequests,
   // Reverse DNS
   getServiceRdns,
+  // Outbound email (SMTP port 25)
+  getServiceSmtp,
   // Container Registry ("my private OCI registry: account/tiers/creds/repos/clusters")
   getRegistry,
   listRegistryTiers,
@@ -500,6 +504,8 @@ export const TOOLS: ToolDefinition[] = [
   // Reverse DNS: writes
   setServiceRdns,
   deleteServiceRdns,
+  // Outbound email (SMTP port 25): writes (ask for port 25)
+  requestSmtpUnblock,
   // Container Registry writes (enable/tier/close, robot credentials, repo/tag delete, cluster link)
   enableRegistry,
   setRegistryTier,

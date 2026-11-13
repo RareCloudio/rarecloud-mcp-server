@@ -4,6 +4,9 @@ All notable changes to `@rarecloudio/mcp-server` are recorded here.
 
 ## Unreleased
 
+Totals: 225 tools, 112 reads, 113 writes (86 gated, 27 plain), 46 take
+`idempotency_key`.
+
 ### Added: sandbox sizes
 
 - `list_sandbox_sizes` (`GET /v1/sandboxes/sizes`, scope `services:read`):
@@ -21,8 +24,124 @@ All notable changes to `@rarecloudio/mcp-server` are recorded here.
   nothing was created and to call `list_sandbox_sizes` for an available size.
 - `APIError` keeps the error envelope's `details` (additive).
 
-Totals: 223 tools, 111 reads, 112 writes (85 gated, 27 plain), 46 take
-`idempotency_key`.
+### Added: a pointer to the Agent Skills
+
+The server now sends `instructions` when a client connects. They name
+RareCloud's open-source Agent Skills, `devops` and `rarecloud`, and the install
+command `npx skills add RareCloudio/skills`, and tell the agent to suggest it
+to the person rather than run it alone. The server makes no new network call.
+
+## 0.6.0 (2026-11-05)
+
+Totals are unchanged: 224 tools, 111 reads, 113 writes (86 gated, 27 plain), 46
+take `idempotency_key`. No tool was added, renamed or removed, and the only input
+change is the new optional field below.
+
+### Added: `userData` on cloud VMs
+
+`deploy_service`, `check_order` and `reinstall_service` take an optional `userData`:
+a cloud-config or a script that cloud-init runs at first boot of a cloud VM.
+
+- It is plain text, the first line must start with `#cloud-config` or `#!`, and the
+  limit is 32 KiB measured as UTF-8. The API checks this and answers `400` with its
+  reason; this server adds no format check.
+- Any local process inside the VM can read it, so it must not hold secrets.
+- A snapshot needs cloud-init for it to run.
+- It is not stored and not returned, so a reinstall needs it again.
+- This server does not log it or repeat it in a tool result or an error it writes
+  itself.
+
+## 0.5.1 (2026-11-03)
+
+Totals are unchanged: 224 tools, 111 reads, 113 writes (86 gated, 27 plain), 46
+take `idempotency_key`. No tool was added, renamed or removed, and no input
+changed except the addition under Added.
+
+### Fixed: descriptions that did not match the API
+
+- `update_bucket`: public delivery is not available yet, `public:true` answers 503
+  `BACKEND_UNAVAILABLE`.
+- `list_images`: no Windows Server image is offered.
+- `renew_proxy`: covers ISP and GB plans, and a mobile line for one month. It
+  said ISP only.
+- `set_proxy_auto_renew`: covers ISP and mobile. It said ISP only.
+- `renew_service`: returns or creates the renewal invoice and pays nothing. It
+  said the invoice is settled from the balance.
+- `redeem_voucher`, `get_credit_ledger`, `get_bonus_ledger`: a voucher grants
+  bonus balance, not credit.
+- `get_billing_state`: the state is ok or suspended, with the open invoice,
+  suspension schedule and runway. There is no grace period.
+- `create_load_balancer`: billed hourly up to its monthly price, with the public
+  IP included. It said the load balancer and its IP were each billed hourly.
+- `request_proxy_replacement`: the replacement is requested at once; no support
+  ticket is opened.
+- `cancel_service`: legacy services only, and `immediate` files a request. It
+  said `immediate` stops the service now.
+- `apply_service_ssh_key_library`: keys already installed stay, an empty list
+  changes nothing, and keys take effect after a stop and start. It said the set
+  replaced the installed keys and an empty list removed them all.
+- `add_service_ssh_key`: on a legacy VPS the key takes effect after a stop and
+  start.
+- `get_account_limits`: active services, API tokens and sub-users. For cloud
+  quotas use `get_quota_limits`.
+- `request_quota_increase`: every request opens a support ticket, not only a
+  large one.
+- `create_sandbox`, `list_sandbox_templates`: the template sets the default size;
+  this tool cannot choose a size yet.
+- `list_ssh_keys`: account-wide keys exist (`list_account_ssh_keys`).
+- `list_proxies`, `get_proxy`: name the real fields, `kind` instead of `flavor`,
+  and the mobile kinds.
+- README: an under-scoped token gets `[PERMISSION_DENIED]`, not `[FORBIDDEN]`.
+
+### Added to the descriptions
+
+- Outbound port 25: `add_firewall_rule`, `attach_firewall`, `attach_network_vm`
+  and `deploy_service` describe `409 SMTP_EGRESS_NOT_APPROVED`.
+- Used-up GB plans: `get_proxy` (`closedReason`), `get_proxy_bandwidth`
+  (`state: exhausted`), `renew_proxy`, `cancel_proxy`, `list_proxy_requests` and
+  `create_proxy_request`.
+- README: the capabilities the console and the CLI have and these tools do not.
+
+### Added
+
+- `list_catalog_products`: `kind` also accepts `cloud_loadbalancer`,
+  `cloud_reserved_ip` and `cloud_object_storage`, which the API already filters on.
+
+### Changed
+
+- Registry tools no longer speak of a launch that has happened: they say what the
+  API answers if the registry is paused.
+- `package.json` description: agents can manage the account, not only read it.
+- Removed internal wording from `get_credit_balance`, `cancel_proxy` and
+  `list_proxy_replacement_locations`, and backend names from the
+  `list_payment_methods`, `get_bonus_balance` and `get_bonus_ledger` prose.
+
+## 0.5.0 (2026-11-03)
+
+Totals with every entry below: 224 tools, 111 reads, 113 writes (86 gated,
+27 plain), 46 take `idempotency_key`.
+
+### Added: outbound email (SMTP port 25) tools
+
+Outbound email on TCP port 25 is blocked on new cloud VMs; ports 465 and 587
+to a mail provider stay open. These tools need an API release that has the
+`/v1/services/{id}/smtp` routes; an older API answers 404.
+
+- `get_service_smtp` (read, `services:read`): the VM's state (open, blocked,
+  pending, approved or rejected), the latest unblock request, and
+  `canRequestAfter` after a rejection or a revoked approval.
+- `request_smtp_unblock` (sensitive, `services:write`): sends the answers the
+  API asks for (purpose, software, domains, SPF/DKIM/DMARC, rdns, recipients,
+  messagesPerDay, acceptPolicy) with the same conditional rules, so a bad
+  answer is refused without a request. It opens a support ticket and a human
+  operator decides; after a rejection or a revoke a new request waits 7 days
+  (409 CONFLICT). No `idempotency_key`: the API exempts the route, and a repeat
+  answers CONFLICT instead of opening a second ticket.
+
+### Fixed
+
+- `request_quota_increase` and its docs no longer promise automatic approval: every request opens a
+  support ticket and a person from our team decides.
 
 ## 0.4.0 (2026-10-17)
 
