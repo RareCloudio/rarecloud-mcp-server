@@ -236,6 +236,7 @@ import {
   listSandboxes,
   getSandbox,
   listSandboxTemplates,
+  listSandboxSizes,
   readSandboxFile,
   getSandboxLogs,
 } from './sandboxes.js';
@@ -361,6 +362,7 @@ export const TOOLS: ToolDefinition[] = [
   listSandboxes,
   getSandbox,
   listSandboxTemplates,
+  listSandboxSizes,
   readSandboxFile,
   getSandboxLogs,
   // Snapshots ("what VM snapshots do I have?")

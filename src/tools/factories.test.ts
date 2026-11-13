@@ -608,6 +608,31 @@ test('writeTool: APIError from the client maps to errorResult with [CODE] messag
   assert.equal(textOf(result), 'Error: [FORBIDDEN] write scope required');
 });
 
+test('writeTool: describeApiError rewrites the APIError it recognises and leaves every other error as is', async () => {
+  const tool = writeTool({
+    name: 'm',
+    description: 'm.',
+    method: 'POST',
+    safety: { kind: 'plain' },
+    input: z.object({}).strict(),
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    buildPath: () => '/v1/m',
+    describeApiError: (e) => (e.status === 409 ? `${e.message} Try another shape.` : undefined),
+  });
+  const conflict = fakeWriteClient(() => {
+    throw new APIError({ code: 'CONFLICT', message: 'busy' }, { status: 409 });
+  });
+  assert.equal(textOf(await tool.handler(conflict.client, {})), 'Error: [CONFLICT] busy Try another shape.');
+  const other = fakeWriteClient(() => {
+    throw new APIError({ code: 'FORBIDDEN', message: 'write scope required' }, { status: 403 });
+  });
+  assert.equal(textOf(await tool.handler(other.client, {})), 'Error: [FORBIDDEN] write scope required');
+  const plain = fakeWriteClient(() => {
+    throw new Error('boom');
+  });
+  assert.equal(textOf(await tool.handler(plain.client, {})), 'Error: boom');
+});
+
 // (k) writeTool's factory bound is `S extends z.ZodTypeAny`, not just
 // z.ZodObject — a `.strict().refine(...)` schema is a ZodEffects, not a
 // ZodObject, and must flow through unchanged: `opts.input.safeParse` works

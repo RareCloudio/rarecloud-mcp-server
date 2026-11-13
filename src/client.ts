@@ -27,6 +27,14 @@ export interface RareCloudClientConfig {
 export interface APIErrorPayload {
   code: string;
   message: string;
+  /** Optional field-level details some errors carry, e.g. [{ field: 'size', message: 'size_unavailable' }]. */
+  details?: unknown;
+}
+
+/** One `{ field, message }` entry of an API error's details. */
+export interface APIErrorDetail {
+  field?: string;
+  message?: string;
 }
 
 /**
@@ -67,9 +75,16 @@ export class APIError extends Error {
   readonly status?: number;
   readonly retryAfterSeconds?: number;
   readonly transport: boolean;
+  /** The envelope's `details` array, when the API sent one (never part of the message). */
+  readonly details?: APIErrorDetail[];
   constructor(payload: APIErrorPayload, details: APIErrorDetails = {}) {
     super(describeError(payload));
     this.code = payload.code;
+    if (Array.isArray(payload.details)) {
+      this.details = payload.details.filter(
+        (d): d is APIErrorDetail => d !== null && typeof d === 'object' && !Array.isArray(d),
+      );
+    }
     this.status = details.status;
     this.retryAfterSeconds = details.retryAfterSeconds;
     this.transport = details.transport ?? false;

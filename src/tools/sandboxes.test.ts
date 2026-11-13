@@ -12,6 +12,7 @@ import {
   listSandboxes,
   getSandbox,
   listSandboxTemplates,
+  listSandboxSizes,
   readSandboxFile,
   getSandboxLogs,
 } from './sandboxes.js';
@@ -61,6 +62,7 @@ const SBX = 'sbx-0a1b2c3d';
 const READS: Array<[ToolDefinition, string, Record<string, unknown>, string]> = [
   [listSandboxes, 'list_sandboxes', {}, '/v1/sandboxes'],
   [listSandboxTemplates, 'list_sandbox_templates', {}, '/v1/sandboxes/templates'],
+  [listSandboxSizes, 'list_sandbox_sizes', {}, '/v1/sandboxes/sizes'],
   [getSandbox, 'get_sandbox', { id: SBX }, `/v1/sandboxes/${SBX}`],
   [readSandboxFile, 'read_sandbox_file', { id: SBX, path: '/home/user/out.txt' }, `/v1/sandboxes/${SBX}/files?path=%2Fhome%2Fuser%2Fout.txt`],
   [readSandboxFile, 'read_sandbox_file', { id: SBX, path: '/tmp/a b&c.txt' }, `/v1/sandboxes/${SBX}/files?path=%2Ftmp%2Fa+b%26c.txt`],
@@ -120,6 +122,28 @@ test('sandbox read: an APIError becomes an error result', async () => {
 test('list_sandbox_templates: description says it lists size and hourly price', () => {
   assert.match(listSandboxTemplates.description, /price/);
   assert.match(listSandboxTemplates.description, /create_sandbox/);
+});
+
+test('list_sandbox_sizes: returns sizes and the custom block as the API sent them', async () => {
+  const payload = {
+    sizes: [
+      { slug: 'xs', label: 'XS', vcpu: 1, ramGb: 1, diskGb: 3, hourlyCents: 5.2, accountCurrency: 'EUR', accountHourlyCents: 5.2, available: true, default: false },
+      { slug: 'l', label: 'L', vcpu: 2, ramGb: 8, diskGb: 3, hourlyCents: 17.6, accountCurrency: 'EUR', accountHourlyCents: 17.6, available: false, default: false },
+    ],
+    defaultSize: 's',
+    custom: { vcpuMin: 1, vcpuMax: 8, ramGbMin: 1, ramGbMax: 32, ramGbPerVcpuMin: 1, ramGbPerVcpuMax: 8, vcpuCentsPerHour: 4, ramGbCentsPerHour: 1.2, maxAvailableVcpu: 1, maxAvailableRamGb: 2 },
+  };
+  const { client, calls } = fakeClient(() => payload);
+  const result = await listSandboxSizes.handler(client, {});
+  assert.deepEqual(calls, [{ method: 'GET', path: '/v1/sandboxes/sizes' }]);
+  assert.deepEqual(JSON.parse(textOf(result)), payload);
+});
+
+test('list_sandbox_sizes: description covers availability, the custom bounds, price and create_sandbox', () => {
+  const d = listSandboxSizes.description;
+  for (const word of ['available', 'custom', 'maxAvailableVcpu', 'maxAvailableRamGb', 'hourlyCents', 'create_sandbox', 'size_unavailable']) {
+    assert.ok(d.includes(word), `description names ${word}`);
+  }
 });
 
 // --- logs ---------------------------------------------------------------------
@@ -365,6 +389,109 @@ test('create_sandbox: description covers billing, lifetime, the env secret rule 
   assert.match(d, /envKeys/);
   assert.match(d, /list_sandboxes/);
   assert.match(d, /get_sandbox_logs/);
+});
+
+// --- create: sizes -------------------------------------------------------------
+
+test('create_sandbox: size, or vcpu + ramGb, goes into the body as given', async () => {
+  for (const [args, body] of [
+    [{ size: 'xs' }, { size: 'xs' }],
+    [{ template: 'base', size: '2xl' }, { template: 'base', size: '2xl' }],
+    [{ vcpu: 2, ramGb: 12 }, { vcpu: 2, ramGb: 12 }],
+    [{ vcpu: 1, ramGb: 1 }, { vcpu: 1, ramGb: 1 }],
+    [{ vcpu: 8, ramGb: 32 }, { vcpu: 8, ramGb: 32 }],
+  ] as Array<[Record<string, unknown>, Record<string, unknown>]>) {
+    const { client, calls } = fakeClient();
+    const result = await createSandbox.handler(client, { ...args, confirm: true });
+    assert.equal(result.isError, undefined, JSON.stringify(args));
+    assert.deepEqual(calls[0].body, body, JSON.stringify(args));
+  }
+});
+
+test('create_sandbox: an invalid size or shape is refused locally with no request', async () => {
+  for (const [bad, why] of [
+    [{ size: 'xxl' }, /size/],
+    [{ size: 'S' }, /size/],
+    [{ size: 's', vcpu: 1, ramGb: 2 }, /either size or both vcpu and ramGb/],
+    [{ size: 's', vcpu: 1 }, /either size or both vcpu and ramGb/],
+    [{ size: 's', ramGb: 2 }, /either size or both vcpu and ramGb/],
+    [{ vcpu: 2 }, /vcpu and ramGb go together/],
+    [{ ramGb: 4 }, /vcpu and ramGb go together/],
+    [{ vcpu: 0, ramGb: 1 }, /vcpu/],
+    [{ vcpu: 9, ramGb: 32 }, /vcpu/],
+    [{ vcpu: 1.5, ramGb: 4 }, /vcpu/],
+    [{ vcpu: 1, ramGb: 0 }, /ramGb/],
+    [{ vcpu: 8, ramGb: 33 }, /ramGb/],
+    [{ vcpu: 2, ramGb: 1 }, /1 to 8 GB per vCPU/],
+    [{ vcpu: 1, ramGb: 9 }, /1 to 8 GB per vCPU/],
+    [{ vcpu: '2', ramGb: 4 }, /vcpu/],
+  ] as Array<[Record<string, unknown>, RegExp]>) {
+    const { client, calls } = fakeClient();
+    const result = await createSandbox.handler(client, { ...bad, confirm: true });
+    assert.equal(result.isError, true, JSON.stringify(bad));
+    assert.match(textOf(result), why, JSON.stringify(bad));
+    assert.deepEqual(calls, [], JSON.stringify(bad));
+  }
+});
+
+test('create_sandbox: advertises size, vcpu and ramGb with the API bounds in the JSON schema', () => {
+  const props = createSandbox.inputSchema.properties as Record<string, Record<string, unknown>>;
+  assert.equal(props.size.type, 'string');
+  assert.deepEqual(props.size.enum, ['xs', 's', 'm', 'l', 'xl', '2xl']);
+  assert.match(String(props.size.description), /list_sandbox_sizes/);
+  assert.equal(props.vcpu.type, 'integer');
+  assert.equal(props.vcpu.minimum, 1);
+  assert.equal(props.vcpu.maximum, 8);
+  assert.equal(props.ramGb.type, 'integer');
+  assert.equal(props.ramGb.minimum, 1);
+  assert.equal(props.ramGb.maximum, 32);
+  for (const k of ['vcpu', 'ramGb']) {
+    assert.match(String(props[k].description), /size/, `${k} says it excludes size`);
+    assert.match(String(props[k].description), /8 GB per vCPU/, `${k} names the ratio`);
+  }
+  assert.deepEqual(createSandbox.inputSchema.required, ['confirm'], 'size stays optional');
+});
+
+test('create_sandbox: description explains size vs vcpu + ramGb and points to list_sandbox_sizes', () => {
+  const d = createSandbox.description;
+  assert.match(d, /list_sandbox_sizes/);
+  assert.match(d, /either size or both vcpu and ramGb/);
+  assert.match(d, /size_unavailable/);
+});
+
+test('create_sandbox: 409 size_unavailable becomes a clear error that names list_sandbox_sizes', async () => {
+  for (const field of ['size', 'vcpu', 'ramGb']) {
+    const { client } = fakeClient(() => {
+      throw new APIError(
+        {
+          code: 'CONFLICT',
+          message: 'Size l (2 vCPU, 8 GB) is not available yet.',
+          details: [{ field, message: 'size_unavailable' }],
+        },
+        { status: 409 },
+      );
+    });
+    const result = await createSandbox.handler(client, { size: 'l', confirm: true });
+    assert.equal(result.isError, true);
+    const text = textOf(result);
+    assert.match(text, /\[CONFLICT\] Size l \(2 vCPU, 8 GB\) is not available yet\./, 'keeps the API message');
+    assert.match(text, /size_unavailable/);
+    assert.match(text, /nothing was created/i);
+    assert.match(text, /list_sandbox_sizes/);
+    assert.match(text, /available/);
+  }
+});
+
+test('create_sandbox: any other 409 is passed through unchanged', async () => {
+  const { client } = fakeClient(() => {
+    throw new APIError(
+      { code: 'CONFLICT', message: 'Name in use.', details: [{ field: 'name', message: 'name_taken' }] },
+      { status: 409 },
+    );
+  });
+  const result = await createSandbox.handler(client, { name: 'job-1', confirm: true });
+  assert.equal(result.isError, true);
+  assert.equal(textOf(result), 'Error: [CONFLICT] Name in use.');
 });
 
 // --- delete -------------------------------------------------------------------

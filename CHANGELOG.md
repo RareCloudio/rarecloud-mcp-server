@@ -4,9 +4,25 @@ All notable changes to `@rarecloudio/mcp-server` are recorded here.
 
 ## Unreleased
 
-Totals are unchanged: 224 tools, 111 reads, 113 writes (86 gated, 27 plain), 46
-take `idempotency_key`. No tool was added, renamed or removed, and no input
-changed.
+Totals: 225 tools, 112 reads, 113 writes (86 gated, 27 plain), 46 take
+`idempotency_key`.
+
+### Added: sandbox sizes
+
+- `list_sandbox_sizes` (`GET /v1/sandboxes/sizes`, scope `services:read`):
+  the sizes `xs` to `2xl` with `vcpu`, `ramGb`, `diskGb`, the hourly price
+  (`hourlyCents`, `accountCurrency`, `accountHourlyCents`), `default` and
+  `available`, plus the `custom` block (vCPU and RAM bounds, per-unit rates,
+  `maxAvailableVcpu`, `maxAvailableRamGb`). Today only `xs` and `s` are
+  available.
+- `create_sandbox` takes an optional `size` (`xs`, `s`, `m`, `l`, `xl`,
+  `2xl`) or a custom shape, `vcpu` (1-8) with `ramGb` (1-32, 1 to 8 GB per
+  vCPU). Send either `size` or both `vcpu` and `ramGb`: mixing them, or one
+  of the pair alone, is refused locally with no request. Without either the
+  sandbox gets its template's default size, as before.
+- A `409` whose details name `size_unavailable` now tells the agent that
+  nothing was created and to call `list_sandbox_sizes` for an available size.
+- `APIError` keeps the error envelope's `details` (additive).
 
 ### Added: a pointer to the Agent Skills
 
