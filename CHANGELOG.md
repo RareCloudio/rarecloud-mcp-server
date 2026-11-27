@@ -2,6 +2,36 @@
 
 All notable changes to `@rarecloudio/mcp-server` are recorded here.
 
+## Unreleased
+
+Totals: 227 tools, 113 reads, 114 writes (87 gated, 27 plain), 47 take
+`idempotency_key`. Two tools were added; no tool was renamed or removed, and no
+existing input changed. `register_domain` stays the single-domain tool.
+
+### Added: price and register several domains at once
+
+- `quote_domains` (`POST /v1/domains/quote`, scope `domains:read`): a read tool.
+  For 1 to 20 domains, with an optional `type` (`register` or `transfer`) and
+  `years` (1-10), it answers each domain's `status` (`available`,
+  `unavailable`, `premium`, `invalid`, `no_pricing`, `error`), `orderable`,
+  `perYearCents`, `netCents` and `message`, plus `subtotalCents`, `vatCents`,
+  `totalCents` (VAT included), `currency`, `taxRatePercent`, `realCreditCents`,
+  `shortfallCents` and `affordable`. Money is integer cents. It places nothing
+  and sends no `Idempotency-Key`. A malformed name is sent as is: the API
+  answers it as an `invalid` item.
+- `register_domains` (`POST /v1/domains/bulk`, scope `domains:write`): registers
+  1 to 20 domains in one order and one invoice, paid from real credit only,
+  never promotional bonus. Optional `years`, `nameservers` (up to 5),
+  `idProtection` and `dnsManagement` apply to every domain. It spends money, so
+  it refuses without `confirm:true` and makes no API call; the description tells
+  the agent to quote with `quote_domains` first and confirm only after the user
+  approved the total. It takes an optional `idempotency_key` like the other
+  order tools, and `/v1/domains/bulk` joins the mirrored list of routes that
+  honour `Idempotency-Key`. A refusal (a domain that is not orderable, already
+  in the account or on an open order, or not enough real credit) comes back as
+  the API's `INVALID_PARAM` message naming each refused domain; nothing is
+  ordered.
+
 ## 0.7.0 (2026-11-13)
 
 Totals: 225 tools, 112 reads, 113 writes (86 gated, 27 plain), 46 take
