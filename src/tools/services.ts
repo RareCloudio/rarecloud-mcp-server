@@ -203,6 +203,42 @@ export const listUpgradeOptions: ToolDefinition = defineReadTool({
   },
 });
 
+// GET /v1/services/{id}/billing-cycle (services:read): the preview for
+// change_billing_cycle. Legacy (WHMCS) services only; it creates nothing.
+export const listBillingCycleOptions: ToolDefinition = defineReadTool({
+  name: 'list_billing_cycle_options',
+  description:
+    'The longer billing cycles a legacy VPS (WHMCS) service can move to on its own plan, each with its price and ' +
+    'new due date. Returns productName, currentCycle, currentNextDueDate and options, each {cycle, amount ' +
+    '{amount, currency}, newNextDueDate}. amount is the full list price of that cycle (the plan plus its priced ' +
+    'options), excluding VAT, which is added on the invoice; newNextDueDate is the current next due date plus the ' +
+    'new cycle, so no paid day is lost. A cycle that cannot be priced is left out. Read-only: it places nothing ' +
+    'and creates no invoice. Show the user the amount and newNextDueDate of the cycle they want, then call ' +
+    'change_billing_cycle with expected_amount set to that amount. A cloud VM, a proxy or a service that is not ' +
+    'active is refused with INVALID_PARAM. A shorter cycle needs support; a different plan is ' +
+    'list_upgrade_options. Requires scope services:read. The service_id comes from list_services.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      service_id: {
+        type: 'string',
+        description: 'Legacy VPS service ID from list_services.',
+      },
+    },
+    required: ['service_id'],
+    additionalProperties: false,
+  },
+  async handler(client, args) {
+    try {
+      const id = encodeSegment(args.service_id, 'service_id');
+      const data = await client.get(`/v1/services/${id}/billing-cycle`);
+      return jsonResult(data);
+    } catch (e) {
+      return errorResult(e instanceof APIError ? e.message : (e as Error).message);
+    }
+  },
+});
+
 // service_id-scoped detail reads. Each hits a fixed sub-path under the service.
 const serviceIdSchema = {
   type: 'object' as const,
