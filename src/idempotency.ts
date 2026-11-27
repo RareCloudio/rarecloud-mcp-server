@@ -20,6 +20,7 @@ export const IDEMPOTENT_POST_ROUTES = [
   '/v1/services/:id/resize',
   '/v1/services/:id/renew',
   '/v1/services/:id/upgrade',
+  '/v1/services/:id/billing-cycle',
   '/v1/services/:id/cancel',
   '/v1/services/:id/ssh-keys',
   '/v1/services/:id/ssh-keys/library',
