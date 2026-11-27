@@ -594,7 +594,7 @@ const GATED_ARGS: Record<string, Record<string, unknown>> = {
   attach_network_vm: { ...ID, serverId: 'vm-1' },
   cancel_proxy: { ...ID },
   cancel_service: { ...SVC },
-  change_billing_cycle: { ...SVC, cycle: 'annually' },
+  change_billing_cycle: { ...SVC, cycle: 'annually', expected_amount: 59.4 },
   close_registry: { handle: 'acme' },
   create_bucket: { name: 'assets', region: 'eu-central-1' },
   create_cluster_kubeconfig: { ...SVC, name: 'ci', role: 'view' },

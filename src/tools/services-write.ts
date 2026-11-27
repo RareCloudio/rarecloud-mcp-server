@@ -379,8 +379,9 @@ export const upgradeService: ToolDefinition = writeTool({
   name: 'upgrade_service',
   description:
     `Create an upgrade order moving a service to a new product/plan. Requires scope services:write. ` +
-    `Preview the options and prices with list_upgrade_options. service_id comes from list_services; ` +
-    `newProductId comes from list_upgrade_options.`,
+    `Preview the options and prices with list_upgrade_options. To change only the billing cycle of the same ` +
+    `plan, use list_billing_cycle_options and change_billing_cycle instead: upgrade_service refuses a longer ` +
+    `cycle of the same plan. service_id comes from list_services; newProductId comes from list_upgrade_options.`,
   method: 'POST',
   idempotent: true,
   safety: {
@@ -413,24 +414,27 @@ export const upgradeService: ToolDefinition = writeTool({
 // The cycles a legacy service can move to here: every term longer than monthly.
 // The API refuses a cycle that is not longer than the current one (and hourly).
 export const LONGER_BILLING_CYCLES = ['quarterly', 'semiannually', 'annually', 'biennially', 'triennially'] as const;
-// The API's own bound on expectedAmount (api/src/routes/v1-services.ts).
+// Bounds on expectedAmount: the API takes a positive amount up to 1,000,000
+// (api/src/routes/v1-services.ts); a price is never below one cent.
+const EXPECTED_AMOUNT_MIN = 0.01;
 const EXPECTED_AMOUNT_MAX = 1_000_000;
 
 export const changeBillingCycle: ToolDefinition = writeTool({
   name: 'change_billing_cycle',
   description:
-    `Move a legacy VPS (WHMCS) service to a longer billing cycle of the same plan. Requires scope ` +
+    `Move a legacy VPS service to a longer billing cycle of the same plan. Requires scope ` +
     `services:write. It creates one invoice for the full list price of the new cycle (the plan plus its priced ` +
-    `options, not a prorated amount); VAT is added on the invoice where it applies. Nothing changes before that ` +
-    `invoice is paid. Once it is paid, the service moves to the new cycle and its next due date moves forward by ` +
+    `options, not a prorated amount); VAT is added on the invoice where it applies. The confirm emails the ` +
+    `invoice to the user. Nothing changes before that invoice is paid, and until it is paid (or support cancels ` +
+    `it) the service cannot be upgraded. Once it is paid, the service moves to the new cycle and its next due date moves forward by ` +
     `the new cycle from the current next due date, so no paid day is lost and no credit is created. The result ` +
     `is cycle, currentCycle, amount, currentNextDueDate, newNextDueDate, replacesRenewalInvoiceIds and invoiceId. ` +
     `An agent cannot pay: the user pays invoice invoiceId in the console; paid from the account balance the ` +
     `change applies at once, paid by a gateway within about an hour. An open renewal invoice for the service ` +
     `(replacesRenewalInvoiceIds) loses this service's lines once the change is paid. First call ` +
     `list_billing_cycle_options, show the user the amount and newNextDueDate of the chosen cycle, and pass that ` +
-    `amount as expected_amount. Refusals are 400 INVALID_PARAM and the message says what to do: a cycle that is ` +
-    `not longer than the current one (a shorter cycle needs support); a price that is no longer expected_amount ` +
+    `amount as expected_amount. Refusals are 400 INVALID_PARAM and the message says what to do. The main ` +
+    `refusals: a cycle that is not longer than the current one (a shorter cycle needs support); a price that is no longer expected_amount ` +
     `(the message gives the new price: show it to the user and confirm again only on their word); an open plan ` +
     `upgrade invoice on the account, or an earlier billing cycle change still unpaid or being applied (the ` +
     `message names the invoice: it must be paid, or support must cancel it, first); a renewal invoice for the ` +
@@ -446,7 +450,7 @@ export const changeBillingCycle: ToolDefinition = writeTool({
     .object({
       service_id: z.string().min(1),
       cycle: z.enum(LONGER_BILLING_CYCLES),
-      expected_amount: z.number().positive().max(EXPECTED_AMOUNT_MAX).optional(),
+      expected_amount: z.number().min(EXPECTED_AMOUNT_MIN).max(EXPECTED_AMOUNT_MAX),
     })
     .strict(),
   inputSchema: {
@@ -460,25 +464,22 @@ export const changeBillingCycle: ToolDefinition = writeTool({
       },
       expected_amount: {
         type: 'number',
-        exclusiveMinimum: 0,
+        minimum: EXPECTED_AMOUNT_MIN,
         maximum: EXPECTED_AMOUNT_MAX,
         description:
           'The net amount (amount.amount) the user was shown by list_billing_cycle_options for this cycle. When ' +
           'the price is no longer exactly this, nothing is created and the API answers INVALID_PARAM with the ' +
-          'current price. Strongly recommended.',
+          'current price.',
       },
     },
-    required: ['service_id', 'cycle'],
+    required: ['service_id', 'cycle', 'expected_amount'],
     additionalProperties: false,
   },
   buildPath: (a) => `/v1/services/${encodeSegment(a.service_id, 'service_id')}/billing-cycle`,
   // The API quotes when confirm is absent; this tool never quotes (list_billing_cycle_options
   // is the preview), so the MCP confirm gate has passed and the order flag is always sent.
-  buildBody: (a) => ({
-    cycle: a.cycle,
-    confirm: true,
-    ...(a.expected_amount !== undefined ? { expectedAmount: a.expected_amount } : {}),
-  }),
+  // expected_amount is required here (optional in the API) so every order follows a preview.
+  buildBody: (a) => ({ cycle: a.cycle, confirm: true, expectedAmount: a.expected_amount }),
 });
 
 export const renewService: ToolDefinition = writeTool({

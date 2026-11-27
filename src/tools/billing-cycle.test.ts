@@ -139,11 +139,11 @@ test('change_billing_cycle: schema, gate and annotations of a spends tool that t
   const t = changeBillingCycle;
   assert.equal(t.name, 'change_billing_cycle');
   assert.deepEqual(Object.keys(t.inputSchema.properties).sort(), ['confirm', 'cycle', 'expected_amount', 'idempotency_key', 'service_id']);
-  assert.deepEqual([...(t.inputSchema.required ?? [])].sort(), ['confirm', 'cycle', 'service_id']);
+  assert.deepEqual([...(t.inputSchema.required ?? [])].sort(), ['confirm', 'cycle', 'expected_amount', 'service_id']);
   assert.equal(t.inputSchema.additionalProperties, false);
   assert.deepEqual(t.inputSchema.properties.expected_amount, {
     type: 'number',
-    exclusiveMinimum: 0,
+    minimum: 0.01,
     maximum: 1_000_000,
     description: (t.inputSchema.properties.expected_amount as { description: string }).description,
   });
@@ -168,39 +168,54 @@ test('change_billing_cycle: without confirm:true it refuses and makes no request
   });
 });
 
-test('change_billing_cycle: POSTs {cycle, confirm:true} to /v1/services/{id}/billing-cycle; no expectedAmount when none was given', async () => {
+test('change_billing_cycle: POSTs {cycle, confirm:true, expectedAmount} to /v1/services/{id}/billing-cycle', async () => {
   await withFetch([{ body: { ok: true, data: ORDER } }], async (calls) => {
-    const r = await changeBillingCycle.handler(client(), { service_id: '123', cycle: 'triennially', confirm: true });
+    const r = await changeBillingCycle.handler(client(), { service_id: '123', cycle: 'triennially', expected_amount: 150, confirm: true });
     assert.equal(r.isError, undefined);
     assert.equal(calls.length, 1);
     assert.equal(calls[0].method, 'POST');
     assert.equal(calls[0].url, 'https://example.com/v1/services/123/billing-cycle');
-    assert.deepEqual(JSON.parse(calls[0].body!), { cycle: 'triennially', confirm: true });
+    assert.deepEqual(JSON.parse(calls[0].body!), { cycle: 'triennially', confirm: true, expectedAmount: 150 });
     assert.deepEqual(JSON.parse(texts(r).at(-1)!), ORDER);
   });
 });
 
-test('change_billing_cycle: expected_amount is sent as expectedAmount, unchanged', async () => {
+test('change_billing_cycle: expected_amount is sent as expectedAmount, unchanged, down to the 0.01 minimum', async () => {
   await withFetch([{ body: { ok: true, data: ORDER } }], async (calls) => {
-    await changeBillingCycle.handler(client(), { service_id: '123', cycle: 'annually', expected_amount: 59.4, confirm: true });
-    const body = JSON.parse(calls[0].body!);
-    assert.deepEqual(body, { cycle: 'annually', confirm: true, expectedAmount: 59.4 });
-    assert.ok(!('expected_amount' in body));
+    for (const amount of [59.4, 0.01]) {
+      await changeBillingCycle.handler(client(), { service_id: '123', cycle: 'annually', expected_amount: amount, confirm: true });
+      const body = JSON.parse(calls.at(-1)!.body!);
+      assert.deepEqual(body, { cycle: 'annually', confirm: true, expectedAmount: amount });
+      assert.ok(!('expected_amount' in body));
+    }
+    assert.equal(calls.length, 2);
+  });
+});
+
+test('change_billing_cycle: expected_amount is required, so a confirm without a preview is refused with no request', async () => {
+  await withFetch([{ body: { ok: true, data: ORDER } }], async (calls) => {
+    const r = await changeBillingCycle.handler(client(), { service_id: '123', cycle: 'annually', confirm: true });
+    assert.equal(r.isError, true);
+    assert.match(texts(r)[0], /^Error: Invalid input for change_billing_cycle: expected_amount: /);
+    assert.equal(calls.length, 0);
   });
 });
 
 test('change_billing_cycle: bad input is refused before any request', async () => {
   const bad: Array<Record<string, unknown>> = [
-    { cycle: 'monthly' },
-    { cycle: 'hourly' },
-    { cycle: 'yearly' },
+    { cycle: 'monthly', expected_amount: 59.4 },
+    { cycle: 'hourly', expected_amount: 59.4 },
+    { cycle: 'yearly', expected_amount: 59.4 },
+    { cycle: 'annually' },
     { cycle: 'annually', expected_amount: 0 },
+    { cycle: 'annually', expected_amount: 0.005 },
     { cycle: 'annually', expected_amount: -5 },
     { cycle: 'annually', expected_amount: 1_000_001 },
     { cycle: 'annually', expected_amount: '59.40' },
     { cycle: 'annually', expectedAmount: 59.4 },
-    { cycle: 'annually', service_id: '' },
-    { cycle: 'annually', service_id: '..' },
+    { cycle: 'annually', expected_amount: 59.4, service_id: '' },
+    { cycle: 'annually', expected_amount: 59.4, service_id: '..' },
+    { expected_amount: 59.4 },
     {},
   ];
   await withFetch([{ body: { ok: true, data: ORDER } }], async (calls) => {
@@ -214,15 +229,15 @@ test('change_billing_cycle: bad input is refused before any request', async () =
 
 test('change_billing_cycle: idempotency_key is sent as the Idempotency-Key header and never in the body', async () => {
   await withFetch([{ body: { ok: true, data: ORDER } }], async (calls) => {
-    await changeBillingCycle.handler(client(), { service_id: '123', cycle: 'annually', idempotency_key: 'cycle-123-annually', confirm: true });
+    await changeBillingCycle.handler(client(), { service_id: '123', cycle: 'annually', expected_amount: 59.4, idempotency_key: 'cycle-123-annually', confirm: true });
     assert.equal(calls[0].headers['Idempotency-Key'], 'cycle-123-annually');
-    assert.deepEqual(JSON.parse(calls[0].body!), { cycle: 'annually', confirm: true });
+    assert.deepEqual(JSON.parse(calls[0].body!), { cycle: 'annually', confirm: true, expectedAmount: 59.4 });
   });
 });
 
 test('change_billing_cycle: a dropped first answer is retried once with the same generated key', async () => {
   await withFetch([{ throws: new TypeError('fetch failed') }, { body: { ok: true, data: ORDER } }], async (calls) => {
-    const r = await changeBillingCycle.handler(client(), { service_id: '123', cycle: 'annually', confirm: true });
+    const r = await changeBillingCycle.handler(client(), { service_id: '123', cycle: 'annually', expected_amount: 59.4, confirm: true });
     assert.equal(r.isError, undefined);
     assert.equal(calls.length, 2);
     const key = calls[0].headers['Idempotency-Key'];
@@ -235,7 +250,7 @@ test('change_billing_cycle: a dropped first answer is retried once with the same
 
 test('change_billing_cycle: a replayed answer says the invoice was created once, not again', async () => {
   await withFetch([{ body: { ok: true, data: ORDER }, headers: { 'Idempotent-Replayed': 'true' } }], async () => {
-    const r = await changeBillingCycle.handler(client(), { service_id: '123', cycle: 'annually', idempotency_key: 'k1', confirm: true });
+    const r = await changeBillingCycle.handler(client(), { service_id: '123', cycle: 'annually', expected_amount: 59.4, idempotency_key: 'k1', confirm: true });
     const [note, json] = texts(r);
     assert.match(note, /idempotent replay/);
     assert.match(note, /ran once/);
@@ -275,6 +290,9 @@ test('change_billing_cycle: the description says what it charges, when it applie
   assert.match(d, /expected_amount/);
   assert.match(d, /replacesRenewalInvoiceIds/);
   assert.match(d, /INVALID_PARAM/);
+  assert.match(d, /The main refusals: /);
+  assert.match(d, /emails the invoice to the user/);
+  assert.match(d, /cannot be upgraded/);
   assert.match(d, /shorter cycle/);
   assert.match(d, /upgrade_service/);
   assert.ok(!d.includes('—'), 'no em dash');

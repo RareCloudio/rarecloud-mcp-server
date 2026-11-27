@@ -180,7 +180,7 @@ export const listOsTemplates: ToolDefinition = defineReadTool({
 
 export const listUpgradeOptions: ToolDefinition = defineReadTool({
   name: 'list_upgrade_options',
-  description: 'Plans (and billing cycles with prices) a service could be upgraded/downgraded to, from its product group. Read-only; use it to preview the price before upgrade_service (which places a charged order and is confirm-gated). The service_id comes from list_services.',
+  description: 'Plans (and billing cycles with prices) a service could be upgraded/downgraded to, from its product group. Read-only; use it to preview the price before upgrade_service (which places a charged order and is confirm-gated). To change only the billing cycle of the same plan, use list_billing_cycle_options and change_billing_cycle instead: upgrade_service refuses a longer cycle of the same plan. The service_id comes from list_services.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -208,7 +208,7 @@ export const listUpgradeOptions: ToolDefinition = defineReadTool({
 export const listBillingCycleOptions: ToolDefinition = defineReadTool({
   name: 'list_billing_cycle_options',
   description:
-    'The longer billing cycles a legacy VPS (WHMCS) service can move to on its own plan, each with its price and ' +
+    'The longer billing cycles a legacy VPS service can move to on its own plan, each with its price and ' +
     'new due date. Returns productName, currentCycle, currentNextDueDate and options, each {cycle, amount ' +
     '{amount, currency}, newNextDueDate}. amount is the full list price of that cycle (the plan plus its priced ' +
     'options), excluding VAT, which is added on the invoice; newNextDueDate is the current next due date plus the ' +
