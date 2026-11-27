@@ -2,6 +2,38 @@
 
 All notable changes to `@rarecloudio/mcp-server` are recorded here.
 
+## Unreleased
+
+Totals: 227 tools, 113 reads, 114 writes (87 gated, 27 plain), 47 take
+`idempotency_key`. Two tools were added; no tool was renamed or removed, and no
+existing input changed.
+
+### Added: change a legacy VPS to a longer billing cycle
+
+- `list_billing_cycle_options` (`GET /v1/services/{id}/billing-cycle`, scope
+  `services:read`): a read tool. For a legacy VPS (WHMCS) service it answers
+  `productName`, `currentCycle`, `currentNextDueDate` and `options`, the longer
+  cycles its own plan offers, each with `cycle`, `amount` (the full list price
+  of the plan plus its priced options, excluding VAT, which is added on the
+  invoice) and `newNextDueDate` (the current next due date plus the new cycle).
+  It places nothing.
+- `change_billing_cycle` (`POST /v1/services/{id}/billing-cycle`, scope
+  `services:write`): takes `service_id`, `cycle` (`quarterly`, `semiannually`,
+  `annually`, `biennially` or `triennially`) and an optional `expected_amount`,
+  sent as `expectedAmount`. It creates one invoice for the new cycle's full list
+  price. Nothing changes before that invoice is paid; once it is, the service
+  moves to the new cycle and its next due date moves forward by the new cycle
+  from the current one, so no paid day is lost and no credit is created. It
+  spends money, so it refuses without `confirm:true` and makes no API call; like
+  `upgrade_service` it never asks the API for a quote, and
+  `list_billing_cycle_options` is the preview. The description tells the agent
+  to show the user the amount and the new due date first, to pass that amount as
+  `expected_amount`, that it cannot pay the invoice itself, and how to read the
+  main `INVALID_PARAM` refusals (a cycle that is not longer, a changed price, an
+  open plan upgrade invoice or an earlier change still open). It takes an
+  optional `idempotency_key`, and `/v1/services/{id}/billing-cycle` joins the
+  mirrored list of routes that honour `Idempotency-Key`.
+
 ## 0.7.0 (2026-11-13)
 
 Totals: 225 tools, 112 reads, 113 writes (86 gated, 27 plain), 46 take
