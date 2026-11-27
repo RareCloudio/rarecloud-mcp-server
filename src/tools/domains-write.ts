@@ -182,12 +182,15 @@ export const registerDomains: ToolDefinition = writeTool({
     `Register several domains (up to 20) in ONE order and ONE invoice. Requires scope domains:write. ` +
     `Paid from real credit only, never promotional bonus: real credit must cover the total including ` +
     `VAT. Preview with quote_domains first (same domains and years) and confirm only after the user ` +
-    `approved its totalCents. All or nothing: when any domain is not orderable (already registered, ` +
-    `premium, extension or period not offered), is already in the account or on an open order, or real ` +
+    `approved its totalCents. All or nothing: when any domain is not a valid domain name, is not ` +
+    `orderable (already registered, premium, extension or period not offered), is already in the account ` +
+    `or on an open order, or real ` +
     `credit does not cover the total, the API refuses the whole request with INVALID_PARAM naming each ` +
     `refused domain and nothing is ordered. After a BACKEND_UNAVAILABLE answer (for example a failed ` +
     `availability check) retrying the same request is safe, with the same idempotency_key if you passed ` +
-    `one: a domain already on an open order is refused, so a retry never buys it twice. years (1-10, default 1), nameservers (up to 5 hostnames; ` +
+    `one: a domain already on an open order is refused, so a retry never buys it twice. If a retry is ` +
+    `refused with "You already have an order for <domain>", the earlier attempt went through: check ` +
+    `list_orders or list_invoices before reporting a failure. years (1-10, default 1), nameservers (up to 5 hostnames; ` +
     `omit for the registrar default), idProtection and dnsManagement apply to every domain. Returns ` +
     `orderId, invoiceId, status (Pending until the registrar fulfils the order) and domains, each with ` +
     `its domainId (null when none was returned). For one domain, register_domain does the same.`,

@@ -91,6 +91,8 @@ test('quote_domains: the description says it places nothing, totals include VAT,
   assert.match(d, /real credit only, never promotional bonus/);
   assert.match(d, /before register_domains/);
   assert.match(d, /domains:read/);
+  assert.match(d, /rate-limited per account/);
+  assert.match(d, /do not re-quote the same domains in a loop/);
   assert.ok(!d.includes('Safety:'));
 });
 
@@ -187,6 +189,9 @@ test('register_domains: the description names one order and one invoice, real cr
   assert.match(d, /only after the user approved/);
   assert.match(d, /domains:write/);
   assert.match(d, /BACKEND_UNAVAILABLE/);
+  assert.match(d, /not a valid domain name/);
+  assert.match(d, /"You already have an order for <domain>"/);
+  assert.match(d, /check list_orders or list_invoices before reporting a failure/);
   assert.match(d, /Safety: SPENDS MONEY;/);
 });
 

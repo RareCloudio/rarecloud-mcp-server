@@ -18,7 +18,9 @@ existing input changed. `register_domain` stays the single-domain tool.
   `totalCents` (VAT included), `currency`, `taxRatePercent`, `realCreditCents`,
   `shortfallCents` and `affordable`. Money is integer cents. It places nothing
   and sends no `Idempotency-Key`. A malformed name is sent as is: the API
-  answers it as an `invalid` item.
+  answers it as an `invalid` item. The description tells the agent that
+  availability checks share a per-minute budget per account with
+  `register_domains`, so it should not re-quote the same names in a loop.
 - `register_domains` (`POST /v1/domains/bulk`, scope `domains:write`): registers
   1 to 20 domains in one order and one invoice, paid from real credit only,
   never promotional bonus. Optional `years`, `nameservers` (up to 5),
@@ -30,7 +32,9 @@ existing input changed. `register_domain` stays the single-domain tool.
   honour `Idempotency-Key`. A refusal (a domain that is not orderable, already
   in the account or on an open order, or not enough real credit) comes back as
   the API's `INVALID_PARAM` message naming each refused domain; nothing is
-  ordered.
+  ordered. A retry refused with "You already have an order for <domain>" means
+  the earlier attempt went through, and the description tells the agent to
+  check `list_orders` or `list_invoices` before reporting a failure.
 
 ## 0.7.0 (2026-11-13)
 

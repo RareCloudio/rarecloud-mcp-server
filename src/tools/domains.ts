@@ -82,7 +82,10 @@ export const quoteDomains: ToolDefinition = defineReadTool({
     `the orderable items only: subtotalCents, vatCents (taxRatePercent) and totalCents; totalCents ` +
     `includes VAT. Money is integer cents of the account currency (currency). Domains are paid from real ` +
     `credit only, never promotional bonus: affordable says whether real credit covers totalCents, and ` +
-    `realCreditCents and shortfallCents are null unless the token also has billing:read. Use it before ` +
+    `realCreditCents and shortfallCents are null unless the token also has billing:read. Availability ` +
+    `checks are rate-limited per account: every register quote and every register_domains order spends ` +
+    `one check per domain from a shared budget per minute (429 RATE_LIMITED when it runs out), so do ` +
+    `not re-quote the same domains in a loop; quote once and reuse the answer. Use it before ` +
     `register_domains with the same domains and years, and show the user totalCents before asking them ` +
     `to approve the order.`,
   inputSchema: {
