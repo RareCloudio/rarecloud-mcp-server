@@ -161,6 +161,91 @@ export const registerDomain: ToolDefinition = writeTool({
   },
 });
 
+// --- register_domains (POST /v1/domains/bulk, spends) -----------------------
+//
+// Several domains in ONE WHMCS order and ONE invoice. Additive: register_domain
+// stays the single-domain tool. Bounds from openapi + the route source
+// (BulkRegisterInput in v1-domains.ts): years 1-10, nameservers up to 5 matching
+// NS_RE (HOSTNAME_RE here), and a raw list the API trims, lowercases and
+// de-duplicates before refusing more than 20. This tool advertises 1-20 entries.
+// Domain names get no local pattern on purpose: the API normalizes first and then
+// refuses with one INVALID_PARAM naming every invalid name, which tells the agent
+// more than a local refusal of the first bad entry would. The route honours
+// Idempotency-Key (idempotency.ts). The API's own 503 BACKEND_UNAVAILABLE (a JSON
+// envelope, for example a failed availability check) is an answer, not a dropped
+// connection, so the client does not retry it; the description tells the agent a
+// retry is safe because the API refuses a domain already on an open order.
+
+export const registerDomains: ToolDefinition = writeTool({
+  name: 'register_domains',
+  description:
+    `Register several domains (up to 20) in ONE order and ONE invoice. Requires scope domains:write. ` +
+    `Paid from real credit only, never promotional bonus: real credit must cover the total including ` +
+    `VAT. Preview with quote_domains first (same domains and years) and confirm only after the user ` +
+    `approved its totalCents. All or nothing: when any domain is not orderable (already registered, ` +
+    `premium, extension or period not offered), is already in the account or on an open order, or real ` +
+    `credit does not cover the total, the API refuses the whole request with INVALID_PARAM naming each ` +
+    `refused domain and nothing is ordered. After a BACKEND_UNAVAILABLE answer (for example a failed ` +
+    `availability check) retrying the same request is safe, with the same idempotency_key if you passed ` +
+    `one: a domain already on an open order is refused, so a retry never buys it twice. years (1-10, default 1), nameservers (up to 5 hostnames; ` +
+    `omit for the registrar default), idProtection and dnsManagement apply to every domain. Returns ` +
+    `orderId, invoiceId, status (Pending until the registrar fulfils the order) and domains, each with ` +
+    `its domainId (null when none was returned). For one domain, register_domain does the same.`,
+  method: 'POST',
+  idempotent: true,
+  safety: {
+    kind: 'spends',
+    reason: 'places one charged registration order and invoice for all the listed domains, paid from real credit',
+  },
+  input: z
+    .object({
+      domains: z
+        .array(z.string().min(1, 'Enter a domain.').max(300))
+        .min(1, 'Enter at least one domain.')
+        .max(20, 'At most 20 domains per order.'),
+      years: z.number().int().min(1).max(10).optional(),
+      nameservers: z
+        .array(z.string().regex(HOSTNAME_RE, 'Enter valid nameserver hostnames.'))
+        .max(5)
+        .optional(),
+      idProtection: z.boolean().optional(),
+      dnsManagement: z.boolean().optional(),
+    })
+    .strict(),
+  inputSchema: {
+    type: 'object',
+    properties: {
+      domains: {
+        type: 'array',
+        items: { type: 'string', minLength: 1, maxLength: 300 },
+        minItems: 1,
+        maxItems: 20,
+        description: 'The domains to register, one per entry (e.g. example.com); 1 to 20. Quote the same list with quote_domains first.',
+      },
+      years: { type: 'integer', minimum: 1, maximum: 10, description: 'Registration term in years for every domain (1-10, default 1).' },
+      nameservers: {
+        type: 'array',
+        items: { type: 'string', pattern: HOSTNAME_PATTERN },
+        maxItems: 5,
+        description: 'Optional custom nameservers for every domain (up to 5); omit to use the registrar default.',
+      },
+      idProtection: { type: 'boolean', description: 'Optional WHOIS-privacy add-on for every domain (registrar-dependent).' },
+      dnsManagement: { type: 'boolean', description: 'Optional DNS-hosting add-on for every domain (registrar-dependent).' },
+    },
+    required: ['domains'],
+    additionalProperties: false,
+  },
+  buildPath: () => '/v1/domains/bulk',
+  buildBody: (a) => {
+    const body: Record<string, unknown> = { domains: a.domains };
+    if (a.years !== undefined) body.years = a.years;
+    if (a.nameservers !== undefined) body.nameservers = a.nameservers;
+    if (a.idProtection !== undefined) body.idProtection = a.idProtection;
+    if (a.dnsManagement !== undefined) body.dnsManagement = a.dnsManagement;
+    return body;
+  },
+});
+
 // --- transfer_domain (POST /v1/domains/transfers, spends) ------------------
 
 export const transferDomain: ToolDefinition = writeTool({

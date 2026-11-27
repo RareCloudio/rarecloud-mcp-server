@@ -68,6 +68,7 @@ import {
   getDomain,
   checkDomainAvailability,
   getTldPricing,
+  quoteDomains,
   getDomainNameservers,
   getDomainContacts,
   getDomainDns,
@@ -168,6 +169,7 @@ import {
 } from './firewall-lb-write.js';
 import {
   registerDomain,
+  registerDomains,
   transferDomain,
   renewDomain,
   setDomainNameservers,
@@ -333,6 +335,7 @@ export const TOOLS: ToolDefinition[] = [
   getDomain,
   checkDomainAvailability,
   getTldPricing,
+  quoteDomains,
   getDomainNameservers,
   getDomainContacts,
   getDomainDns,
@@ -454,6 +457,7 @@ export const TOOLS: ToolDefinition[] = [
   deleteObjectStorageKey,
   // Domains — writes (register / transfer / renew / nameservers / contacts / dns / manage)
   registerDomain,
+  registerDomains,
   transferDomain,
   renewDomain,
   setDomainNameservers,

@@ -10,7 +10,7 @@ import { isIdempotentPostPath } from '../idempotency.js';
 
 // Bump this in the same commit that adds/removes tools. A mismatch means the
 // registry changed without the test acknowledging it.
-const EXPECTED_TOOL_COUNT = 225;
+const EXPECTED_TOOL_COUNT = 227;
 
 test('registry: tool count matches the expected total', () => {
   assert.equal(TOOLS.length, EXPECTED_TOOL_COUNT);
@@ -136,7 +136,7 @@ test('exclusion guard: the account/billing/tickets write surface is EXACTLY the 
 // infra-write.ts + firewall-lb-write.ts + object-storage-write.ts + proxies-write.ts +
 // sandboxes-write.ts + snapshots-write.ts + limits-write.ts + rdns-write.ts, plus the
 // read-only check_order (82 tools); the README's "services:write covers IaaS AND proxies" note names this exact
-// sharing. domains:write is domains-write.ts (7 tools).
+// sharing. domains:write is domains-write.ts (8 tools).
 //
 // Plan 4 Task 5 EXTENSION: registry-write.ts's 12 tools also carry
 // services:write (95 in the pinned set below, with request_smtp_unblock). There is no separate registry scope, the same sharing
@@ -262,6 +262,7 @@ test('exclusion guard: the domains:write surface is EXACTLY the safe set', () =>
   assert.deepEqual(withScope('domains:write'), [
     'manage_domain',
     'register_domain',
+    'register_domains',
     'renew_domain',
     'set_domain_contacts',
     'set_domain_dns',
@@ -425,6 +426,7 @@ const GATED_TOOLS: Record<string, Exclude<Kind, 'plain'>> = {
   order_proxy: 'spends',
   reboot_service: 'disruptive',
   register_domain: 'spends',
+  register_domains: 'spends',
   reinstall_service: 'destructive',
   release_reserved_ip: 'destructive',
   remove_load_balancer_member: 'destructive',
@@ -513,10 +515,10 @@ function reasonOf(description: string): string {
   return m[1];
 }
 
-test('safety: every tool (all 225) carries annotations; reads are readOnly, writes are not', () => {
+test('safety: every tool (all 227) carries annotations; reads are readOnly, writes are not', () => {
   assert.equal(readTools().length + writeTools().length, TOOLS.length, 'every tool sets readOnlyHint');
-  assert.equal(readTools().length, 112);
-  assert.equal(writeTools().length, 113);
+  assert.equal(readTools().length, 113);
+  assert.equal(writeTools().length, 114);
   for (const t of readTools()) {
     assert.deepEqual(
       t.annotations,
@@ -526,12 +528,12 @@ test('safety: every tool (all 225) carries annotations; reads are readOnly, writ
   }
 });
 
-test('safety: the gated set (86) and the plain set (27) are exactly the pinned ones', () => {
+test('safety: the gated set (87) and the plain set (27) are exactly the pinned ones', () => {
   const gated = writeTools().filter((t) => 'confirm' in t.inputSchema.properties).map((t) => t.name).sort();
   const plain = writeTools().filter((t) => !('confirm' in t.inputSchema.properties)).map((t) => t.name).sort();
   assert.deepEqual(gated, Object.keys(GATED_TOOLS).sort());
   assert.deepEqual(plain, [...PLAIN_TOOLS].sort());
-  assert.equal(gated.length, 86);
+  assert.equal(gated.length, 87);
   assert.equal(plain.length, 27);
 });
 
@@ -635,6 +637,7 @@ const GATED_ARGS: Record<string, Record<string, unknown>> = {
   order_proxy: { kind: 'residential-gb', gb: 1 },
   reboot_service: { ...SVC },
   register_domain: { domain: 'example.com' },
+  register_domains: { domains: ['example.com', 'example.net'] },
   reinstall_service: { ...SVC, imageId: 'ubuntu-24.04' },
   release_reserved_ip: { ...ID },
   remove_load_balancer_member: { ...ID, memberId: 'm-1' },
@@ -832,6 +835,7 @@ const IDEMPOTENT_TOOLS = [
   'reboot_service',
   'redeem_voucher',
   'register_domain',
+  'register_domains',
   'reinstall_service',
   'renew_domain',
   'renew_proxy',
