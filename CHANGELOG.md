@@ -4,8 +4,8 @@ All notable changes to `@rarecloudio/mcp-server` are recorded here.
 
 ## Unreleased
 
-Totals: 227 tools, 113 reads, 114 writes (87 gated, 27 plain), 47 take
-`idempotency_key`. Two tools were added; no tool was renamed or removed, and no
+Totals: 229 tools, 114 reads, 115 writes (88 gated, 27 plain), 48 take
+`idempotency_key`. Four tools were added; no tool was renamed or removed, and no
 existing input changed. `register_domain` stays the single-domain tool.
 
 ### Added: price and register several domains at once
@@ -35,6 +35,39 @@ existing input changed. `register_domain` stays the single-domain tool.
   ordered. A retry refused with "You already have an order for <domain>" means
   the earlier attempt went through, and the description tells the agent to
   check `list_orders` or `list_invoices` before reporting a failure.
+
+### Added: change a legacy VPS to a longer billing cycle
+
+- `list_billing_cycle_options` (`GET /v1/services/{id}/billing-cycle`, scope
+  `services:read`): a read tool. For a legacy VPS service it answers
+  `productName`, `currentCycle`, `currentNextDueDate` and `options`, the longer
+  cycles its own plan offers, each with `cycle`, `amount` (the full list price
+  of the plan plus its priced options, excluding VAT, which is added on the
+  invoice) and `newNextDueDate` (the current next due date plus the new cycle).
+  It places nothing.
+- `change_billing_cycle` (`POST /v1/services/{id}/billing-cycle`, scope
+  `services:write`): takes `service_id`, `cycle` (`quarterly`, `semiannually`,
+  `annually`, `biennially` or `triennially`) and a required `expected_amount`
+  (at least 0.01), sent as `expectedAmount`, so every order follows a preview. It
+  creates one invoice for the new cycle's full list price and emails it to the
+  user. Nothing changes before that invoice is paid, and until then (or until
+  support cancels it) the service cannot be upgraded; once it is paid, the
+  service moves to the new cycle and its next due date moves forward by the new cycle
+  from the current one, so no paid day is lost and no credit is created. It
+  spends money, so it refuses without `confirm:true` and makes no API call; like
+  `upgrade_service` it never asks the API for a quote, and
+  `list_billing_cycle_options` is the preview. The description tells the agent
+  to show the user the amount and the new due date first, to pass that amount as
+  `expected_amount`, that it cannot pay the invoice itself, and how to read the
+  main `INVALID_PARAM` refusals (a cycle that is not longer, a changed price, an
+  open plan upgrade invoice or an earlier change still open; the list is not
+  exhaustive). It takes an
+  optional `idempotency_key`, and `/v1/services/{id}/billing-cycle` joins the
+  mirrored list of routes that honour `Idempotency-Key`.
+- `upgrade_service` and `list_upgrade_options` now say that changing only the
+  billing cycle of the same plan is `list_billing_cycle_options` and
+  `change_billing_cycle`: `upgrade_service` refuses a longer cycle of the same
+  plan.
 
 ## 0.7.0 (2026-11-13)
 

@@ -10,7 +10,7 @@ import { isIdempotentPostPath } from '../idempotency.js';
 
 // Bump this in the same commit that adds/removes tools. A mismatch means the
 // registry changed without the test acknowledging it.
-const EXPECTED_TOOL_COUNT = 227;
+const EXPECTED_TOOL_COUNT = 229;
 
 test('registry: tool count matches the expected total', () => {
   assert.equal(TOOLS.length, EXPECTED_TOOL_COUNT);
@@ -161,6 +161,7 @@ test('exclusion guard: the services:write surface is EXACTLY the safe set (IaaS 
     'attach_volume',
     'cancel_proxy',
     'cancel_service',
+    'change_billing_cycle',
     'check_order',
     'close_registry',
     'create_bucket',
@@ -383,6 +384,7 @@ const GATED_TOOLS: Record<string, Exclude<Kind, 'plain'>> = {
   attach_network_vm: 'disruptive',
   cancel_proxy: 'destructive',
   cancel_service: 'destructive',
+  change_billing_cycle: 'spends',
   close_registry: 'destructive',
   create_bucket: 'spends',
   create_cluster_kubeconfig: 'sensitive',
@@ -515,10 +517,10 @@ function reasonOf(description: string): string {
   return m[1];
 }
 
-test('safety: every tool (all 227) carries annotations; reads are readOnly, writes are not', () => {
+test('safety: every tool (all 229) carries annotations; reads are readOnly, writes are not', () => {
   assert.equal(readTools().length + writeTools().length, TOOLS.length, 'every tool sets readOnlyHint');
-  assert.equal(readTools().length, 113);
-  assert.equal(writeTools().length, 114);
+  assert.equal(readTools().length, 114);
+  assert.equal(writeTools().length, 115);
   for (const t of readTools()) {
     assert.deepEqual(
       t.annotations,
@@ -528,12 +530,12 @@ test('safety: every tool (all 227) carries annotations; reads are readOnly, writ
   }
 });
 
-test('safety: the gated set (87) and the plain set (27) are exactly the pinned ones', () => {
+test('safety: the gated set (88) and the plain set (27) are exactly the pinned ones', () => {
   const gated = writeTools().filter((t) => 'confirm' in t.inputSchema.properties).map((t) => t.name).sort();
   const plain = writeTools().filter((t) => !('confirm' in t.inputSchema.properties)).map((t) => t.name).sort();
   assert.deepEqual(gated, Object.keys(GATED_TOOLS).sort());
   assert.deepEqual(plain, [...PLAIN_TOOLS].sort());
-  assert.equal(gated.length, 87);
+  assert.equal(gated.length, 88);
   assert.equal(plain.length, 27);
 });
 
@@ -594,6 +596,7 @@ const GATED_ARGS: Record<string, Record<string, unknown>> = {
   attach_network_vm: { ...ID, serverId: 'vm-1' },
   cancel_proxy: { ...ID },
   cancel_service: { ...SVC },
+  change_billing_cycle: { ...SVC, cycle: 'annually', expected_amount: 59.4 },
   close_registry: { handle: 'acme' },
   create_bucket: { name: 'assets', region: 'eu-central-1' },
   create_cluster_kubeconfig: { ...SVC, name: 'ci', role: 'view' },
@@ -812,6 +815,7 @@ const IDEMPOTENT_TOOLS = [
   'add_service_ssh_key',
   'add_service_ssh_key_to_library',
   'cancel_service',
+  'change_billing_cycle',
   'create_bucket',
   'create_cluster_kubeconfig',
   'create_firewall',

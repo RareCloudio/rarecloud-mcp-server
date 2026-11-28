@@ -180,7 +180,7 @@ export const listOsTemplates: ToolDefinition = defineReadTool({
 
 export const listUpgradeOptions: ToolDefinition = defineReadTool({
   name: 'list_upgrade_options',
-  description: 'Plans (and billing cycles with prices) a service could be upgraded/downgraded to, from its product group. Read-only; use it to preview the price before upgrade_service (which places a charged order and is confirm-gated). The service_id comes from list_services.',
+  description: 'Plans (and billing cycles with prices) a service could be upgraded/downgraded to, from its product group. Read-only; use it to preview the price before upgrade_service (which places a charged order and is confirm-gated). To change only the billing cycle of the same plan, use list_billing_cycle_options and change_billing_cycle instead: upgrade_service refuses a longer cycle of the same plan. The service_id comes from list_services.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -196,6 +196,42 @@ export const listUpgradeOptions: ToolDefinition = defineReadTool({
     try {
       const id = encodeSegment(args.service_id, 'service_id');
       const data = await client.get(`/v1/services/${id}/upgrade`);
+      return jsonResult(data);
+    } catch (e) {
+      return errorResult(e instanceof APIError ? e.message : (e as Error).message);
+    }
+  },
+});
+
+// GET /v1/services/{id}/billing-cycle (services:read): the preview for
+// change_billing_cycle. Legacy (WHMCS) services only; it creates nothing.
+export const listBillingCycleOptions: ToolDefinition = defineReadTool({
+  name: 'list_billing_cycle_options',
+  description:
+    'The longer billing cycles a legacy VPS service can move to on its own plan, each with its price and ' +
+    'new due date. Returns productName, currentCycle, currentNextDueDate and options, each {cycle, amount ' +
+    '{amount, currency}, newNextDueDate}. amount is the full list price of that cycle (the plan plus its priced ' +
+    'options), excluding VAT, which is added on the invoice; newNextDueDate is the current next due date plus the ' +
+    'new cycle, so no paid day is lost. A cycle that cannot be priced is left out. Read-only: it places nothing ' +
+    'and creates no invoice. Show the user the amount and newNextDueDate of the cycle they want, then call ' +
+    'change_billing_cycle with expected_amount set to that amount. A cloud VM, a proxy or a service that is not ' +
+    'active is refused with INVALID_PARAM. A shorter cycle needs support; a different plan is ' +
+    'list_upgrade_options. Requires scope services:read. The service_id comes from list_services.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      service_id: {
+        type: 'string',
+        description: 'Legacy VPS service ID from list_services.',
+      },
+    },
+    required: ['service_id'],
+    additionalProperties: false,
+  },
+  async handler(client, args) {
+    try {
+      const id = encodeSegment(args.service_id, 'service_id');
+      const data = await client.get(`/v1/services/${id}/billing-cycle`);
       return jsonResult(data);
     } catch (e) {
       return errorResult(e instanceof APIError ? e.message : (e as Error).message);

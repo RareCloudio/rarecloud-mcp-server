@@ -40,6 +40,8 @@ const MUST_SAY: Array<[string, RegExp]> = [
   ['cancel_proxy', /bandwidth is used up/],
   ['list_proxies', /mobile/],
   ['order_proxy', /Mobile lines cannot be ordered/],
+  ['upgrade_service', /change_billing_cycle/],
+  ['list_upgrade_options', /list_billing_cycle_options/],
 ];
 
 const MUST_NOT_SAY: Array<[string, RegExp]> = [
@@ -68,6 +70,8 @@ const MUST_NOT_SAY: Array<[string, RegExp]> = [
   ['cancel_proxy', /upstream teardown/],
   ['list_proxy_replacement_locations', /proxy provider/],
   ['list_registry_tiers', /before launch/],
+  ['list_billing_cycle_options', /WHMCS/],
+  ['change_billing_cycle', /WHMCS/],
 ];
 
 test('descriptions: say what the API does', () => {
