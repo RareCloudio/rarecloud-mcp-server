@@ -139,7 +139,7 @@ test('exclusion guard: the account/billing/tickets write surface is EXACTLY the 
 // sharing. domains:write is domains-write.ts (8 tools).
 //
 // Plan 4 Task 5 EXTENSION: registry-write.ts's 12 tools also carry
-// services:write (95 in the pinned set below, with request_smtp_unblock). There is no separate registry scope, the same sharing
+// services:write (96 in the pinned set below, with request_smtp_unblock and change_billing_cycle). There is no separate registry scope, the same sharing
 // services:write already does for k8s/infra/object storage/proxies above. See
 // the CR-12 policy-ruling test further below for why registry robot
 // credentials get a tool at all despite superficially looking like the
