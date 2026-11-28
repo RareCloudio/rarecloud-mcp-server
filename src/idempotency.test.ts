@@ -2,9 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { isIdempotentPostPath, isValidIdempotencyKey, IDEMPOTENT_POST_ROUTES } from './idempotency.js';
 
-test('idempotency: the mirrored covered-route list has the API branch count (48)', () => {
-  assert.equal(IDEMPOTENT_POST_ROUTES.length, 48);
-  assert.equal(new Set(IDEMPOTENT_POST_ROUTES).size, 48);
+test('idempotency: the mirrored covered-route list has the API branch count (49)', () => {
+  assert.equal(IDEMPOTENT_POST_ROUTES.length, 49);
+  assert.equal(new Set(IDEMPOTENT_POST_ROUTES).size, 49);
 });
 
 test('idempotency: covered POST paths match, with real ids in the :param segments', () => {
@@ -14,6 +14,7 @@ test('idempotency: covered POST paths match, with real ids in the :param segment
     '/v1/services/42/renew',
     '/v1/services/42/billing-cycle',
     '/v1/domains/transfers',
+    '/v1/domains/bulk',
     '/v1/domains/7/renew',
     '/v1/proxies/p1/auth/whitelisted-ips',
     '/v1/object-storage/keys',
@@ -33,6 +34,7 @@ test('idempotency: exempt or unknown POST paths do not match', () => {
     '/v1/account/affiliate/link',
     '/v1/tickets/1/close',
     '/v1/domains/1/manage',
+    '/v1/domains/quote',
     '/v1/services/abc/actions/reinstall/extra',
     '/v1/servicesX',
   ]) {

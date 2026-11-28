@@ -36,6 +36,7 @@ export const IDEMPOTENT_POST_ROUTES = [
   '/v1/object-storage/keys',
   '/v1/domains',
   '/v1/domains/transfers',
+  '/v1/domains/bulk',
   '/v1/domains/:id/renew',
   '/v1/proxies',
   '/v1/proxies/:id/renew',
