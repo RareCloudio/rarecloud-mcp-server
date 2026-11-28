@@ -2,7 +2,7 @@
 
 All notable changes to `@rarecloudio/mcp-server` are recorded here.
 
-## Unreleased
+## 0.8.0 (2026-11-28)
 
 Totals: 229 tools, 114 reads, 115 writes (88 gated, 27 plain), 48 take
 `idempotency_key`. Four tools were added; no tool was renamed or removed, and no
